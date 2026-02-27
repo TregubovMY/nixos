@@ -20,6 +20,7 @@
             };
             root = {
               size = "100%";
+              label = "nixos";
               content = {
                 type = "btrfs";
                 extraArgs = [ "-f" ];
