@@ -173,39 +173,37 @@ pavucontrol             # GUI-микшер громкости
 playerctl               # медиаклавиши через Waybar/Hyprland-бинды
 ```
 
-### 5.11 Утилита перевода по хоткею (scratchpad-терминал)
+### 5.11 Утилита перевода по хоткею (Crow Translate)
 
-Не отдельное GUI-приложение, а плавающий терминал на Hyprland special
-workspace с интерактивным скриптом на `translate-shell` внутри — минимум
-нового кода, переиспользует уже запланированный стек (foot/kitty +
-translate-shell из общего списка пакетов).
+Готовое, поддерживаемое приложение вместо самописного скрипта —
+[Crow Translate](https://github.com/crow-translate/crow-translate)
+(`crow-translate` в nixpkgs, несколько бэкендов: Google/Yandex/Bing/
+LibreTranslate, есть TTS). Решение сменилось с исходного варианта
+(плавающий терминал + свой скрипт на `translate-shell`) на это — меньше
+своего кода для поддержки, и перевод текущего выделения текста работает
+сразу, без copy-paste в терминал.
 
 ```
-translate-shell (trans)   # CLI-перевод (Google/DeepL/Bing backend)
-wl-clipboard               # вставка из буфера обычным Ctrl+Shift+V в терминале
+crow-translate   # готовый переводчик, есть в nixpkgs
 ```
 
-**Окно.** Special workspace (`hyprctl dispatch togglespecialworkspace magic`)
-с фиксированным размером и позицией (Hyprland `windowrulev2` по `app-id`
-терминала) — по хоткею окно появляется/прячется, как quake-style терминал.
-Не закрывается после одного перевода — сворачивается обратно тем же
-хоткеем, историю переводов видно в скролбэке.
+**Хоткей.** Wayland не даёт регистрировать глобальные хоткеи напрямую —
+поэтому переводом управляет сам Hyprland-бинд (`bind = ..., exec, ...`),
+а не хоткей внутри приложения (в отличие от X11-версий подобных утилит).
+Приложение запускается в фоне при старте сессии (`exec-once`), чтобы его
+D-Bus-сервис был готов к моменту первого нажатия хоткея:
 
-**Скрипт `~/.local/bin/quick-translate.sh`** — интерактивный цикл, а не
-одноразовый вызов:
-1. Запускается внутри scratchpad-терминала при первом открытии, дальше
-   живёт, пока окно не закрыто явно.
-2. В цикле: `read` строку — можно вставить текст (Ctrl+Shift+V) или
-   напечатать самому.
-3. Определяет направление перевода (кириллица → ru→en, иначе en→ru).
-4. Вызывает `trans -brief :en`/`:ru`, печатает результат тут же в
-   терминале (под введённым текстом) и копирует в буфер (`wl-copy`) для
-   вставки в другое приложение.
-5. Возвращается к шагу 2 — окно готово к следующему переводу сразу.
+```
+exec-once = crow-translate
+bind = $mainMod, T, exec, gdbus call --session --dest io.crow_translate.CrowTranslate --object-path /io/crow_translate/CrowTranslate/MainWindow --method io.crow_translate.CrowTranslate.MainWindow.translateSelection
+```
 
-Биндится в Hyprland: `bind = $mainMod, T, exec, hyprctl dispatch togglespecialworkspace magic`
-(терминал с скриптом заранее назначен в special workspace `magic` через
-`windowrulev2 = workspace special:magic silent, class:^(quick-translate)$`).
+По хоткею переводится текущее выделение текста (`translateSelection` —
+официальный D-Bus-метод приложения, задокументированный именно как
+интеграционная точка для компоузеров без глобальных хоткеев). Компромисс
+по сравнению с исходной задумкой: показывается попап с текущим переводом,
+а не скролбэк-история всех переводов в одном окне — принято осознанно
+ради меньшего количества своего кода.
 
 ### 5.12 PostgreSQL и Redis (декларативные контейнеры)
 
