@@ -323,7 +323,10 @@ reboot
 
 ### 9.3 Образ (`modules/nixos/packages/agent-sandbox.nix`)
 
-Собирается декларативно через `pkgs.dockerTools.buildImage`. Содержит:
+Собирается декларативно через `pkgs.dockerTools.buildLayeredImage` (не
+`buildImage` — послойная сборка даёт более полезное кэширование: смена
+одного часто обновляемого пакета вроде `claude-code` не пересобирает/не
+перезаливает слой с самым тяжёлым зависимым — chromium). Содержит:
 
 ```
 mise                      # менеджер версий языков — НЕ хардкодим ruby/node в образе
