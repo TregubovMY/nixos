@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Wrapper around `podman run` for the agent-sandbox image. Only the
+# target project directory is ever mounted in — see system-plan.md §9.2
+# for why (blast-radius containment between projects, not a network
+# security boundary — networking is deliberately left open).
+set -euo pipefail
+
+usage() {
+  echo "Usage: agent-sandbox [--gui] <project-dir> [-- command...]" >&2
+  exit 1
+}
+
+gui=0
+if [ "${1:-}" = "--gui" ]; then
+  gui=1
+  shift
+fi
+
+project_dir="${1:-}"
+[ -n "$project_dir" ] || usage
+shift
+
+# Resolve to an absolute path so relative paths like "." work regardless
+# of where agent-sandbox is invoked from.
+project_dir="$(cd "$project_dir" && pwd)"
+
+# Per-project cache volume name, so two different projects' agent
+# session/index caches never collide or leak into each other.
+project_hash="$(printf '%s' "$project_dir" | sha256sum | cut -c1-12)"
+
+args=(
+  podman run --rm -it
+  --userns=keep-id
+  -v "$project_dir:/workspace"
+  -v "agent-mise:/home/agent/.local/share/mise"
+  -v "agent-cache-$project_hash:/home/agent/.cache"
+  --network=bridge
+)
+
+if [ "$gui" = 1 ]; then
+  # shellcheck disable=SC1091
+  source "$(dirname "$0")/agent-sandbox-gui.sh"
+fi
+
+args+=(agent-sandbox:latest "$@")
+
+exec "${args[@]}"
