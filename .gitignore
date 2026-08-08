@@ -1,0 +1,11 @@
+# Claude Code local state: worktrees created for isolated plan execution
+# (each is its own git worktree with its own .git pointer — must never be
+# committed into the parent repo, see superpowers:using-git-worktrees) and
+# machine-local permission settings.
+.claude/
+
+# Local holding area for the flat configuration.nix/disko.nix/flake.nix/
+# home.nix files removed in this commit — kept on disk as a safety net
+# during the modular-restructure transition (system-plan.md §3), not meant
+# to be tracked (their removal is the actual, deliberate, committed state).
+.trash/
