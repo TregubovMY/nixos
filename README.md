@@ -105,9 +105,13 @@ podman-контейнеры, `modules/nixos/dev-databases.nix`) — подним
   только с localhost, реального смысла в пароле нет.
 - Redis: `127.0.0.1:6379`, без аутентификации, по той же причине.
 - Данные — в `/var/lib/dev-postgres` / `/var/lib/dev-redis` на тестовом
-  хосте этого плана; **на реальной машине переносится в
-  `/persist/postgres` / `/persist/redis`** (см. `system-plan.md` §4) —
-  поправить пути в `dev-databases.nix` при переносе в `hosts/<host>/`.
+  хосте этого плана; на реальной машине пути потребуют пересмотра при
+  переносе в `hosts/<host>/`. **`/persist/postgres` / `/persist/redis`,
+  упомянутые здесь раньше, больше не актуальны** — `system-plan.md` §4
+  был переписан в рамках disk-boot-foundation и не создаёт `/persist`
+  вообще (`disko-luks-btrfs.nix` даёт только subvolumes `root`/`home`/
+  `nix`); куда именно лягут данные Postgres/Redis на `mimir` — решить при
+  реальной установке этого хоста, отдельным шагом.
 
 ## Разметка диска и загрузка (disko + LUKS + systemd-boot)
 
@@ -121,22 +125,36 @@ podman-контейнеры, `modules/nixos/dev-databases.nix`) — подним
 (`docs/superpowers/specs/2026-08-08-disk-boot-foundation-design.md`).
 
 Проверка:
-- `nix flake check -L` — гоняет `checks.<system>.disko-luks-btrfs`, реальный
-  disko-VM-тест (`disko.lib.testLib.makeDiskoTest` на виртуальном диске):
-  подтверждает, что оба LUKS-контейнера настоящие (`cryptsetup isLuks`),
-  `btrfs`-subvolumes на месте, своп активен именно на расшифрованном
-  mapper-устройстве (не на сыром разделе), и `resume=` есть в
-  `/proc/cmdline` активированной системы.
+- **`nix flake check` в этом репозитории больше не дешёвая проверка** —
+  `checks.<system>.disko-luks-btrfs` реально загружает две виртуалки
+  (disko-VM-тест, минуты, не секунды). Для быстрой eval-only проверки
+  после каждой правки — `nix flake check --no-build`. Полный
+  `nix flake check -L` — когда действительно нужно функциональное
+  подтверждение (см. CLAUDE.md, "Цикл разработки", шаг 1). Именно
+  `-L`-прогон подтверждает, что оба LUKS-контейнера настоящие
+  (`cryptsetup isLuks`), `btrfs`-subvolumes на месте (`root`/`home`/`nix`
+  смонтированы), своп активен именно на расшифрованном mapper-устройстве
+  (не на сыром разделе), и `resume=/dev/mapper/cryptswap` есть в
+  `/proc/cmdline` активированной системы. **Это единственная проверка,
+  которая реально поднимает LUKS/btrfs/swap layout** — см. ограничение
+  ниже про `hosts/test-disko-luks/`.
 - `nixos-rebuild dry-build --flake .#test-disko-luks` /
   `nixos-rebuild build-vm --flake .#test-disko-luks` — сборка одноразового
   VM-хоста `hosts/test-disko-luks/` (`device = "/dev/vda"`), который
-  использует те же модули.
+  использует те же модули. `nixos-rebuild` не стоит в PATH в этой
+  песочнице — то, что реально прогонялось здесь:
+  `nix build .#nixosConfigurations.test-disko-luks.config.system.build.vm`.
+  **Важно:** этот хост подтверждает только то, что модули эвалятся и
+  замыкание собирается — сам layout (LUKS/btrfs/swap) в этой VM не
+  поднимается, его целиком перекрывает `virtualisation.useDefaultFilesystems`
+  из `qemu-vm.nix` (см. ограничение ниже). Функциональная проверка —
+  только `checks.disko-luks-btrfs` выше.
 
 ### Известные ограничения
 
-- **Настоящий hibernate-and-resume цикл подтверждён только на реальном
-  железе.** VM-тест (`checks.disko-luks-btrfs`) доказал, что сам механизм
-  `LUKS → swap → resumeDevice` реально работает — своп активен на
+- **Настоящий hibernate-and-resume цикл может быть подтверждён только на
+  реальном железе.** VM-тест (`checks.disko-luks-btrfs`) доказал, что сам
+  механизм `LUKS → swap → resumeDevice` реально работает — своп активен на
   правильном mapper-устройстве, `resume=` попадает в kernel cmdline. Чего
   он **не** доказывает — что `systemctl hibernate` и последующий resume
   реально проходят целиком; это можно достоверно проверить только на
@@ -147,10 +165,16 @@ podman-контейнеры, `modules/nixos/dev-databases.nix`) — подним
   `nixos-install`) отдельный, явно запрашиваемый шаг в будущем (см. design
   doc, "Real Install Boundary").
 - **Оба LUKS-контейнера при реальной установке должны получить ОДИНАКОВУЮ
-  парольную фразу.** Initrd-разблокировка NixOS автоматически пробует уже
-  введённый пароль на следующих `boot.initrd.luks.devices` — если пароли
-  совпадают, загрузка спрашивает пароль один раз; если они разные, загрузка
-  будет спрашивать пароль дважды.
+  парольную фразу — это ожидаемое поведение initrd, НЕ проверенное
+  VM-тестом.** По механизму NixOS-initrd-разблокировки, при совпадающей
+  парольной фразе у обоих контейнеров загрузка должна спрашивать пароль
+  один раз (автоповтор уже введённого пароля на следующих
+  `boot.initrd.luks.devices`); при разных паролях — дважды. Но
+  `checks.disko-luks-btrfs` даёт обоим LUKS-контейнерам
+  `settings.keyFile` (см. `modules/nixos/disko-luks-btrfs-test.nix`), так
+  что интерактивный ввод пароля там вообще не участвует — этот тест ничего не
+  говорит про auto-retry-поведение. Это именованный, непроверенный пробел,
+  который нужно подтвердить на реальной установке, а не доказанный факт.
 
 ## Перевод по хоткею (Crow Translate)
 

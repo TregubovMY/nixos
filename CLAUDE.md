@@ -17,10 +17,20 @@ dotfiles, секреты через sops-nix. Полное описание — 
 
 1. **Синтаксис и eval** (секунды):
    ```bash
-   nix flake check
+   nix flake check --no-build
    ```
    Ловит синтаксические ошибки Nix и несовместимость опций модулей без
    реальной сборки. Гонять после **каждого** изменения `.nix`-файла.
+
+   **Важно:** голый `nix flake check` (без `--no-build`) в этом репозитории
+   больше не дешёвый — с `disk-boot-foundation` в `checks.${system}` живёт
+   `disko-luks-btrfs`, настоящий VM-тест (`disko.lib.testLib.makeDiskoTest`),
+   который реально загружает две виртуалки (`meta.timeout = 600`, тянет
+   OVMF/`qemu_test`/два системных closure). Для рутинной проверки после
+   каждой правки — всегда `--no-build`. Полный `nix flake check -L` (без
+   `--no-build`) гонять уже осознанно, как шаг, сравнимый по стоимости с
+   шагом 3/5 ниже (минуты, реальная сборка, дисковый бюджет ниже
+   применяется и к нему).
 
 2. **Dry-build** (секунды–десятки секунд):
    ```bash
@@ -90,7 +100,8 @@ dotfiles, секреты через sops-nix. Полное описание — 
 ## Makefile-шорткаты (если есть/нужно завести)
 
 ```makefile
-check:      nix flake check
+check:      nix flake check --no-build
+check-full: nix flake check -L
 dry:        nixos-rebuild dry-build --flake .#$(HOST)
 vm:         nixos-rebuild build-vm --flake .#$(HOST) && ./result/bin/run-*-vm
 disko-test: # тест разметки на qcow2-образе
@@ -186,8 +197,8 @@ Hyprland, waybar, kitty, zsh-плагины, конфиги LSP и т.п.) — �
 - `flake.lock` коммитить всегда вместе с изменениями, которые его вызвали
   (`nix flake update <input>`) — отдельным коммитом, не смешивать с
   правками конфигов.
-- Перед коммитом прогонять минимум шаг 1 (`nix flake check`) — коммит с
-  синтаксической ошибкой недопустим.
+- Перед коммитом прогонять минимум шаг 1 (`nix flake check --no-build`) —
+  коммит с синтаксической ошибкой недопустим.
 
 ## Если что-то не собирается
 
