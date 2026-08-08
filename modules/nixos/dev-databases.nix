@@ -9,7 +9,16 @@
 
   virtualisation.oci-containers.containers = {
     postgres = {
-      image = "postgres:16";
+      # Fully-qualified image ref (docker.io/library/... rather than the
+      # short name "postgres:16"): NixOS's podman ships with no
+      # unqualified-search registries configured in
+      # /etc/containers/registries.conf (unlike Docker, which defaults to
+      # Docker Hub) — a short name fails at container start with "short-name
+      # \"postgres:16\" did not resolve to an alias and no unqualified-search
+      # registries are defined". Found via build-vm verification (Task 3).
+      # Qualifying the ref avoids having to also configure
+      # registries.conf/short-name aliasing.
+      image = "docker.io/library/postgres:16";
       environment = {
         # No password: this is a localhost-only (see `ports` below) dev
         # database on a single-user machine — anyone with shell access
@@ -27,7 +36,8 @@
     };
 
     redis = {
-      image = "redis:7";
+      # Fully-qualified for the same reason as postgres above.
+      image = "docker.io/library/redis:7";
       # --save 60 1: RDB snapshot to disk after >=1 write in 60s, so a
       # container restart doesn't silently lose all cached/queued data —
       # plain in-memory-only defeats the point of a shared dev instance.
