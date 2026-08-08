@@ -36,8 +36,12 @@
 local mainMod = "SUPER"
 
 -- Crow Translate needs to be running for its D-Bus service to answer —
--- launch it hidden/minimized-to-tray at session start rather than
--- requiring a manual launch before the hotkey works.
+-- launch it at session start rather than requiring a manual launch
+-- before the hotkey works. NOTE: "start minimized to tray" is a GUI
+-- setting on Crow Translate's own General tab, not a CLI flag — this
+-- command does not force it. On a fresh install expect a visible window
+-- at first login until that setting is turned on manually (tracked in
+-- the README's manual-verification checklist).
 hl.on("hyprland.start", function()
   hl.exec_cmd("crow-translate")
 end)

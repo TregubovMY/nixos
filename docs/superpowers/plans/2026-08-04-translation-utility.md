@@ -4,24 +4,24 @@
 
 **Goal:** Wire up Crow Translate (an existing, actively-maintained translator app already packaged in nixpkgs) so a Hyprland hotkey translates the current text selection, replacing the earlier custom scratchpad-terminal design.
 
-**Architecture:** No custom application code is needed — `pkgs.crow-translate` is used as-is. Two pieces: (1) an `exec-once` launch of Crow Translate at Hyprland session start (it needs to be running for its D-Bus service to be callable), and (2) a Hyprland `bind` calling its documented D-Bus method (`io.crow_translate.CrowTranslate` / `/io/crow_translate/CrowTranslate/MainWindow` / `translateSelection()`) to translate the current selection on hotkey press. This replaces `system-plan.md` §5.11's original scratchpad-terminal design — see that section for the updated writeup.
+**Architecture:** No custom application code is needed — `pkgs.crow-translate` is used as-is. Two pieces: (1) an autostart launch of Crow Translate at Hyprland session start (it needs to be running for its D-Bus service to be callable), and (2) a Hyprland bind calling its documented D-Bus method (`io.crow_translate.CrowTranslate` / `/io/crow_translate/CrowTranslate/MainWindow` / `translateSelection()`) to translate the current selection on hotkey press. This replaces `system-plan.md` §5.11's original scratchpad-terminal design — see that section for the updated writeup. **Update 2026-08-08:** written directly in Hyprland's Lua config format (`hyprland.lua`), not the classic hyprlang `.conf` — see the "Superseded" note under Task 2 below for why.
 
-**Tech Stack:** nixpkgs `crow-translate`, D-Bus (`gdbus` or `dbus-send` — verify which is available/idiomatic in Task 1), Hyprland `exec-once`/`bind`.
+**Tech Stack:** nixpkgs `crow-translate`, D-Bus (`gdbus` or `dbus-send` — verify which is available/idiomatic in Task 1), Hyprland Lua config (`hl.on`/`hl.bind`, see Task 2).
 
 ## Global Constraints
 
 - Verify the `crow-translate` package name in nixpkgs before use (`nix search nixpkgs crow-translate`) — per `CLAUDE.md`'s "search before inventing" rule. Do not write a custom derivation; it's already packaged.
-- Before writing the Hyprland `exec-once`/`bind` snippet, check current Hyprland syntax against https://wiki.hyprland.org (per `CLAUDE.md` — syntax changes across versions).
-- Wayland has no native global-shortcut API — this is why the D-Bus method + Hyprland's own `bind = ..., exec, <command>` is the integration point, not a "global hotkey" registered by the app itself. Don't try to configure Crow Translate's own (X11-only) hotkey settings.
-- The agent cannot visually verify Hyprland behavior — the `.conf` snippet's actual runtime correctness (hotkey fires, translation popup appears, text selection is correctly picked up) is a **mandatory flagged manual follow-up**, not something to silently assume works — same pattern as the `agent-sandbox` plan's `--gui` flag.
-- Every non-trivial shell/Nix file gets WHY-comments per `CLAUDE.md`.
+- Before writing the Hyprland config snippet, check current Hyprland syntax against https://wiki.hypr.land (per `CLAUDE.md` — syntax changes across versions; note the domain — `wiki.hyprland.org` is stale, the project moved to `wiki.hypr.land`).
+- Wayland has no native global-shortcut API — this is why the D-Bus method + Hyprland's own bind-to-shell-command mechanism is the integration point, not a "global hotkey" registered by the app itself. Don't try to configure Crow Translate's own (X11-only) hotkey settings.
+- The agent cannot visually verify Hyprland behavior — the snippet's actual runtime correctness (hotkey fires, translation popup appears, text selection is correctly picked up) is a **mandatory flagged manual follow-up**, not something to silently assume works — same pattern as the `agent-sandbox` plan's `--gui` flag.
+- Every non-trivial shell/Nix/Lua file gets WHY-comments per `CLAUDE.md`.
 
 ---
 
 ## File Structure
 
 ```
-hypr/quick-translate.conf   # exec-once + bind snippet (kept filename for continuity with prior work)
+hypr/quick-translate.lua    # autostart + bind snippet (Lua — hyprlang .conf is deprecated as of Hyprland 0.55, see Task 2)
 README.md                   # usage docs + manual-verification checklist
 ```
 
@@ -62,6 +62,16 @@ Pure verification — informs Task 2's exact snippet content.
 ---
 
 ## Task 2: Hyprland config snippet
+
+> **Superseded 2026-08-08:** this task originally shipped `hypr/quick-translate.conf`
+> in classic hyprlang syntax (commit `cdb1c4e`). Hyprland 0.55 (released 2026-05-09)
+> deprecated hyprlang in favor of a Lua config, with hyprlang support slated to be
+> dropped within 1-2 more releases; since this repo had no existing Hyprland config to
+> stay consistent with, the controller rewrote this directly as `hypr/quick-translate.lua`
+> (commit `a7b04ec`), verified against `hyprwm/Hyprland`'s own `example/hyprland.lua` and
+> wiki.hypr.land rather than assumed. The task body below is kept as historical record of
+> the original (now superseded) brief — Task 3 below has been updated to reference the
+> `.lua` file.
 
 **Files:**
 - Create: `hypr/quick-translate.conf`
@@ -122,28 +132,37 @@ Add to `README.md`:
 
 Вместо самописного скрипта — готовое, поддерживаемое приложение
 [Crow Translate](https://github.com/crow-translate/crow-translate)
-(`crow-translate` в nixpkgs). `$mainMod+T` переводит текущее выделение
+(`crow-translate` в nixpkgs). `mainMod+T` переводит текущее выделение
 текста через D-Bus-вызов `translateSelection` — Wayland не даёт
 регистрировать глобальные хоткеи напрямую, поэтому переводом управляет
 сам Hyprland-бинд, а не хоткей внутри приложения. Детали и почему выбрано
 именно это решение (а не самописный скрипт) — system-plan.md §5.11.
 
-Подключение: `source = <путь-до-репо>/hypr/quick-translate.conf` в
-основном `hyprland.conf`. Приложение должно быть в списке пакетов
-(`crow-translate` из nixpkgs) — добавляется туда, когда появится
-реальный список пакетов хоста (см. system-plan.md §3).
+Подключение: `require("quick-translate")` из основного `hyprland.lua`
+(файл должен быть виден на Lua config path Hyprland — например, скопирован
+или засимлинкован в `~/.config/hypr/`). Конфиг написан в Lua, а не в
+классическом hyprlang `.conf` — начиная с Hyprland 0.55 (вышел
+2026-05-09) `.conf`-формат deprecated и будет убран через 1-2 релиза, а
+в этом репозитории ещё нет ни одного Hyprland-конфига, с которым нужно
+было бы оставаться согласованным, так что смысла писать в устаревающем
+формате не было. Приложение должно быть в списке пакетов (`crow-translate`
+из nixpkgs) — добавляется туда, когда появится реальный список пакетов
+хоста (см. system-plan.md §3).
 
 ### Известные ограничения
 
-Hyprland-конфиг (`hypr/quick-translate.conf`) **не проверялся визуально**
+Hyprland-конфиг (`hypr/quick-translate.lua`) **не проверялся визуально**
 — у агента нет возможности "посмотреть глазами" на Hyprland (см.
 CLAUDE.md). Перед тем как полагаться на это в реальной работе, нужно
 вручную проверить на настоящем десктопе:
 - `crow-translate` действительно запускается при старте Hyprland
-  (`exec-once`) и его D-Bus-сервис отвечает;
-- `$mainMod+T` при выделенном тексте (в любом приложении) реально
+  и его D-Bus-сервис отвечает;
+- `mainMod+T` при выделенном тексте (в любом приложении) реально
   вызывает перевод и показывает окно с результатом;
-- нет конфликта хоткея `$mainMod+T` с чем-то ещё уже забинженным.
+- нет конфликта хоткея `mainMod+T` с чем-то ещё уже забинженным;
+- `require("quick-translate")` из основного `hyprland.lua` реально находит
+  и загружает файл (зависит от того, куда именно скопирован/засимлинкован
+  этот репозиторий на реальной машине).
 
 В отличие от исходной задумки (терминал со скролбэком всех переводов),
 Crow Translate показывает попап с текущим переводом, а не историю —
