@@ -19,7 +19,13 @@
       };
     in
     {
-      packages.${system}.agent-sandbox-image =
-        import ./modules/nixos/packages/agent-sandbox.nix { inherit pkgs; };
+      packages.${system} = rec {
+        agent-sandbox-image =
+          import ./modules/nixos/packages/agent-sandbox.nix { inherit pkgs; };
+        # Bare `nix build` (no attribute) resolves to `.default` —
+        # without this it fails outright since there's only one package
+        # and its name isn't `default` (final review, M8).
+        default = agent-sandbox-image;
+      };
     };
 }

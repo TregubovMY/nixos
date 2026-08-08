@@ -58,15 +58,44 @@ let
     # PKG_CONFIG_PATH is the pkg-config equivalent, for anything in the
     # Ruby build (or an agent's own project build) that looks up its
     # dependencies that way instead of a bare compile check.
-    export CPATH=/include
-    export LIBRARY_PATH=/lib
-    export PKG_CONFIG_PATH=/lib/pkgconfig
+    #
+    # Append rather than overwrite (final review, M6): a plain `export
+    # CPATH=/include` clobbers any value already inherited into the
+    # container's environment for the *entire* session, not just the
+    # ruby-build compile this was added for — including native-gem builds
+    # against a mise-installed toolchain later in the same shell. `:`-
+    # appending with `''${VAR:+:$VAR}` (empty-safe: no leading `:` when the
+    # var is unset) keeps this fix scoped to "also search these dirs"
+    # instead of "only ever search these dirs".
+    export CPATH="/include''${CPATH:+:$CPATH}"
+    export LIBRARY_PATH="/lib''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+    export PKG_CONFIG_PATH="/lib/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+
+    # mise treats `mise.toml`/`.mise.toml` (but not `.tool-versions`) as
+    # potentially code-executing config and refuses to use it until it's
+    # marked trusted — interactively prompting on a real TTY, or under
+    # `set -euo pipefail` in this non-interactive entrypoint, aborting the
+    # whole container before the user ever gets a shell. Only
+    # `.tool-versions` was exercised end-to-end (Task 6); this was found
+    # by static review of mise's trust-prompt behavior for the other two
+    # formats (final review, I4). /workspace is always exactly the
+    # bind-mounted project dir here (never untrusted host content beyond
+    # what the user chose to mount), so pre-trusting it is safe and
+    # harmless for `.tool-versions` projects, which don't consult trust
+    # at all.
+    export MISE_TRUSTED_CONFIG_PATHS=/workspace
 
     cd /workspace
     # Only run mise install if the project actually pins versions —
     # an agent working on a non-mise project shouldn't wait on this.
     if [ -f .tool-versions ] || [ -f mise.toml ] || [ -f .mise.toml ]; then
-      mise install
+      # Degrade, don't die (final review, M5): under `set -euo pipefail` a
+      # failing install (bad/unsupported pin, network hiccup) used to kill
+      # the container outright, denying the user the one thing they'd need
+      # to fix it — a shell inside the sandbox. Falling through to the
+      # `mise exec`/bash-login below still works fine for anything the
+      # broken toolchain doesn't block.
+      mise install || echo "agent-sandbox: mise install failed, continuing" >&2
     fi
 
     # `exec "$@"` alone would run the bare command with an unmodified
@@ -125,6 +154,28 @@ pkgs.dockerTools.buildLayeredImage {
     gawk
     gnutar
     gzip
+    # `xz`/`unzip`: node's and python's mise backends ship precompiled
+    # `.tar.xz` (and some release assets as `.zip`) — without these the
+    # download can't even be unpacked, before it gets anywhere near the
+    # ELF-interpreter problem described below (final review, I3). Cheap
+    # to add; does not by itself make node/python runnable — see the
+    # "Известные ограничения" note in README.
+    xz
+    unzip
+
+    # A coding agent's shell needs the same basics any interactive Unix
+    # shell needs, not just what ruby-build happens to shell out to —
+    # this list was tuned exclusively against ruby-build's needs during
+    # Task 6 and nobody had exercised what claude-code/opencode/an agent's
+    # own commands reach for (final review, I5). `find`/`xargs` in
+    # particular are bread-and-butter for a coding agent; `less` is git's
+    # default `core.pager` (git log/diff error out without a pager
+    # binary, not just look worse); `ps` is the standard "what's running"
+    # check an agent reaches for when something hangs.
+    findutils
+    diffutils
+    less
+    procps
 
     # mise/ruby-build's *precompiled* Ruby binaries are ordinary
     # generic-glibc ELF binaries expecting an FHS layout (dynamic linker
