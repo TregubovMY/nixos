@@ -5,8 +5,21 @@
 # security boundary — networking is deliberately left open).
 set -euo pipefail
 
+usage_text="Usage: agent-sandbox [--gui] <project-dir> [-- command...]"
 usage() {
-  echo "Usage: agent-sandbox [--gui] <project-dir> [-- command...]" >&2
+  echo "$usage_text" >&2
+  exit 1
+}
+
+# `command -v podman` check up front (final review, M9): without this, a
+# host that never ran Task 1's build/load step gets a bare "podman:
+# command not found" from the final `exec` far below, with no pointer
+# back to the README's prerequisites section. Fail fast with an
+# actionable message instead.
+command -v podman >/dev/null 2>&1 || {
+  echo "agent-sandbox: podman not found on PATH — install podman, then see" \
+       "README.md for the 'nix build .#agent-sandbox-image && podman load'" \
+       "steps to get the image itself in place." >&2
   exit 1
 }
 
@@ -16,20 +29,60 @@ if [ "${1:-}" = "--gui" ]; then
   shift
 fi
 
+# `-h`/`--help` (final review, M1): without this, "--help" falls through
+# to become $project_dir, `cd --help` prints bash's builtin help to
+# stdout (silently swallowed by the command substitution below) and
+# returns exit 2, which `set -e` then turns into a silent, message-less
+# exit — usage() was previously only reachable for zero arguments.
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  echo "$usage_text" >&2
+  exit 0
+fi
+
 project_dir="${1:-}"
 [ -n "$project_dir" ] || usage
 shift
 
-# Resolve to an absolute path so relative paths like "." work regardless
-# of where agent-sandbox is invoked from.
-project_dir="$(cd "$project_dir" && pwd)"
+# A project path containing ':' would silently corrupt the `-v
+# host:container` volume spec built below (podman splits on ':') —
+# reject it up front with a clear error instead of a confusing bind-mount
+# failure later (final review, M4).
+case "$project_dir" in
+  *:*)
+    echo "agent-sandbox: project directory path must not contain ':'" \
+         "(breaks the podman -v volume spec): $project_dir" >&2
+    exit 1
+    ;;
+esac
+
+# Resolve to an absolute, *physical* path (`pwd -P`, not logical `pwd`)
+# so relative paths like "." work regardless of where agent-sandbox is
+# invoked from, and so a symlinked project path always hashes to the
+# same project_hash/cache volume as its real path (final review, M4) —
+# plain `pwd` would resolve through the symlink and give the two paths
+# different hashes.
+project_dir="$(cd "$project_dir" && pwd -P)"
 
 # Per-project cache volume name, so two different projects' agent
 # session/index caches never collide or leak into each other.
 project_hash="$(printf '%s' "$project_dir" | sha256sum | cut -c1-12)"
 
+# TTY vs non-TTY (final review, I6): `-it` was previously passed
+# unconditionally, which breaks the documented non-interactive
+# `agent-sandbox <dir> -- <command>` form used from scripts/pipelines —
+# with no TTY on stdin, Docker-family frontends either mangle output
+# (CRLF, merged streams) or fail outright ("the input device is not a
+# TTY"). Only request a TTY when both stdin and stdout are actually
+# TTYs; otherwise stay with plain `-i` so piped/redirected invocations
+# keep working.
+if [ -t 0 ] && [ -t 1 ]; then
+  tty_args=(-it)
+else
+  tty_args=(-i)
+fi
+
 args=(
-  podman run --rm -it
+  podman run --rm "${tty_args[@]}"
   --userns=keep-id
   -v "$project_dir:/workspace"
   -v "agent-mise:/home/agent/.local/share/mise"
@@ -38,8 +91,15 @@ args=(
 )
 
 if [ "$gui" = 1 ]; then
+  # `readlink -f "${BASH_SOURCE[0]}"`, not `dirname "$0"` (final review,
+  # M2): `$0` is the invoking name, which is the *symlink* itself if the
+  # user put `agent-sandbox` on PATH via a symlink to this repo — its
+  # dirname then doesn't contain agent-sandbox-gui.sh. BASH_SOURCE[0] is
+  # this script's own path (same problem via a symlink), and
+  # `readlink -f` resolves through the symlink to the real file's
+  # directory either way.
   # shellcheck disable=SC1091
-  source "$(dirname "$0")/agent-sandbox-gui.sh"
+  source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/agent-sandbox-gui.sh"
 fi
 
 # Strip a single leading "--" from the remaining args before forwarding
