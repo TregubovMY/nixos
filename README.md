@@ -109,6 +109,49 @@ podman-контейнеры, `modules/nixos/dev-databases.nix`) — подним
   `/persist/postgres` / `/persist/redis`** (см. `system-plan.md` §4) —
   поправить пути в `dev-databases.nix` при переносе в `hosts/<host>/`.
 
+## Разметка диска и загрузка (disko + LUKS + systemd-boot)
+
+Переиспользуемые модули для будущей реальной машины (пока не сама машина):
+`modules/nixos/disko-luks-btrfs.nix` (параметризованный disko-модуль —
+`{ device, swapSize ? "34G" }`: GPT → ESP → два LUKS2-контейнера — `cryptroot`
+с `btrfs` (subvolumes `/`, `/home`, `/nix`) и отдельный `cryptswap` с
+`resumeDevice = true` для hibernate) и `modules/nixos/boot.nix`
+(systemd-boot + systemd-initrd). Почему два LUKS-контейнера вместо одного и
+как устроен `resumeDevice` — `system-plan.md` §4 и design doc
+(`docs/superpowers/specs/2026-08-08-disk-boot-foundation-design.md`).
+
+Проверка:
+- `nix flake check -L` — гоняет `checks.<system>.disko-luks-btrfs`, реальный
+  disko-VM-тест (`disko.lib.testLib.makeDiskoTest` на виртуальном диске):
+  подтверждает, что оба LUKS-контейнера настоящие (`cryptsetup isLuks`),
+  `btrfs`-subvolumes на месте, своп активен именно на расшифрованном
+  mapper-устройстве (не на сыром разделе), и `resume=` есть в
+  `/proc/cmdline` активированной системы.
+- `nixos-rebuild dry-build --flake .#test-disko-luks` /
+  `nixos-rebuild build-vm --flake .#test-disko-luks` — сборка одноразового
+  VM-хоста `hosts/test-disko-luks/` (`device = "/dev/vda"`), который
+  использует те же модули.
+
+### Известные ограничения
+
+- **Настоящий hibernate-and-resume цикл подтверждён только на реальном
+  железе.** VM-тест (`checks.disko-luks-btrfs`) доказал, что сам механизм
+  `LUKS → swap → resumeDevice` реально работает — своп активен на
+  правильном mapper-устройстве, `resume=` попадает в kernel cmdline. Чего
+  он **не** доказывает — что `systemctl hibernate` и последующий resume
+  реально проходят целиком; это можно достоверно проверить только на
+  настоящей машине.
+- **`hosts/mimir/` (реальный хост) ещё не существует.** Этот раунд работы
+  даёт только переиспользуемые, VM-проверенные модули — реальная установка
+  на `mimir` (генерация `hardware-configuration.nix`, `hosts/mimir/`,
+  `nixos-install`) отдельный, явно запрашиваемый шаг в будущем (см. design
+  doc, "Real Install Boundary").
+- **Оба LUKS-контейнера при реальной установке должны получить ОДИНАКОВУЮ
+  парольную фразу.** Initrd-разблокировка NixOS автоматически пробует уже
+  введённый пароль на следующих `boot.initrd.luks.devices` — если пароли
+  совпадают, загрузка спрашивает пароль один раз; если они разные, загрузка
+  будет спрашивать пароль дважды.
+
 ## Перевод по хоткею (Crow Translate)
 
 Вместо самописного скрипта — готовое, поддерживаемое приложение
