@@ -1,6 +1,7 @@
 # Plain (non-parameterized) disko config used ONLY by disko's own
 # makeDiskoTest VM test (see flake.nix's `checks.${system}.disko-luks-btrfs`
-# and .superpowers/sdd/2026-08-08-disk-boot-foundation/task-3-brief.md).
+# and docs/superpowers/plans/2026-08-08-disk-boot-foundation.md, Task 3, and
+# docs/superpowers/specs/2026-08-08-disk-boot-foundation-design.md).
 #
 # NOT consumed by hosts/test-disko-luks/configuration.nix, which imports
 # the parameterized modules/nixos/disko-luks-btrfs.nix directly with a

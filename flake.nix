@@ -63,7 +63,8 @@
       # here rather than pointing straight at the parameterized module)
       # instead of writing a raw NixOS VM test from scratch, per
       # CLAUDE.md's "search for real solutions first" rule. Run via
-      # `nix flake check -L` — see task-3-brief.md, Step 2.
+      # `nix flake check -L` — see docs/superpowers/plans/
+      # 2026-08-08-disk-boot-foundation.md, Task 3.
       checks.${system} = {
         disko-luks-btrfs = disko.lib.testLib.makeDiskoTest {
           inherit pkgs;
@@ -74,29 +75,55 @@
             # plaintext, not randomEncryption swap):
             machine.succeed("cryptsetup isLuks /dev/vda2")
             machine.succeed("cryptsetup isLuks /dev/vda3")
-            # btrfs root came up with its subvolumes:
-            machine.succeed("btrfs subvolume list /")
+            # btrfs root came up with its subvolumes actually present and
+            # mounted, not just "some btrfs filesystem exists" -- a bare
+            # `btrfs subvolume list /` exits 0 even with zero subvolumes,
+            # so it wouldn't catch a layout regression (final review, M1).
+            # Subvolume names in `btrfs subvolume list` output have no
+            # leading slash even though disko-luks-btrfs.nix declares them
+            # as "/root"/"/home"/"/nix" (confirmed by reading disko's
+            # lib/types/btrfs.nix: subvol.name is used verbatim in
+            # "$MNTPOINT/''${subvol.name}", and the leading "/" collapses
+            # into the mountpoint's own separator, so the subvolume is
+            # actually created as "root" relative to the top of the fs).
+            machine.succeed("btrfs subvolume list / | grep -q ' path root$'")
+            machine.succeed("findmnt /home")
+            machine.succeed("findmnt /nix")
             # swap is actually active on the decrypted mapper device, not
             # the raw partition (proves the LUKS -> swap nesting actually
             # worked -- the one thing the design doc flagged as
-            # unverified-by-example). NOTE: `swapon --show` reports the
-            # *canonical* backing device (/dev/dm-N), not the /dev/mapper/*
-            # symlink, so grep for /dev/mapper/cryptswap literally never
-            # matches even when swap is correctly active -- confirmed by
-            # manually running with an un-grepped `swapon --show` (showed
-            # /dev/dm-0, [SWAP] in lsblk, and an active
-            # dev-mapper-cryptswap.swap unit) and by reading disko's own
-            # generated activation script, which resolves the symlink
-            # first: `grep -q "^$(readlink -f /dev/mapper/cryptswap) "`.
-            # Mirror that exact pattern here instead of a literal string
-            # match.
+            # unverified-by-example). Wait for the swap unit explicitly
+            # first: extraTestScript runs right after disko's own
+            # `wait_for_unit("local-fs.target")`, but swap.target has no
+            # ordering relation to local-fs.target, so without this the
+            # swapon check below is only *usually* correct, not guaranteed
+            # (final review, M3) -- in practice it already wins because the
+            # mapper exists from initrd, but this branch's single most
+            # load-bearing assertion shouldn't be racy.
+            machine.wait_for_unit("dev-mapper-cryptswap.swap")
+            # NOTE: `swapon --show` reports the *canonical* backing device
+            # (/dev/dm-N), not the /dev/mapper/* symlink, so grep for
+            # /dev/mapper/cryptswap literally never matches even when swap
+            # is correctly active -- confirmed by manually running with an
+            # un-grepped `swapon --show` (showed /dev/dm-0, [SWAP] in
+            # lsblk, and an active dev-mapper-cryptswap.swap unit) and by
+            # reading disko's own generated activation script, which
+            # resolves the symlink first:
+            # `grep -q "^$(readlink -f /dev/mapper/cryptswap) "`. Mirror
+            # that exact pattern here instead of a literal string match.
             machine.succeed(
                 "swapon --show | grep -q \"^$(readlink -f /dev/mapper/cryptswap) \""
             )
             # boot.resumeDevice ended up pointing at the right place --
             # check the activated system's kernel params, not just that
-            # the option exists at eval time:
-            machine.succeed("cat /proc/cmdline | grep -q resume=")
+            # the option exists at eval time. Assert the exact value (not
+            # just that "resume=" appears somewhere) so a future
+            # regression to the raw partition (e.g. /dev/vda3 instead of
+            # the mapper device) would actually fail this check (final
+            # review, M2).
+            machine.succeed(
+                'grep -q "resume=/dev/mapper/cryptswap" /proc/cmdline'
+            )
           '';
         };
       };

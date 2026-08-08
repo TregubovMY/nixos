@@ -49,6 +49,22 @@
               content = {
                 type = "luks";
                 name = "cryptswap";
+                # allowDiscards = true lets TRIM pass through dm-crypt to
+                # the underlying SSD instead of being blocked (dm-crypt's
+                # default). Good for SSD wear-levelling/performance, but a
+                # real, stated tradeoff: cryptsetup's own man page
+                # (cryptsetup-open(8), --allow-discards) warns it lets
+                # anyone with access to the raw encrypted device observe
+                # which blocks are in-use vs. trimmed-as-free, i.e. leaks
+                # rough occupancy/usage patterns of the plaintext data
+                # despite the disk being "encrypted". Accepted here because
+                # this is a personal SSD-backed laptop, not a
+                # high-threat-model device. Also applies at *every* boot,
+                # not just at disko format time — disko threads this
+                # straight into `boot.initrd.luks.devices.<name>.allowDiscards`
+                # (see disko's lib/types/luks.nix `_config`), so it's a
+                # standing runtime property of the booted system, not a
+                # one-off formatting flag.
                 settings.allowDiscards = true;
                 # No settings.keyFile and no randomEncryption: this must be
                 # a fixed-passphrase LUKS container, not disko's random-key
@@ -58,8 +74,9 @@
                 # reboot, so a hibernate image written under one random key
                 # can never be read back). Interactive passphrase prompt by
                 # default (no passwordFile set here) — real install must
-                # use the SAME passphrase as cryptroot below, see this
-                # plan's Global Constraints.
+                # use the SAME passphrase as cryptroot below, see
+                # docs/superpowers/plans/2026-08-08-disk-boot-foundation.md's
+                # Global Constraints.
                 content = {
                   type = "swap";
                   resumeDevice = true; # disko's own flag: sets
@@ -74,6 +91,14 @@
               content = {
                 type = "luks";
                 name = "cryptroot";
+                # Same allowDiscards tradeoff as cryptswap above (SSD
+                # wear/perf vs. leaking used-vs-free block patterns to
+                # anyone with raw device access, per cryptsetup(8); also
+                # a standing per-boot property via
+                # boot.initrd.luks.devices.cryptroot.allowDiscards, not
+                # just a format-time flag) — see the comment there for the
+                # full rationale, not repeated here to avoid drift between
+                # two copies of the same explanation.
                 settings.allowDiscards = true;
                 content = {
                   type = "btrfs";

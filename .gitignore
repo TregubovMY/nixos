@@ -11,7 +11,8 @@
 .trash/
 
 # nixos-rebuild build-vm / nix build -o result symlinks and the qcow2 disk
-# images they produce (see task-3-brief.md Step 3-4: manual VM runs for
+# images they produce (see docs/superpowers/plans/
+# 2026-08-08-disk-boot-foundation.md, Task 3, Step 3-4: manual VM runs for
 # hibernate verification are throwaway build byproducts, never committed).
 result
 result-*
