@@ -188,14 +188,32 @@ crow-translate   # готовый переводчик, есть в nixpkgs
 ```
 
 **Хоткей.** Wayland не даёт регистрировать глобальные хоткеи напрямую —
-поэтому переводом управляет сам Hyprland-бинд (`bind = ..., exec, ...`),
-а не хоткей внутри приложения (в отличие от X11-версий подобных утилит).
-Приложение запускается в фоне при старте сессии (`exec-once`), чтобы его
-D-Bus-сервис был готов к моменту первого нажатия хоткея:
+поэтому переводом управляет сам Hyprland-бинд, а не хоткей внутри
+приложения (в отличие от X11-версий подобных утилит). Приложение
+запускается в фоне при старте сессии, чтобы его D-Bus-сервис был готов к
+моменту первого нажатия хоткея. Конфиг написан сразу в Lua
+(`hyprland.lua`), а не в классическом hyprlang `.conf` — начиная с
+Hyprland 0.55 (вышел 2026-05-09) hyprlang официально deprecated в пользу
+Lua-конфига и будет полностью убран через 1-2 релиза; поскольку в этом
+репозитории ещё нет ни одного Hyprland-конфига (модуль не собран, см.
+§3/§5.2), синхронизироваться не с чем, и есть смысл сразу писать в
+формате, который не устареет:
 
-```
-exec-once = crow-translate
-bind = $mainMod, T, exec, gdbus call --session --dest io.crow_translate.CrowTranslate --object-path /io/crow_translate/CrowTranslate/MainWindow --method io.crow_translate.CrowTranslate.MainWindow.translateSelection
+```lua
+local mainMod = "SUPER"
+
+hl.on("hyprland.start", function()
+  hl.exec_cmd("crow-translate")
+end)
+
+hl.bind(
+  mainMod .. " + T",
+  hl.dsp.exec_cmd(
+    "gdbus call --session --dest io.crow_translate.CrowTranslate "
+      .. "--object-path /io/crow_translate/CrowTranslate/MainWindow "
+      .. "--method io.crow_translate.CrowTranslate.MainWindow.translateSelection"
+  )
+)
 ```
 
 По хоткею переводится текущее выделение текста (`translateSelection` —
