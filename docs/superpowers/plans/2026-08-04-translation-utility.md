@@ -4,17 +4,17 @@
 
 **Goal:** Wire up Crow Translate (an existing, actively-maintained translator app already packaged in nixpkgs) so a Hyprland hotkey translates the current text selection, replacing the earlier custom scratchpad-terminal design.
 
-**Architecture:** No custom application code is needed — `pkgs.crow-translate` is used as-is. Two pieces: (1) an `exec-once` launch of Crow Translate at Hyprland session start (it needs to be running for its D-Bus service to be callable), and (2) a Hyprland `bind` calling its documented D-Bus method (`io.crow_translate.CrowTranslate` / `/io/crow_translate/CrowTranslate/MainWindow` / `translateSelection()`) to translate the current selection on hotkey press. This replaces `system-plan.md` §5.11's original scratchpad-terminal design — see that section for the updated writeup.
+**Architecture:** No custom application code is needed — `pkgs.crow-translate` is used as-is. Two pieces: (1) an autostart launch of Crow Translate at Hyprland session start (it needs to be running for its D-Bus service to be callable), and (2) a Hyprland bind calling its documented D-Bus method (`io.crow_translate.CrowTranslate` / `/io/crow_translate/CrowTranslate/MainWindow` / `translateSelection()`) to translate the current selection on hotkey press. This replaces `system-plan.md` §5.11's original scratchpad-terminal design — see that section for the updated writeup. **Update 2026-08-08:** written directly in Hyprland's Lua config format (`hyprland.lua`), not the classic hyprlang `.conf` — see the "Superseded" note under Task 2 below for why.
 
-**Tech Stack:** nixpkgs `crow-translate`, D-Bus (`gdbus` or `dbus-send` — verify which is available/idiomatic in Task 1), Hyprland `exec-once`/`bind`.
+**Tech Stack:** nixpkgs `crow-translate`, D-Bus (`gdbus` or `dbus-send` — verify which is available/idiomatic in Task 1), Hyprland Lua config (`hl.on`/`hl.bind`, see Task 2).
 
 ## Global Constraints
 
 - Verify the `crow-translate` package name in nixpkgs before use (`nix search nixpkgs crow-translate`) — per `CLAUDE.md`'s "search before inventing" rule. Do not write a custom derivation; it's already packaged.
-- Before writing the Hyprland `exec-once`/`bind` snippet, check current Hyprland syntax against https://wiki.hyprland.org (per `CLAUDE.md` — syntax changes across versions).
-- Wayland has no native global-shortcut API — this is why the D-Bus method + Hyprland's own `bind = ..., exec, <command>` is the integration point, not a "global hotkey" registered by the app itself. Don't try to configure Crow Translate's own (X11-only) hotkey settings.
-- The agent cannot visually verify Hyprland behavior — the `.conf` snippet's actual runtime correctness (hotkey fires, translation popup appears, text selection is correctly picked up) is a **mandatory flagged manual follow-up**, not something to silently assume works — same pattern as the `agent-sandbox` plan's `--gui` flag.
-- Every non-trivial shell/Nix file gets WHY-comments per `CLAUDE.md`.
+- Before writing the Hyprland config snippet, check current Hyprland syntax against https://wiki.hypr.land (per `CLAUDE.md` — syntax changes across versions; note the domain — `wiki.hyprland.org` is stale, the project moved to `wiki.hypr.land`).
+- Wayland has no native global-shortcut API — this is why the D-Bus method + Hyprland's own bind-to-shell-command mechanism is the integration point, not a "global hotkey" registered by the app itself. Don't try to configure Crow Translate's own (X11-only) hotkey settings.
+- The agent cannot visually verify Hyprland behavior — the snippet's actual runtime correctness (hotkey fires, translation popup appears, text selection is correctly picked up) is a **mandatory flagged manual follow-up**, not something to silently assume works — same pattern as the `agent-sandbox` plan's `--gui` flag.
+- Every non-trivial shell/Nix/Lua file gets WHY-comments per `CLAUDE.md`.
 
 ---
 
