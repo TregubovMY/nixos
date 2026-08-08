@@ -42,6 +42,20 @@ if [ "$gui" = 1 ]; then
   source "$(dirname "$0")/agent-sandbox-gui.sh"
 fi
 
+# Strip a single leading "--" from the remaining args before forwarding
+# them to the container. Before the image entrypoint switched to
+# `exec mise exec -- "$@"` (commit 1a3f550), this didn't matter: bash's
+# own `exec` builtin silently swallows a literal "--" as its first word
+# (verified: `bash -c 'set -- -- echo hi; exec "$@"'` prints "hi"). Now
+# that `mise` is the first word after `exec`, that swallowing no longer
+# happens, so `mise exec` receives a literal "--" and chokes on it
+# ("mise ERROR \"--\" couldn't exec process"). This is the documented
+# `agent-sandbox <dir> -- <command>` separator, not something meant to
+# reach the container's CMD.
+if [ "${1:-}" = "--" ]; then
+  shift
+fi
+
 args+=(agent-sandbox:latest "$@")
 
 exec "${args[@]}"
