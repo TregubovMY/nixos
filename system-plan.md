@@ -232,7 +232,14 @@ hl.bind(
 ```nix
 virtualisation.oci-containers.containers = {
   postgres = {
-    image = "postgres:16";
+    # Полное имя (docker.io/library/...), не короткое "postgres:16": NixOS-
+    # сборка podman не задаёт unqualified-search registries в
+    # /etc/containers/registries.conf (в отличие от Docker, у которого
+    # Docker Hub — дефолт), так что короткое имя падает при старте
+    # контейнера с "short-name ... did not resolve to an alias" — найдено
+    # реальной build-vm верификацией (docs/superpowers/plans/
+    # 2026-08-04-postgres-redis.md, Task 3).
+    image = "docker.io/library/postgres:16";
     # Без пароля (POSTGRES_HOST_AUTH_METHOD=trust, официальный no-auth
     # режим образа) — БД доступна только с localhost на однопользовательской
     # машине, у кого есть шелл — у того и так есть доступ к диску целиком,
@@ -243,7 +250,8 @@ virtualisation.oci-containers.containers = {
     volumes = [ "/persist/postgres:/var/lib/postgresql/data" ];
   };
   redis = {
-    image = "redis:7";
+    # Fully-qualified for the same reason as postgres above.
+    image = "docker.io/library/redis:7";
     ports = [ "127.0.0.1:6379:6379" ];
     volumes = [ "/persist/redis:/data" ];
     cmd = [ "redis-server" "--save" "60" "1" ]; # персистентность на диск, не только in-memory

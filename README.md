@@ -5,12 +5,13 @@ Hyprland, home-manager, sops-nix. Полное описание архитект
 `system-plan.md`. Инструкции для агента, работающего в этом репозитории —
 `CLAUDE.md`.
 
-Сейчас в этом флейке реально собирается только `agent-sandbox` (см.
-ниже) — коммит `a2114ce` убрал `configuration.nix`/`disko.nix`/
-`home.nix` и вывод `nixosConfigurations`, так что `nixos-rebuild`/
-`nixos-install` для этого репозитория пока не применимы. Остальные
-слои (disko/LUKS/Hyprland/home-manager/sops-nix) описаны в
-`system-plan.md`, но ещё не реализованы в этом флейке.
+Сейчас в этом флейке реально собираются `agent-sandbox` и тестовый
+`test-vm`-хост для `dev-databases` (см. ниже) — коммит `a2114ce` убрал
+`configuration.nix`/`disko.nix`/`home.nix` и старый вывод
+`nixosConfigurations`, так что `nixos-rebuild`/`nixos-install` для
+реальной машины пока не применимы. Остальные слои (disko/LUKS/Hyprland/
+home-manager/sops-nix) описаны в `system-plan.md`, но ещё не реализованы
+в этом флейке.
 
 ## Песочница для AI-агентов (agent-sandbox)
 
@@ -92,3 +93,18 @@ Wayland-сессии команда сразу завершится с поня�
   креды — это отдельный компромисс безопасности (том становится
   доступен из контейнера любого проекта), требующий отдельного решения,
   а не слепого фикса.
+
+## Postgres/Redis для локальной разработки
+
+Общий Postgres 16 + Redis 7 для всех локальных проектов (декларативные
+podman-контейнеры, `modules/nixos/dev-databases.nix`) — поднимаются вместе
+с системой, ничего не нужно ставить/поднимать вручную на уровне проекта.
+
+- Postgres: `127.0.0.1:5432`, пользователь `postgres`, **без пароля**
+  (`POSTGRES_HOST_AUTH_METHOD=trust`) — локальная машина, БД доступна
+  только с localhost, реального смысла в пароле нет.
+- Redis: `127.0.0.1:6379`, без аутентификации, по той же причине.
+- Данные — в `/var/lib/dev-postgres` / `/var/lib/dev-redis` на тестовом
+  хосте этого плана; **на реальной машине переносится в
+  `/persist/postgres` / `/persist/redis`** (см. `system-plan.md` §4) —
+  поправить пути в `dev-databases.nix` при переносе в `hosts/<host>/`.
