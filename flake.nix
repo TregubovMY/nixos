@@ -53,5 +53,52 @@
           ./hosts/test-disko-luks/configuration.nix
         ];
       };
+
+      # Real, functional verification (not just eval) of the disk/boot
+      # foundation: LUKS unlock, btrfs subvolumes, and the LUKS->swap->
+      # resumeDevice nesting the design doc flagged as unverified-by-
+      # committed-example. Uses disko's own reusable VM test helper
+      # (disko.lib.testLib.makeDiskoTest, see disko-luks-btrfs-test.nix's
+      # header comment for why a separate plain config file is needed
+      # here rather than pointing straight at the parameterized module)
+      # instead of writing a raw NixOS VM test from scratch, per
+      # CLAUDE.md's "search for real solutions first" rule. Run via
+      # `nix flake check -L` — see task-3-brief.md, Step 2.
+      checks.${system} = {
+        disko-luks-btrfs = disko.lib.testLib.makeDiskoTest {
+          inherit pkgs;
+          name = "disko-luks-btrfs";
+          disko-config = ./modules/nixos/disko-luks-btrfs-test.nix;
+          extraTestScript = ''
+            # Both LUKS containers actually exist and are real LUKS (not
+            # plaintext, not randomEncryption swap):
+            machine.succeed("cryptsetup isLuks /dev/vda2")
+            machine.succeed("cryptsetup isLuks /dev/vda3")
+            # btrfs root came up with its subvolumes:
+            machine.succeed("btrfs subvolume list /")
+            # swap is actually active on the decrypted mapper device, not
+            # the raw partition (proves the LUKS -> swap nesting actually
+            # worked -- the one thing the design doc flagged as
+            # unverified-by-example). NOTE: `swapon --show` reports the
+            # *canonical* backing device (/dev/dm-N), not the /dev/mapper/*
+            # symlink, so grep for /dev/mapper/cryptswap literally never
+            # matches even when swap is correctly active -- confirmed by
+            # manually running with an un-grepped `swapon --show` (showed
+            # /dev/dm-0, [SWAP] in lsblk, and an active
+            # dev-mapper-cryptswap.swap unit) and by reading disko's own
+            # generated activation script, which resolves the symlink
+            # first: `grep -q "^$(readlink -f /dev/mapper/cryptswap) "`.
+            # Mirror that exact pattern here instead of a literal string
+            # match.
+            machine.succeed(
+                "swapon --show | grep -q \"^$(readlink -f /dev/mapper/cryptswap) \""
+            )
+            # boot.resumeDevice ended up pointing at the right place --
+            # check the activated system's kernel params, not just that
+            # the option exists at eval time:
+            machine.succeed("cat /proc/cmdline | grep -q resume=")
+          '';
+        };
+      };
     };
 }

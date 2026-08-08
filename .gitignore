@@ -9,3 +9,10 @@
 # during the modular-restructure transition (system-plan.md §3), not meant
 # to be tracked (their removal is the actual, deliberate, committed state).
 .trash/
+
+# nixos-rebuild build-vm / nix build -o result symlinks and the qcow2 disk
+# images they produce (see task-3-brief.md Step 3-4: manual VM runs for
+# hibernate verification are throwaway build byproducts, never committed).
+result
+result-*
+*.qcow2
