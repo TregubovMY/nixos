@@ -83,6 +83,17 @@
         ];
       };
 
+      # Throwaway verification host for the secrets design — see
+      # docs/superpowers/specs/2026-08-10-secrets-design.md. Eval-only; the
+      # real functional proof is checks.${system}.secrets-decryption (Task 3).
+      nixosConfigurations.test-secrets = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          sops-nix.nixosModules.sops
+          ./hosts/test-secrets/configuration.nix
+        ];
+      };
+
       # Real, functional verification (not just eval) of the disk/boot
       # foundation: LUKS unlock, btrfs subvolumes, and the LUKS->swap->
       # resumeDevice nesting the design doc flagged as unverified-by-
