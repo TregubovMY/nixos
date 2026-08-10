@@ -144,6 +144,24 @@
             )
           '';
         };
+
+        # Confirms Secure Boot works with this repo's exact
+        # boot.initrd.systemd.enable = true choice, via lanzaboote's own
+        # upstream test architecture (vendored, see
+        # modules/nixos/secure-boot-test/systemd-initrd.nix — that file's
+        # header comment has the full provenance + WHY writeup). Does NOT
+        # exercise disko-luks-btrfs.nix or secure-boot.nix — see
+        # docs/superpowers/specs/2026-08-10-secure-boot-design.md "Two
+        # Checks, Not One Combined Test". Module composition between those
+        # two is covered separately by hosts/test-secure-boot/ (Check 2,
+        # `nix flake check --no-build`).
+        secure-boot-signing = pkgs.testers.runNixOSTest {
+          imports = [ ./modules/nixos/secure-boot-test/systemd-initrd.nix ];
+          globalTimeout = 5 * 60;
+          extraBaseModules = {
+            imports = [ lanzaboote.nixosModules.lanzaboote ];
+          };
+        };
       };
     };
 }
