@@ -25,7 +25,8 @@
 # `resume=/dev/mapper/cryptswap` in its kernel cmdline pointing at a
 # device that can never exist under useDefaultFilesystems — a latent
 # boot-time device wait if this host is ever booted by hand (plausibly why
-# Task 3 Step 3's manual hibernate check hung; see task-3-report.md).
+# Task 3 Step 3's manual hibernate check hung — see
+# docs/superpowers/plans/2026-08-08-disk-boot-foundation.md, Task 3).
 #
 # swapSize below is "2G", NOT the real 34G: this host's virtual disk is
 # small — `virtualisation.diskSize` for a manually-built VM defaults to
