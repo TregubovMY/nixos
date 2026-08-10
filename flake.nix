@@ -2,10 +2,10 @@
   # Scoped to what actually exists so far: the agent-sandbox package, a
   # throwaway test-vm host for the dev-databases module, and (new) the
   # disko/boot modules for the disk foundation design plus their own
-  # throwaway verification host, and the Secure Boot foundation. Not yet
-  # the full host flake (Hyprland, home-manager, sops-nix, hosts/mimir) —
-  # see system-plan.md §3.
-  description = "agent-sandbox package + dev-databases test-vm + disk/boot + Secure Boot foundations (see system-plan.md)";
+  # throwaway verification host, the Secure Boot foundation, and (new)
+  # sops-nix for secrets management. Not yet the full host flake
+  # (Hyprland, home-manager, hosts/mimir) — see system-plan.md §3.
+  description = "agent-sandbox package + dev-databases test-vm + disk/boot + Secure Boot + sops-nix foundations (see system-plan.md)";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   inputs.disko = {
@@ -23,8 +23,12 @@
   # the new rev's nix/tests/lanzaboote/ and re-run `nix flake check -L`
   # (checks.${system}.secure-boot-signing) after any bump, or the check
   # silently drifts into testing stale scaffolding against a newer module.
+  inputs.sops-nix = {
+    url = "github:Mic92/sops-nix";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
 
-  outputs = { self, nixpkgs, disko, lanzaboote, ... }:
+  outputs = { self, nixpkgs, disko, lanzaboote, sops-nix, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
