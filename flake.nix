@@ -59,6 +59,19 @@
         ];
       };
 
+      # Throwaway verification host for the Secure Boot design — see
+      # docs/superpowers/specs/2026-08-10-secure-boot-design.md. Proves module
+      # composition only (Check 2) — NOT a Secure-Boot-verified boot chain, see
+      # hosts/test-secure-boot/configuration.nix's own header comment.
+      nixosConfigurations.test-secure-boot = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          disko.nixosModules.disko
+          lanzaboote.nixosModules.lanzaboote
+          ./hosts/test-secure-boot/configuration.nix
+        ];
+      };
+
       # Real, functional verification (not just eval) of the disk/boot
       # foundation: LUKS unlock, btrfs subvolumes, and the LUKS->swap->
       # resumeDevice nesting the design doc flagged as unverified-by-
