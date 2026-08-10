@@ -103,9 +103,15 @@ hosts/test-secure-boot/   # throwaway, mirrors hosts/test-disko-luks/'s pattern
 verified. A separate host keeps that guarantee intact rather than mutating
 it into a Secure-Boot-only config. This host's job is narrower than
 originally planned (see below): it exists to prove `disko-luks-btrfs.nix`
-and `secure-boot.nix` *evaluate together* without option conflicts (e.g. no
-double-definition of `boot.loader.*` triggering a NixOS assertion) — not to
-be booted through a real Secure-Boot-verified chain.
+and `secure-boot.nix` *evaluate together* without option conflicts — not to
+be booted through a real Secure-Boot-verified chain. **Correction (post
+final-review):** since this host imports `secure-boot.nix` instead of
+`boot.nix`, `secure-boot.nix` is the *only* writer of `boot.loader.*` here,
+so a literal double-definition assertion is structurally impossible on this
+host — that specific failure mode was an inaccurate example. What this
+check actually catches is narrower: whether disko's generated
+`boot.initrd.luks.devices`/`boot.resumeDevice` options and lanzaboote's own
+option set coexist without conflict.
 
 ## Two Checks, Not One Combined Test
 

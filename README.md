@@ -181,11 +181,19 @@ podman-контейнеры, `modules/nixos/dev-databases.nix`) — подним
 `modules/nixos/secure-boot.nix` — отдельный модуль, не надстройка над
 `boot.nix`: lanzaboote заменяет `systemd-boot` (`boot.loader.systemd-boot.enable
 = lib.mkForce false`), а не добавляется поверх него — этого требует
-собственная документация lanzaboote. Включает `boot.lanzaboote.enable = true`
-с `pkiBundle = "/var/lib/sbctl"` (текущий рекомендованный путь). Хосты, которым
-Secure Boot не нужен, продолжают импортировать обычный `boot.nix` без
-изменений. Почему выбран именно этот вариант и какие альтернативы отвергнуты —
-`system-plan.md` §4 и design doc
+собственная документация lanzaboote. Хосты с Secure Boot импортируют
+`secure-boot.nix` **вместо** `boot.nix`, не вместе с ним — а значит
+`secure-boot.nix` сам обязан нести и остальные настройки `boot.nix`
+(`boot.initrd.systemd.enable = true`, нужный `disko-luks-btrfs.nix` для
+LUKS-промпта), а не полагаться на то, что они унаследуются от него: он
+включает `boot.lanzaboote.enable = true` с `pkiBundle = "/var/lib/sbctl"`
+(текущий рекомендованный путь), явно повторяет `boot.initrd.systemd.enable
+= true` и `boot.loader.efi.canTouchEfiVariables = true`, и добавляет
+`pkgs.sbctl` в `environment.systemPackages` для реального
+`sbctl create-keys`/`enroll-keys`. Хосты, которым Secure Boot не нужен,
+продолжают импортировать обычный `boot.nix` без изменений. Почему выбран
+именно этот вариант и какие альтернативы отвергнуты — `system-plan.md` §4
+и design doc
 (`docs/superpowers/specs/2026-08-10-secure-boot-design.md`).
 
 Проверка — двумя раздельными чеками, не одним совмещённым (подробности и

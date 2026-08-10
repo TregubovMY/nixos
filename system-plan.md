@@ -130,16 +130,25 @@ README.md                     # в т.ч. как подключать IDE к п�
   LUKS-устройства (`boot.initrd.luks.devices`) из описания в
   `disko-luks-btrfs.nix`.
 - `lanzaboote` — Secure Boot со своими ключами поверх LUKS, отдельным
-  модулем `modules/nixos/secure-boot.nix`: `boot.loader.systemd-boot.enable
+  модулем `modules/nixos/secure-boot.nix`, который хосты с Secure Boot
+  импортируют **вместо** `boot.nix`, не вместе с ним: `boot.loader.systemd-boot.enable
   = lib.mkForce false` (lanzaboote заменяет systemd-boot, а не
   надстраивается над ним — этого требует его собственная документация) +
   `boot.lanzaboote.enable = true` с `pkiBundle = "/var/lib/sbctl"`
   (текущий рекомендованный путь, не устаревший `/etc/secureboot`).
-  Единственный нетривиальный шаг — разовый `sbctl create-keys` и enroll
-  ключей в UEFI setup при установке (нужен физический доступ к машине;
-  этот репозиторий никогда не генерирует и не коммитит ключи); дальше
-  загрузка проверяется прозрачно, без дополнительных действий при каждом
-  обновлении системы. **Проверено двумя раздельными чеками, не одним
+  Раз модуль полностью заменяет `boot.nix` на этих хостах, он обязан сам
+  повторить и остальные настройки `boot.nix`, а не полагаться на их
+  наследование — явно включает `boot.initrd.systemd.enable = true` (нужен
+  `disko-luks-btrfs.nix` для LUKS-промпта) и `boot.loader.efi.canTouchEfiVariables
+  = true`, плюс `pkgs.sbctl` в `environment.systemPackages` для реального
+  enroll'а. (До финального ревью этого плана `secure-boot.nix` полагался
+  на то, что `boot.initrd.systemd.enable` окажется `true` через дефолт
+  nixpkgs — совпадение, а не гарантия; исправлено.) Единственный
+  нетривиальный шаг за пределами Nix — разовый `sbctl create-keys` и
+  enroll ключей в UEFI setup при установке (нужен физический доступ к
+  машине; этот репозиторий никогда не генерирует и не коммитит ключи);
+  дальше загрузка проверяется прозрачно, без дополнительных действий при
+  каждом обновлении системы. **Проверено двумя раздельными чеками, не одним
   совмещённым:** чек 1 (`checks.<system>.secure-boot-signing`,
   `nix flake check -L`) — вендоренная копия собственного upstream-теста
   lanzaboote, реальный VM-boot с `bootctl status`, подтвердивший "Secure
