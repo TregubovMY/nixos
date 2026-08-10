@@ -11,9 +11,13 @@
 # real content, and .sops.yaml with a real recipient, are added as a
 # real-install-time follow-up (see docs/superpowers/specs/
 # 2026-08-10-secrets-design.md "Real Install Boundary") — not this plan's
-# job. Verified via a vendored copy of sops-nix's own ssh-keys test
-# instead (see modules/nixos/secrets-test/), which proves the mechanism
-# without needing a real host's key to exist.
+# job. Verified via a vendored, adapted copy of sops-nix's own
+# `age-ssh-keys` test instead (see modules/nixos/secrets-test/), which
+# proves the mechanism without needing a real host's key to exist. Not
+# upstream's `ssh-keys` test (RSA host key) — that one exercises
+# sops.gnupg.sshKeyPaths (ssh-to-pgp), a different mechanism from the
+# sops.age.sshKeyPaths this module actually uses; see
+# modules/nixos/secrets-test/ssh-decryption.nix's header for why.
 { ... }:
 {
   sops.defaultSopsFile = ../../secrets/secrets.yaml;
