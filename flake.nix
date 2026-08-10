@@ -16,6 +16,13 @@
     url = "github:nix-community/lanzaboote/v1.1.0";
     inputs.nixpkgs.follows = "nixpkgs";
   };
+  # IMPORTANT when bumping this input: modules/nixos/secure-boot-test/ is a
+  # VENDORED (copied, not live-referenced) snapshot of lanzaboote's own
+  # upstream test at the rev this input resolves to right now. Bumping
+  # `lanzaboote` here does NOT update that vendored copy — re-vendor it from
+  # the new rev's nix/tests/lanzaboote/ and re-run `nix flake check -L`
+  # (checks.${system}.secure-boot-signing) after any bump, or the check
+  # silently drifts into testing stale scaffolding against a newer module.
 
   outputs = { self, nixpkgs, disko, lanzaboote, ... }:
     let
