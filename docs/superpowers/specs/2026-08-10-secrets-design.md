@@ -83,20 +83,38 @@ encrypted for nobody real would be a hollow gesture. The throwaway test
 
 ```
 hosts/test-secrets/   # throwaway, mirrors the established pattern
-  configuration.nix    # imports modules/nixos/secrets.nix, a fixture
-                        # secrets.yaml + age key checked in ONLY under
-                        # this test's own scope (clearly separate from
-                        # the real secrets/secrets.yaml above)
+  configuration.nix    # imports modules/nixos/secrets.nix + a fixture
+                        # secrets.yaml + a fixed test SSH host key —
+                        # checked in ONLY under this test's own scope,
+                        # clearly separate from the real secrets/secrets.yaml
 ```
-Reusing sops-nix's actual `checks/nixos-test.nix` shape: a static test-only
-age keypair (generated once, checked in as an obvious test fixture — same
-category as lanzaboote's own published test UEFI keys, not a real secret,
-same "why this is safe to commit" documentation pattern used for those),
-a `secrets/secrets.yaml` fixture encrypted against it containing a dummy
-`gpg_key` value, `boot.initrd.postDeviceCommands` seeding the test key into
-the VM. Assertion: the decrypted file exists at `config.sops.secrets."gpg_key".path`
-with the expected dummy content — proves activation-time decryption really
-works in this repo's context.
+**Better than the originally-assumed "static age-keys.txt" fixture**:
+fetched sops-nix's actual `checks/nixos-test.nix` (not just a summary) and
+found its `ssh-keys` test is a closer, more faithful match — it exercises
+the *real* `ssh-to-age` conversion (not a pre-supplied raw age key) by
+using a **fixed, checked-in test SSH host key** (`services.openssh.hostKeys`
+pointed at a vendored private key, same "known-in-advance recipient" trick
+that sidesteps the chicken-and-egg problem for a *test*, without pretending
+it solves it for a *real* host — the real host's key genuinely can't be
+known ahead of time, this only works here because the test key is a fixed,
+public fixture, not a fresh one generated at first boot). Confirmed the
+actual fixture files exist and are real: `pkgs/sops-install-secrets/test-assets/{ssh-key,secrets.yaml}`
+in sops-nix's repo — a `secrets.yaml` genuinely encrypted (verified content,
+not asserted) for the age recipient that fixed RSA SSH key converts to.
+
+Vendor (not live-reference — matches the disko/lanzaboote precedent, and
+this test fixture is small) `ssh-key` + `secrets.yaml` from sops-nix's
+`test-assets`. Implementation-time choice, either is fine: (a) reuse them
+exactly as-is (test secret stays named `test_key`, matching upstream
+verbatim), or (b) since the fixture's private *age* key is also public
+(`test-assets/age-keys.txt`), re-encrypt a tiny fresh `secrets.yaml`
+against the same recipient with the secret named `gpg_key` instead, for a
+closer match to this repo's real module. Either proves the same mechanism.
+
+Assertion: the decrypted file exists at the expected `config.sops.secrets.*.path`
+with the expected fixture content — proves activation-time decryption (via
+a *real* ssh-to-age conversion, not a shortcut) really works in this
+repo's context.
 
 **No disko/LUKS layout in this test host** — sops-nix's own upstream test
 doesn't use one either, and activation-time secret decryption is orthogonal
