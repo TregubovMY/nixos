@@ -129,11 +129,32 @@ README.md                     # в т.ч. как подключать IDE к п�
   версиях NixOS. Отдельного `luks.nix` нет — disko сам регистрирует оба
   LUKS-устройства (`boot.initrd.luks.devices`) из описания в
   `disko-luks-btrfs.nix`.
-- `lanzaboote` — включаем отдельным модулем (пока не сделано): Secure
-  Boot со своими ключами поверх LUKS. Единственный нетривиальный шаг —
-  разовый `sbctl create-keys` и enroll ключей в UEFI setup при установке
-  (нужен физический доступ к машине); дальше загрузка проверяется
-  прозрачно, без дополнительных действий при каждом обновлении системы.
+- `lanzaboote` — Secure Boot со своими ключами поверх LUKS, отдельным
+  модулем `modules/nixos/secure-boot.nix`: `boot.loader.systemd-boot.enable
+  = lib.mkForce false` (lanzaboote заменяет systemd-boot, а не
+  надстраивается над ним — этого требует его собственная документация) +
+  `boot.lanzaboote.enable = true` с `pkiBundle = "/var/lib/sbctl"`
+  (текущий рекомендованный путь, не устаревший `/etc/secureboot`).
+  Единственный нетривиальный шаг — разовый `sbctl create-keys` и enroll
+  ключей в UEFI setup при установке (нужен физический доступ к машине;
+  этот репозиторий никогда не генерирует и не коммитит ключи); дальше
+  загрузка проверяется прозрачно, без дополнительных действий при каждом
+  обновлении системы. **Проверено двумя раздельными чеками, не одним
+  совмещённым:** чек 1 (`checks.<system>.secure-boot-signing`,
+  `nix flake check -L`) — вендоренная копия собственного upstream-теста
+  lanzaboote, реальный VM-boot с `bootctl status`, подтвердивший "Secure
+  Boot: enabled (user)" именно с тем `boot.initrd.systemd.enable = true`,
+  который уже выбран в `boot.nix` под LUKS-промпт; строится через
+  systemd-repart-образ, полностью в обход disko. Чек 2
+  (`nixosConfigurations.test-secure-boot`, `hosts/test-secure-boot/`,
+  `nix flake check --no-build`) — одноразовый хост, эвалящий
+  `disko-luks-btrfs.nix` и `secure-boot.nix` вместе, доказывающий только
+  отсутствие конфликтов опций между ними, без реальной сборки. **Ни один
+  из двух чеков не доказывает, что цепочка подписи Secure Boot и настоящий
+  disko/LUKS/btrfs-layout реально работают вместе в одной загрузке** —
+  эта комбинация никогда не тестировалась целиком; это именованный,
+  принятый пробел (design doc, "Risk profile"), а не подразумеваемое
+  покрытие только потому, что оба чека проходят.
 
 ## 5. Полный список пакетов по категориям
 

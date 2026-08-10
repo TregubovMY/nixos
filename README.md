@@ -176,6 +176,50 @@ podman-контейнеры, `modules/nixos/dev-databases.nix`) — подним
   говорит про auto-retry-поведение. Это именованный, непроверенный пробел,
   который нужно подтвердить на реальной установке, а не доказанный факт.
 
+## Secure Boot (lanzaboote)
+
+`modules/nixos/secure-boot.nix` — отдельный модуль, не надстройка над
+`boot.nix`: lanzaboote заменяет `systemd-boot` (`boot.loader.systemd-boot.enable
+= lib.mkForce false`), а не добавляется поверх него — этого требует
+собственная документация lanzaboote. Включает `boot.lanzaboote.enable = true`
+с `pkiBundle = "/var/lib/sbctl"` (текущий рекомендованный путь). Хосты, которым
+Secure Boot не нужен, продолжают импортировать обычный `boot.nix` без
+изменений. Почему выбран именно этот вариант и какие альтернативы отвергнуты —
+`system-plan.md` §4 и design doc
+(`docs/superpowers/specs/2026-08-10-secure-boot-design.md`).
+
+Проверка — двумя раздельными чеками, не одним совмещённым (подробности и
+причина раздельности — design doc, "Two Checks, Not One Combined Test"):
+- `nix flake check --no-build` — быстрая eval-only проверка, что
+  `disko-luks-btrfs.nix` и `secure-boot.nix` эвалятся вместе без конфликтов
+  опций (`nixosConfigurations.test-secure-boot`, `hosts/test-secure-boot/`).
+  Ничего не доказывает про Secure Boot или про реальный дисковый layout —
+  только что модули совместимы на уровне опций.
+- `nix flake check -L` — реальный VM-boot, `checks.<system>.secure-boot-signing`:
+  вендоренная копия собственного upstream-теста lanzaboote
+  (`modules/nixos/secure-boot-test/`), эмпирически подтвердившая, что Secure
+  Boot реально работает с тем же выбором `boot.initrd.systemd.enable = true`,
+  что уже сделан в `boot.nix` под LUKS-промпт (`bootctl status` внутри VM
+  показал "Secure Boot: enabled (user)"). Строится через совершенно другой
+  механизм — systemd-repart-образ, а не disko — и не трогает
+  `disko-luks-btrfs.nix`, `secure-boot.nix` или `hosts/test-secure-boot/`.
+
+### Известные ограничения
+
+- **Настоящая генерация ключей и enroll в UEFI происходят только на реальном
+  железе, во время реальной установки.** Этот репозиторий никогда не
+  генерирует и не коммитит ключи Secure Boot — разовый `sbctl create-keys` +
+  enroll в UEFI setup требует физического доступа к машине.
+- **Два чека выше раздельны, и прохождение обоих не доказывает, что Secure
+  Boot и настоящий disko/LUKS/btrfs-layout работают вместе в одной
+  загрузке.** Эта комбинация никогда не тестировалась целиком — это
+  именованный, принятый пробел (design doc, раздел "Risk profile"), а не
+  подразумеваемое покрытие только потому, что оба чека проходят по
+  отдельности.
+- **`hosts/mimir/` (реальный хост) всё ещё не существует.** Включение
+  `secure-boot.nix` на реальной машине — будущий, явно запрашиваемый шаг,
+  наравне с реальным enroll ключей.
+
 ## Перевод по хоткею (Crow Translate)
 
 Вместо самописного скрипта — готовое, поддерживаемое приложение
