@@ -79,6 +79,15 @@
         ];
       };
 
+      # Throwaway verification host for the desktop package list design —
+      # see docs/superpowers/specs/2026-08-10-desktop-packages-design.md.
+      # NOT the real mimir host; eval + dry-build only (no VM boot), see
+      # hosts/test-desktop-apps/configuration.nix's own header comment.
+      nixosConfigurations.test-desktop-apps = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [ ./hosts/test-desktop-apps/configuration.nix ];
+      };
+
       # Real, functional verification (not just eval) of the disk/boot
       # foundation: LUKS unlock, btrfs subvolumes, and the LUKS->swap->
       # resumeDevice nesting the design doc flagged as unverified-by-
