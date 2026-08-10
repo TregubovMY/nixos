@@ -1,11 +1,12 @@
 {
   # Scoped to what actually exists so far: the agent-sandbox package, a
-  # throwaway test-vm host for the dev-databases module, and (new) the
-  # disko/boot modules for the disk foundation design plus their own
-  # throwaway verification host, and the Secure Boot foundation. Not yet
-  # the full host flake (Hyprland, home-manager, sops-nix, hosts/mimir) —
+  # throwaway test-vm host for the dev-databases module, the disko/boot
+  # modules for the disk foundation design plus their own throwaway
+  # verification host, the Secure Boot foundation, the declarative desktop
+  # package list (desktop-apps.nix), and sops-nix for secrets management.
+  # Not yet the full host flake (Hyprland, home-manager, hosts/mimir) —
   # see system-plan.md §3.
-  description = "agent-sandbox package + dev-databases test-vm + disk/boot + Secure Boot foundations (see system-plan.md)";
+  description = "agent-sandbox package + dev-databases test-vm + disk/boot + Secure Boot + desktop packages + sops-nix foundations (see system-plan.md)";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   inputs.disko = {
@@ -23,8 +24,12 @@
   # the new rev's nix/tests/lanzaboote/ and re-run `nix flake check -L`
   # (checks.${system}.secure-boot-signing) after any bump, or the check
   # silently drifts into testing stale scaffolding against a newer module.
+  inputs.sops-nix = {
+    url = "github:Mic92/sops-nix";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
 
-  outputs = { self, nixpkgs, disko, lanzaboote, ... }:
+  outputs = { self, nixpkgs, disko, lanzaboote, sops-nix, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
@@ -86,6 +91,17 @@
       nixosConfigurations.test-desktop-apps = nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [ ./hosts/test-desktop-apps/configuration.nix ];
+      };
+
+      # Throwaway verification host for the secrets design — see
+      # docs/superpowers/specs/2026-08-10-secrets-design.md. Eval-only; the
+      # real functional proof is checks.${system}.secrets-decryption (Task 3).
+      nixosConfigurations.test-secrets = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          sops-nix.nixosModules.sops
+          ./hosts/test-secrets/configuration.nix
+        ];
       };
 
       # Real, functional verification (not just eval) of the disk/boot
@@ -176,6 +192,22 @@
           globalTimeout = 5 * 60;
           extraBaseModules = {
             imports = [ lanzaboote.nixosModules.lanzaboote ];
+          };
+        };
+
+        # Confirms sops-nix's ssh-to-age decryption mechanism actually
+        # works in this repo's context, via a vendored (and, per its own
+        # header comment, corrected — see the deviation note there) copy
+        # of sops-nix's own upstream test (a fixed, published test SSH
+        # host key standing in for a real host's, which doesn't exist yet
+        # — see modules/nixos/secrets-test/ssh-decryption.nix and
+        # docs/superpowers/specs/2026-08-10-secrets-design.md). Does NOT
+        # touch hosts/test-secrets/ or modules/nixos/secrets.nix's real
+        # sops.age.sshKeyPaths path or the real secrets/secrets.yaml file.
+        secrets-decryption = pkgs.testers.runNixOSTest {
+          imports = [ ./modules/nixos/secrets-test/ssh-decryption.nix ];
+          extraBaseModules = {
+            imports = [ sops-nix.nixosModules.sops ];
           };
         };
       };
