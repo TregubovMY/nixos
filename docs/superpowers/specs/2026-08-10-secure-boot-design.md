@@ -33,13 +33,29 @@ lanzaboote's real test suite and issue tracker (checked for LUKS2/btrfs-
 specific problems — none found; open issues cluster around TPM-bound
 unlock via `systemd-cryptenroll`, which this plan does not use).
 
-Given that, a from-scratch Secure Boot test would be redundant risk-wise —
-but a test of *our own* module composition (disko + two LUKS containers +
-btrfs + lanzaboote together, not lanzaboote in isolation) still has real
-value, and is worth doing to the same standard as the disk/boot plan: adapt
-lanzaboote's own passing test pattern onto our actual disk layout rather
-than writing one from scratch or trusting upstream's isolated test to
-stand in for our specific composition.
+**Revised after checking lanzaboote's actual test source (not just its
+existence).** The plan initially assumed lanzaboote's own test could be
+straightforwardly adapted onto our real disko/LUKS disk layout. Reading
+`nix/tests/lanzaboote/common/image.nix` shows that isn't true: lanzaboote's
+test builds a completely different kind of disk image — a pre-baked
+`systemd-repart` image (`modulesPath + "/image/repart.nix"`, separate ESP/
+nix-store/root partitions, UEFI auth-variable files written straight onto
+the ESP for auto-enrollment) — not a disk partitioned by any tool at
+runtime. `checks.disko-luks-btrfs` (the disk/boot plan's own test) does the
+opposite: it runs disko's *real* partitioning process, LUKS format
+included, against a blank virtual disk inside a booting VM. These are two
+incompatible test-construction mechanisms, not two pieces of one test that
+compose by copying assertions across.
+
+Combining them for real — Secure Boot's signing chain over disko's actual
+LUKS/btrfs layout, verified together in one VM boot — is a genuine
+integration project (would need `virtualisation.useSecureBoot`/`OVMF`
+layered onto `makeDiskoTest`'s VM, plus a real answer for UEFI key
+enrollment onto an ESP that disko created rather than lanzaboote's own
+repart step). Discussed with the human partner and deliberately **not**
+attempted in this plan — the risk/effort would rival or exceed the disk/boot
+plan's own hardest task for a benefit that's mostly already covered by
+lanzaboote's own upstream CI. Instead: two separate, narrower checks (below).
 
 ## Module
 
@@ -85,37 +101,51 @@ hosts/test-secure-boot/   # throwaway, mirrors hosts/test-disko-luks/'s pattern
 `hosts/test-disko-luks/` is **not** modified — it stays the clean
 "plain systemd-boot, no Secure Boot" reference the disk/boot plan already
 verified. A separate host keeps that guarantee intact rather than mutating
-it into a Secure-Boot-only config.
+it into a Secure-Boot-only config. This host's job is narrower than
+originally planned (see below): it exists to prove `disko-luks-btrfs.nix`
+and `secure-boot.nix` *evaluate together* without option conflicts (e.g. no
+double-definition of `boot.loader.*` triggering a NixOS assertion) — not to
+be booted through a real Secure-Boot-verified chain.
 
-## VM Test
+## Two Checks, Not One Combined Test
 
-New `checks.${system}.secure-boot` (or similar name, finalized at plan time)
-in `flake.nix`, adapted from lanzaboote's own
-`nix/tests/lanzaboote/systemd-initrd.nix` and its `common/lanzaboote.nix`
-fixture-loading helper, applied to `hosts/test-secure-boot/`'s actual disko
-layout rather than lanzaboote's own minimal test fixture disk:
-- `virtualisation.useSecureBoot = true` (the NixOS test-framework option
-  that pre-configures OVMF with Secure Boot variables).
-- Test key fixtures enrolled into the VM's `pkiBundle` via
-  `systemd.tmpfiles`, mirroring lanzaboote's own fixture pattern (source:
-  `nix/tests/fixtures/uefi-keys/` in their repo — reuse their fixtures
-  rather than generating new ones, avoids the plan minting its own throwaway
-  keys for no reason).
-- Assertions: `bootctl status` reports `Secure Boot: enabled (user)` inside
-  the booted VM, and (reusing the disk/boot plan's own proven assertions)
-  the LUKS/btrfs/swap layout still comes up correctly underneath — this is
-  the part that specifically tests *our* composition, not lanzaboote alone.
+**Check 1 — Secure Boot works with our exact initrd choice.** Reuse
+lanzaboote's own `nix/tests/lanzaboote/systemd-initrd.nix` test close to
+as-is (their repart-image architecture, not integrated with disko) as
+`checks.${system}.secure-boot-signing` in `flake.nix`. This is upstream's
+own proof that Secure Boot plus `boot.initrd.systemd.enable = true` (this
+repo's exact `boot.nix` choice) works, re-run concretely against the
+`lanzaboote` version actually pinned in this repo's `flake.lock` rather
+than trusted secondhand. Assertion (unchanged from upstream):
+`"Secure Boot: enabled (user)" in machine.succeed("bootctl status")`.
+Does **not** exercise disko/LUKS/btrfs — that's Check 2's job, and neither
+check claims to cover what only a combined test could.
+
+**Check 2 — module composition doesn't conflict.** `nix flake check
+--no-build` evaluating `hosts/test-secure-boot/`'s `nixosConfigurations`
+entry (`disko-luks-btrfs.nix` + `secure-boot.nix` together) is enough to
+catch the most likely real failure mode — both modules touching
+`boot.loader`/`boot.initrd` options in incompatible ways — without needing
+a real VM boot. Cheap, fast, run on every edit.
+
+**What neither check proves, named explicitly rather than implied:** that
+Secure Boot's signing chain and disko's actual LUKS/btrfs/swap layout work
+together in one real boot. That gap is accepted for this plan (see Risk
+profile above) and documented as a known limitation, same honesty standard
+as the disk/boot plan's own hibernate-cycle gap.
 
 ## Testing (per CLAUDE.md's disk-budget-aware cycle — nothing touches real hardware)
 
-1. `nix flake check --no-build` (fast eval-only, per the disk/boot plan's
-   own I1 fix — this repo's `nix flake check` now includes real VM builds,
-   `--no-build` is the cheap after-every-edit form).
-2. `nix flake check -L` — the real thing: builds and boots the Secure Boot
-   VM test, asserts the signed boot chain plus the disk layout underneath.
+1. `nix flake check --no-build` — Check 2 (module composition), and the
+   routine fast command for every edit generally.
+2. `nix flake check -L` — additionally builds and boots Check 1 (Secure
+   Boot signing chain via lanzaboote's own test architecture).
 3. `nix build .#nixosConfigurations.test-secure-boot.config.system.build.vm`
-   — manual boot for a closer look if the automated test's output needs
-   investigation (same pattern as the disk/boot plan's Task 3).
+   — manual boot of the composed-but-not-Secure-Boot-tested host, useful
+   only for confirming the closure itself builds/boots at all (same
+   `virtualisation.useDefaultFilesystems` caveat `hosts/test-disko-luks/`
+   already documents — this host doesn't exercise its own disk layout
+   either when booted this way).
 
 ## Real Install Boundary
 
