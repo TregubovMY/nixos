@@ -21,6 +21,27 @@
 | DE/Compositor | **Hyprland** (Wayland) | Тайлинговый WM |
 | Виртуализация для тестов | **QEMU/KVM + `nixos-rebuild build-vm`** | Проверка конфигурации перед накаткой на реальное железо |
 
+**Важный нюанс про unfree-пакеты, найденный при реализации §5.4-§5.10
+(desktop-packages, 2026-08-10):** `flake.nix`'s `pkgs = import nixpkgs {
+config.allowUnfree = true; ... }` — это отдельный, самостоятельный
+`pkgs`-инстанс, используемый только для `packages.${system}`
+(agent-sandbox-образ). Он **не** пропагирует `allowUnfree` ни в один
+`nixpkgs.lib.nixosSystem { ... }`/`nixosConfigurations` вызов — у каждого
+такого вызова своя, независимая nixpkgs-эвалюация. `CLAUDE.md`
+("Unfree-пакеты... уже должно быть включено в `flake.nix`/
+`configuration.nix`, не дублировать в каждом модуле") на момент
+2026-08-10 описывал желаемое состояние, а не фактическое: до
+`hosts/test-desktop-apps/` ни один хост-конфиг в этом репозитории не
+объявлял `nixpkgs.config.allowUnfree = true;` сам — просто не было unfree
+пакетов в списке до этого раунда. Вывод: **каждый `nixosConfigurations.*`
+(включая будущий `hosts/mimir/`) должен объявлять
+`nixpkgs.config.allowUnfree = true;` в своём собственном
+`configuration.nix`** — см. пример в
+`hosts/test-desktop-apps/configuration.nix`. Дублирование по хостам —
+осознанный компромисс, а не забытый рефакторинг: единого корневого
+`nixosSystem`-враппера, через который проходили бы все хосты, в этом
+флейке пока нет.
+
 ## 3. Структура репозитория
 
 ```
@@ -181,6 +202,11 @@ GTK4/libadwaita `overskride`: тот моложе, менее обкатан и 
 иконкой в waybar — по принципу "не усложнять" (см. `CLAUDE.md`).
 
 ### 5.1.1 Удалённый стол (в обе стороны)
+
+**Реализовано** в `modules/nixos/desktop-apps.nix` (пакеты `wayvnc` +
+`remmina`, 2026-08-10) — не только план, headless-VNC-паттерн ниже пока не
+проверен на реальном железе (см. README.md, "Известные ограничения" в
+секции про desktop-apps).
 ```
 wayvnc     # сервер: подключение К mimir удалённо
 remmina    # клиент: подключение С mimir к другим машинам
@@ -198,6 +224,9 @@ wayvnc -o VNC-1 0.0.0.0 5900
 GTK-приложение, с Wayland работает без нареканий.
 
 ### 5.1.2 Телефон ↔ ПК
+
+**Реализовано** в `modules/nixos/desktop-apps.nix` (`programs.kdeconnect.enable
+= true;`, 2026-08-10).
 ```
 kdePackages.kdeconnect-kde   # НЕ "kdeconnect" — этот атрибут больше не
                               # резолвится в текущей раскладке kdePackages
@@ -242,10 +271,24 @@ mise (менеджер версий ruby/node/etc — версии берутс�
 ```
 
 ### 5.4 IDE / редакторы
+
+**Реализовано** в `modules/nixos/desktop-apps.nix` (2026-08-10).
 ```
-jetbrains.rubymine     # unfree, требует allowUnfree = true
-vscode                 # unfree (лицензия MS, телеметрия) — выбран вместо vscodium
+jetbrains.ruby-mine     # unfree, требует allowUnfree = true
+vscode                  # unfree (лицензия MS, телеметрия) — выбран вместо vscodium
 ```
+`jetbrains.ruby-mine`, **не** `jetbrains.rubymine` — атрибут переименован
+апстримом (дефис, по аналогии с `jetbrains.rust-rover`), старое имя не
+резолвится вообще, даже как алиас/`throw`. Готча при проверке: `nix
+search nixpkgs jetbrains.rubymine`/`jetbrains.ruby-mine` показывает пусто
+для **обоих** имён, потому что `nix search` не учитывает
+`nixpkgs.config.allowUnfree = true` (эта опция применяется только к
+реальному `pkgs`-инстансу, а не к собственной hermetic-эвалюации `nix
+search`) — пустой результат `nix search` по unfree-пакету ничего не
+доказывает про его наличие в nixpkgs, не принимать это за подтверждение,
+что пакет исчез. Проверять так:
+`NIXPKGS_ALLOW_UNFREE=1 nix eval --impure --expr '(import <nixpkgs> {}).jetbrains.ruby-mine.version'`
+(или аналогично через `nix-instantiate --eval`).
 
 ### 5.5 AI coding agents
 ```
@@ -274,13 +317,26 @@ postman                 # unfree, в nixpkgs есть
 Выбран **Throne** (`throneproj/Throne`) — прямой продолжатель nekoray, тот
 же UI/логика, тот же движок sing-box.
 
-В основном nixpkgs пакета нет — устанавливать через AppImage/бинарник с
-GitHub Releases, завёрнутый в свой `.nix`-derivation в
-`modules/nixos/packages/throne.nix` (см. правило о сторонних пакетах в
-CLAUDE.md), либо через `nix-ld`/`buildFHSEnv`, если бинарник линкуется
-динамически. Конфиг (сервер/ключ VLESS-Reality и т.п.) — секрет, хранится
-в Bitwarden, не в sops-nix (см. §6, §7 — переехало из git-репозитория в
-облако вместе с SSH-ключами).
+**Реализовано** в `modules/nixos/desktop-apps.nix` (2026-08-10) — и проще,
+чем изначально предполагалось в этом плане. На момент реализации Throne
+оказался обычным пакетом в nixpkgs (собирается из исходников, не
+AppImage/бинарник с GitHub Releases), со своим собственным NixOS-модулем
+`programs.throne`, который уже решает неприятные части сам: заворачивает
+sing-box-based ядро в нужные capabilities через `setcap` (не требует
+полного setuid-root) и настраивает polkit для TUN-mode DNS, чтобы не
+переспрашивать пароль на каждое включение. Ничего из
+"AppImage/autoPatchelfHook/nix-ld своя derivation", описанного здесь
+раньше, делать не пришлось — держать в голове как устаревшую версию
+плана, если попадётся в истории git. Используется:
+```nix
+programs.throne = {
+  enable = true;
+  tunMode.enable = true;
+};
+```
+Конфиг (сервер/ключ VLESS-Reality и т.п.) — секрет, хранится в Bitwarden,
+не в sops-nix (см. §6, §7 — переехало из git-репозитория в облако вместе
+с SSH-ключами).
 
 ### 5.9 Виртуализация
 ```

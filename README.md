@@ -228,6 +228,70 @@ LUKS-промпта), а не полагаться на то, что они ун
   `secure-boot.nix` на реальной машине — будущий, явно запрашиваемый шаг,
   наравне с реальным enroll ключей.
 
+## Десктопные пакеты (desktop-apps.nix)
+
+`modules/nixos/desktop-apps.nix` — декларативный список десктопных
+приложений и связанных сервисов (system-plan.md §5.4-§5.10, §5.1.1,
+§5.1.2): IDE (RubyMine, VSCode), AI coding agents для разового
+интерактивного запуска (`claude-code`, `opencode` — sandboxed-путь для
+работы над конкретным проектом отдельный, см. секцию про agent-sandbox
+выше), коммуникация/браузер (Telegram, Chrome, Firefox), Postman,
+удалённый стол в обе стороны (`wayvnc` + `remmina`), медиа (`mpv`,
+`yt-dlp`, `pavucontrol`, `playerctl`), KDE Connect
+(`programs.kdeconnect.enable`), прокси-клиент Throne
+(`programs.throne`) и виртуализация (`virtualisation.libvirtd` +
+`programs.virt-manager`).
+
+Пакеты объявлены на уровне `environment.systemPackages`, **не** через
+home-manager — сознательная последовательность шагов, а не постоянная
+архитектура: home-manager в этом флейке ещё не подключён (отдельная,
+более поздняя задача), а список пакетов уже нужен сейчас. Когда
+home-manager появится, часть этого списка (то, что по смыслу
+пользовательское, а не системное) стоит пересмотреть и, возможно,
+перенести — см. `system-plan.md` §3 про целевую структуру.
+
+Проверка — `hosts/test-desktop-apps/` (одноразовый VM-хост, не
+`hosts/mimir/`), тем же паттерном, что и остальные throwaway-хосты в этом
+репозитории:
+```bash
+nix flake check --no-build
+nixos-rebuild dry-build --flake .#test-desktop-apps
+```
+(или `nix build .#nixosConfigurations.test-desktop-apps.config.system.build.toplevel`,
+если `nixos-rebuild` не в PATH — см. CLAUDE.md, "Цикл разработки").
+
+### Известные ограничения
+
+- **Группы `libvirtd`/`kvm` никому не назначены** — в этом репозитории
+  ещё нет реального пользователя (`hosts/mimir/` не существует), назначать
+  группы некому. Это шаг реальной установки, не этого модуля.
+- **Список пакетов системный (`environment.systemPackages`), не
+  home-manager** — см. выше, сознательная временная последовательность,
+  не финальная архитектура.
+- Две вещи, обнаруженные при реализации, расходятся с тем, что раньше
+  было написано в `system-plan.md` (сейчас уже исправлено там, но если
+  кто-то смотрит старую версию файла через git-историю — не доверять ей):
+  - IDE-пакет называется `jetbrains.ruby-mine` (через дефис), не
+    `jetbrains.rubymine` — атрибут переименован апстримом. `nix search`
+    по обоим именам показывает пусто независимо от переименования, потому
+    что `nix search` не учитывает `nixpkgs.config.allowUnfree = true`
+    (см. `system-plan.md` §5.4 за деталями и командой для реальной
+    проверки) — не принимать пустой результат `nix search` за
+    доказательство, что unfree-пакета нет в nixpkgs.
+  - Throne (прокси-клиент, преемник архивированного nekoray) — обычный
+    пакет nixpkgs со своим модулем `programs.throne`, а не
+    самодельная AppImage/бинарник-derivation, как изначально
+    предполагал план (см. `system-plan.md` §5.8).
+- **`nixpkgs.config.allowUnfree = true` из `flake.nix` не пропагирует в
+  `nixosConfigurations`** — он применяется только к отдельному
+  `pkgs`-инстансу для `packages.${system}` (agent-sandbox-образ). Список
+  пакетов в `desktop-apps.nix` включает unfree-пакеты (RubyMine, Chrome,
+  VSCode, Postman), поэтому `hosts/test-desktop-apps/configuration.nix`
+  объявляет `nixpkgs.config.allowUnfree = true;` сам — и любой будущий
+  реальный хост (`hosts/mimir/`) должен сделать то же самое в своём
+  `configuration.nix`, иначе dry-build/сборка упадёт. Подробности —
+  `system-plan.md` §2.
+
 ## Перевод по хоткею (Crow Translate)
 
 Вместо самописного скрипта — готовое, поддерживаемое приложение
