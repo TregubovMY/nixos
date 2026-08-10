@@ -184,6 +184,22 @@
             imports = [ lanzaboote.nixosModules.lanzaboote ];
           };
         };
+
+        # Confirms sops-nix's ssh-to-age decryption mechanism actually
+        # works in this repo's context, via a vendored (and, per its own
+        # header comment, corrected — see the deviation note there) copy
+        # of sops-nix's own upstream test (a fixed, published test SSH
+        # host key standing in for a real host's, which doesn't exist yet
+        # — see modules/nixos/secrets-test/ssh-decryption.nix and
+        # docs/superpowers/specs/2026-08-10-secrets-design.md). Does NOT
+        # touch hosts/test-secrets/ or modules/nixos/secrets.nix's real
+        # sops.age.sshKeyPaths path or the real secrets/secrets.yaml file.
+        secrets-decryption = pkgs.testers.runNixOSTest {
+          imports = [ ./modules/nixos/secrets-test/ssh-decryption.nix ];
+          extraBaseModules = {
+            imports = [ sops-nix.nixosModules.sops ];
+          };
+        };
       };
     };
 }
