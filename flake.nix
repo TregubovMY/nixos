@@ -145,6 +145,19 @@
         ];
       };
 
+      # Throwaway verification host for modules/home/neovim.nix (base
+      # LazyVim) — see docs/superpowers/specs/
+      # 2026-08-11-neovim-base-design.md. Real build (not dry-run), no
+      # VM boot, no live plugin-install check — see
+      # hosts/test-neovim/configuration.nix's own header comment.
+      nixosConfigurations.test-neovim = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          home-manager.nixosModules.home-manager
+          ./hosts/test-neovim/configuration.nix
+        ];
+      };
+
       # Real, functional verification (not just eval) of the disk/boot
       # foundation: LUKS unlock, btrfs subvolumes, and the LUKS->swap->
       # resumeDevice nesting the design doc flagged as unverified-by-
