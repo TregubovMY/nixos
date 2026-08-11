@@ -169,6 +169,18 @@
         ];
       };
 
+      # Throwaway verification host for modules/nixos/podman.nix +
+      # modules/home/mise.nix — real build (not dry-run), no VM boot —
+      # see hosts/test-podman-mise/configuration.nix's own header
+      # comment.
+      nixosConfigurations.test-podman-mise = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          home-manager.nixosModules.home-manager
+          ./hosts/test-podman-mise/configuration.nix
+        ];
+      };
+
       # Real, functional verification (not just eval) of the disk/boot
       # foundation: LUKS unlock, btrfs subvolumes, and the LUKS->swap->
       # resumeDevice nesting the design doc flagged as unverified-by-
