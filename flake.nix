@@ -3,10 +3,11 @@
   # throwaway test-vm host for the dev-databases module, the disko/boot
   # modules for the disk foundation design plus their own throwaway
   # verification host, the Secure Boot foundation, the declarative desktop
-  # package list (desktop-apps.nix), and sops-nix for secrets management.
-  # Not yet the full host flake (Hyprland, home-manager, hosts/mimir) —
-  # see system-plan.md §3.
-  description = "agent-sandbox package + dev-databases test-vm + disk/boot + Secure Boot + desktop packages + sops-nix foundations (see system-plan.md)";
+  # package list (desktop-apps.nix), sops-nix for secrets management, and
+  # home-manager infrastructure (NixOS-module-integrated, no dotfile
+  # content yet). Not yet the full host flake (Hyprland, hosts/mimir's
+  # real user) — see system-plan.md §3.
+  description = "agent-sandbox package + dev-databases test-vm + disk/boot + Secure Boot + desktop packages + sops-nix + home-manager foundations (see system-plan.md)";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   inputs.disko = {
@@ -28,8 +29,12 @@
     url = "github:Mic92/sops-nix";
     inputs.nixpkgs.follows = "nixpkgs";
   };
+  inputs.home-manager = {
+    url = "github:nix-community/home-manager";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
 
-  outputs = { self, nixpkgs, disko, lanzaboote, sops-nix, ... }:
+  outputs = { self, nixpkgs, disko, lanzaboote, sops-nix, home-manager, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
