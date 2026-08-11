@@ -132,6 +132,19 @@
         modules = [ ./hosts/test-hyprland/configuration.nix ];
       };
 
+      # Throwaway verification host for modules/home/shell.nix +
+      # zellij.nix — see docs/superpowers/specs/
+      # 2026-08-11-shell-zellij-design.md. Real build (not dry-run), no
+      # VM boot — see hosts/test-shell/configuration.nix's own header
+      # comment.
+      nixosConfigurations.test-shell = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          home-manager.nixosModules.home-manager
+          ./hosts/test-shell/configuration.nix
+        ];
+      };
+
       # Real, functional verification (not just eval) of the disk/boot
       # foundation: LUKS unlock, btrfs subvolumes, and the LUKS->swap->
       # resumeDevice nesting the design doc flagged as unverified-by-
