@@ -88,9 +88,11 @@ README.md                     # в т.ч. как подключать IDE к п�
 реализованы (см. §4-§6, README); home-manager подключён как
 инфраструктура (см. README, раздел «home-manager»), и уже с реальным
 содержимым — `modules/home/shell.nix` + `modules/home/zellij.nix` (см.
-README, раздел «Shell и Zellij») и `modules/home/neovim.nix` (базовый
-LazyVim, без Ruby-стека — см. README, раздел «Neovim»); `hosts/mimir/`
-существует как skeleton (см. §4). `Makefile` — всё ещё аспирационная
+README, раздел «Shell и Zellij»), `modules/home/neovim.nix` (базовый
+LazyVim, без Ruby-стека — см. README, раздел «Neovim»),
+`modules/home/kitty.nix` + `modules/home/direnv.nix` (см. README, раздел
+«kitty + direnv»); `hosts/mimir/` существует как skeleton (см. §4).
+`Makefile` — всё ещё аспирационная
 часть этой структуры, не построен.
 
 ## 4. Разметка диска и загрузка
@@ -280,8 +282,9 @@ qt5/qt6ct + kvantum (для консистентного вида Qt-прило�
 (2026-08-11) — zsh+starship+eza+git и Zellij (не tmux — см. README,
 раздел «Shell и Zellij», про замену). `modules/home/neovim.nix`
 (2026-08-11) — базовый LazyVim (вендоренный `LazyVim/starter`), без
-Ruby-стека (см. README, раздел «Neovim»). kitty, direnv/nix-direnv,
-podman, mise — ещё нет.
+Ruby-стека (см. README, раздел «Neovim»). `modules/home/kitty.nix` +
+`modules/home/direnv.nix` (2026-08-11, см. README, раздел «kitty +
+direnv»). podman, mise — ещё нет.
 
 ```
 zellij (вместо tmux — нативные WASM-плагины, отдельный

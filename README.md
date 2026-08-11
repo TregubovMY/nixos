@@ -508,6 +508,22 @@ LSP/инструменты через Nix, стандартный NixOS-патт
 - **kitty, direnv/nix-direnv, podman, mise** (`system-plan.md` §5.3) —
   всё ещё не реализовано.
 
+## kitty + direnv (modules/home/*)
+
+`modules/home/kitty.nix` — `programs.kitty.enable = true;`, без
+кастомизации темы/шрифта (та же граница "не выдумывать чужие
+предпочтения", что у `zellij.nix`/`shell.nix` — дефолты апстрима,
+реальные настройки — живое решение того, кто реально пользуется
+терминалом).
+
+`modules/home/direnv.nix` — `programs.direnv.enable` +
+`programs.direnv.nix-direnv.enable` (авто-окружения на проект,
+`system-plan.md` §5.3) + zsh-интеграция.
+
+Проверка — та же глубина, что у `shell.nix`/`neovim.nix`:
+`nix flake check --no-build` (`hosts/test-terminal/`) + реальная сборка
+(`nix build .#nixosConfigurations.test-terminal.config.system.build.toplevel`).
+
 ## Перевод по хоткею (Crow Translate)
 
 Вместо самописного скрипта — готовое, поддерживаемое приложение
