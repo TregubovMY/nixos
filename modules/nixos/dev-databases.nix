@@ -5,6 +5,14 @@
 # set up.
 { config, pkgs, ... }:
 {
+  # virtualisation.oci-containers.backend = "podman" alone does NOT
+  # install/enable podman -- confirmed by eval (checked
+  # config.virtualisation.podman.enable and environment.systemPackages
+  # with only the backend line set: both came back false/absent). This
+  # was a latent gap -- the podman backend was never actually functional
+  # without this. Found while adding modules/nixos/podman.nix
+  # (system-plan.md §5.3, interactive CLI podman for project containers).
+  virtualisation.podman.enable = true;
   virtualisation.oci-containers.backend = "podman";
 
   virtualisation.oci-containers.containers = {
