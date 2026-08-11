@@ -93,8 +93,10 @@ LazyVim, без Ruby-стека — см. README, раздел «Neovim»),
 `modules/home/kitty.nix` + `modules/home/direnv.nix` (см. README, раздел
 «kitty + direnv»), `modules/nixos/podman.nix` + `modules/home/mise.nix`
 (см. README, раздел «podman + mise»); `hosts/mimir/` существует как
-skeleton (см. §4). `Makefile` — всё ещё аспирационная
-часть этой структуры, не построен.
+skeleton (см. §4). `Makefile` реализован (`check`/`check-full`/`dry`/
+`vm`/`disko-test`, см. CLAUDE.md "Makefile-шорткаты"). Остаётся
+неаспирационного: только реальная установка `hosts/mimir/` (физическое
+железо) и Ruby-стек для `modules/home/neovim.nix`.
 
 ## 4. Разметка диска и загрузка
 
