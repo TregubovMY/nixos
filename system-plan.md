@@ -89,8 +89,11 @@ README.md                     # в т.ч. как подключать IDE к п�
 `modules/nixos/disko-luks-btrfs.nix` (параметризованный disko-модуль,
 `{ device, swapSize ? "34G" }`) + `modules/nixos/boot.nix`
 (systemd-boot + systemd-initrd). `hosts/mimir/` (реальная целевая машина)
-этим модулям пока не построен — это ещё аспирационная структура §3;
-проверка идёт через одноразовый VM-хост `hosts/test-disko-luks/`
+существует как skeleton (`disk-config.nix` + `configuration.nix`, см.
+`docs/superpowers/specs/2026-08-11-mimir-host-skeleton-design.md`) — не
+зарегистрирован в `flake.nix` и не собирается без реального
+`hardware-configuration.nix`; проверка идёт через одноразовый VM-хост
+`hosts/test-disko-luks/`
 (`device = "/dev/vda"`) и `checks.<system>.disko-luks-btrfs` в
 `flake.nix` (disko-тест на настоящем виртуальном диске через
 `disko.lib.testLib.makeDiskoTest`). Полная архитектура и её обоснование —
@@ -515,10 +518,13 @@ Boot (§4):
 
 - **`secrets/secrets.yaml`/`.sops.yaml` в этом репозитории пока вообще не
   существуют.** Этот раунд работы не создаёт реального получателя — для
-  `ssh-to-age` нужен реальный SSH-хост-ключ реальной машины, а
-  `hosts/mimir/` ещё не существует. Создавать `secrets/secrets.yaml`,
-  зашифрованный "в никуда" (без единого настоящего получателя), было бы
-  пустым жестом — оба файла остаются реально-install-time шагом.
+  `ssh-to-age` нужен реальный SSH-хост-ключ реальной машины, а `mimir` ещё
+  не установлен физически (хотя `hosts/mimir/configuration.nix` уже
+  импортирует `secrets.nix` как skeleton — см.
+  `docs/superpowers/specs/2026-08-11-mimir-host-skeleton-design.md`).
+  Создавать `secrets/secrets.yaml`, зашифрованный "в никуда" (без единого
+  настоящего получателя), было бы пустым жестом — оба файла остаются
+  реально-install-time шагом.
 - **Вендоренный тест доказывает механизм на фиксированном тестовом ключе,
   не на ключе реальной машины.** `age-ssh-keys` использует чужой, заранее
   известный, опубликованный SSH-ключ как стенд-ин — тот же механизм

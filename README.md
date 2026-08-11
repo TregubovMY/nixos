@@ -159,11 +159,14 @@ podman-контейнеры, `modules/nixos/dev-databases.nix`) — подним
   он **не** доказывает — что `systemctl hibernate` и последующий resume
   реально проходят целиком; это можно достоверно проверить только на
   настоящей машине.
-- **`hosts/mimir/` (реальный хост) ещё не существует.** Этот раунд работы
-  даёт только переиспользуемые, VM-проверенные модули — реальная установка
-  на `mimir` (генерация `hardware-configuration.nix`, `hosts/mimir/`,
-  `nixos-install`) отдельный, явно запрашиваемый шаг в будущем (см. design
-  doc, "Real Install Boundary").
+- **`hosts/mimir/` (реальный хост) существует только как skeleton.**
+  `disk-config.nix` + `configuration.nix` составляют переиспользуемые,
+  VM-проверенные модули под реальную identity машины (см.
+  `docs/superpowers/specs/2026-08-11-mimir-host-skeleton-design.md`), но
+  не зарегистрированы в `flake.nix` и не собираются — реальная установка
+  (генерация `hardware-configuration.nix`, регистрация в `flake.nix`,
+  `nixos-install`) остаётся отдельным, явно запрашиваемым шагом в будущем
+  (см. design doc, "Real Install Boundary").
 - **Оба LUKS-контейнера при реальной установке должны получить ОДИНАКОВУЮ
   парольную фразу — это ожидаемое поведение initrd, НЕ проверенное
   VM-тестом.** По механизму NixOS-initrd-разблокировки, при совпадающей
@@ -224,9 +227,11 @@ LUKS-промпта), а не полагаться на то, что они ун
   именованный, принятый пробел (design doc, раздел "Risk profile"), а не
   подразумеваемое покрытие только потому, что оба чека проходят по
   отдельности.
-- **`hosts/mimir/` (реальный хост) всё ещё не существует.** Включение
-  `secure-boot.nix` на реальной машине — будущий, явно запрашиваемый шаг,
-  наравне с реальным enroll ключей.
+- **`hosts/mimir/configuration.nix` уже импортирует `secure-boot.nix`**
+  (см. `docs/superpowers/specs/2026-08-11-mimir-host-skeleton-design.md`),
+  но хост не зарегистрирован в `flake.nix` и не собирается — реальное
+  включение на физической машине, наравне с реальным enroll ключей,
+  остаётся будущим, явно запрашиваемым шагом.
 
 ## Десктопные пакеты (desktop-apps.nix)
 
@@ -263,8 +268,9 @@ nixos-rebuild dry-build --flake .#test-desktop-apps
 ### Известные ограничения
 
 - **Группы `libvirtd`/`kvm` никому не назначены** — в этом репозитории
-  ещё нет реального пользователя (`hosts/mimir/` не существует), назначать
-  группы некому. Это шаг реальной установки, не этого модуля.
+  ещё нет реального пользователя (`hosts/mimir/configuration.nix` не
+  объявляет `users.users.*` — см. skeleton design doc), назначать группы
+  некому. Это шаг реальной установки, не этого модуля.
 - **Список пакетов системный (`environment.systemPackages`), не
   home-manager** — см. выше, сознательная временная последовательность,
   не финальная архитектура.
@@ -287,10 +293,11 @@ nixos-rebuild dry-build --flake .#test-desktop-apps
   `pkgs`-инстансу для `packages.${system}` (agent-sandbox-образ). Список
   пакетов в `desktop-apps.nix` включает unfree-пакеты (RubyMine, Chrome,
   VSCode, Postman), поэтому `hosts/test-desktop-apps/configuration.nix`
-  объявляет `nixpkgs.config.allowUnfree = true;` сам — и любой будущий
-  реальный хост (`hosts/mimir/`) должен сделать то же самое в своём
-  `configuration.nix`, иначе dry-build/сборка упадёт. Подробности —
-  `system-plan.md` §2.
+  объявляет `nixpkgs.config.allowUnfree = true;` сам — `hosts/mimir/configuration.nix`
+  уже делает то же самое в своём skeleton (см.
+  `docs/superpowers/specs/2026-08-11-mimir-host-skeleton-design.md`),
+  иначе dry-build/сборка упадёт, когда хост будет зарегистрирован.
+  Подробности — `system-plan.md` §2.
 
 ## Секреты (sops-nix)
 
@@ -319,8 +326,10 @@ Bitwarden) и что решено оставить — `system-plan.md` §6/§7.
 ### Известные ограничения
 
 - **`secrets/secrets.yaml`/`.sops.yaml` пока без реального содержимого** —
-  у этого репозитория ещё нет ни одного настоящего получателя
-  (`hosts/mimir/` не существует).
+  у этого репозитория ещё нет ни одного настоящего получателя (`mimir` не
+  установлен физически, реального SSH-хост-ключа для `ssh-to-age` пока
+  нет, хотя `hosts/mimir/configuration.nix` уже импортирует `secrets.nix`
+  — см. skeleton design doc).
 - **Вендоренный тест доказывает механизм на фиксированном тестовом ключе,
   не на ключе реальной машины** — тот же самый механизм (`ssh-to-age` из
   ed25519 host key), но "проверено через стенд-ин ключ", а не "проверено
