@@ -68,7 +68,7 @@ modules/
   home/
     hyprland/                 # конфиги Hyprland, hyprlock, hypridle, hyprpaper
     waybar-or-quickshell/
-    tmux.nix
+    zellij.nix                # tmux заменён на Zellij, см. README
     neovim.nix
     apps.nix                  # весь список GUI-софта
     shell.nix                 # zsh/bash, алиасы, git config
@@ -86,9 +86,11 @@ README.md                     # в т.ч. как подключать IDE к п�
 **Статус реализации этой структуры:** `boot.nix`/`disko-luks-btrfs.nix`/
 `secure-boot.nix`/`secrets.nix`/`desktop-apps.nix`/`hyprland.nix`
 реализованы (см. §4-§6, README); home-manager подключён как
-инфраструктура без дотфайлов (см. README, раздел «home-manager»);
-`hosts/mimir/` существует как skeleton (см. §4). `modules/home/*`,
-`Makefile` — всё ещё аспирационная часть этой структуры, не построены.
+инфраструктура (см. README, раздел «home-manager»), и уже с первым
+реальным содержимым — `modules/home/shell.nix` +
+`modules/home/zellij.nix` (см. README, раздел «Shell и Zellij»);
+`hosts/mimir/` существует как skeleton (см. §4). `modules/home/neovim.nix`
+и `Makefile` — всё ещё аспирационная часть этой структуры, не построены.
 
 ## 4. Разметка диска и загрузка
 
@@ -272,15 +274,23 @@ qt5/qt6ct + kvantum (для консистентного вида Qt-прило�
 ```
 
 ### 5.3 Терминал / dev-инструменты
+
+**Частично реализовано** в `modules/home/shell.nix` +
+`modules/home/zellij.nix` (2026-08-11) — zsh+starship+eza+git и Zellij
+(не tmux — см. README, раздел «Shell и Zellij», про замену). neovim,
+kitty, direnv/nix-direnv, podman, mise — ещё нет.
+
 ```
-tmux, tpm, tmux-resurrect, tmux-continuum, vim-tmux-navigator (плагины)
+zellij (вместо tmux — нативные WASM-плагины, отдельный
+  tpm/tmux-resurrect/tmux-continuum не нужен)
 neovim (LazyVim/kickstart.nvim как база)
   ruby-lsp, rubocop, treesitter (ruby/erb/yaml), vim-rails, rspec.nvim/vim-test,
   nvim-dap
 kitty — терминальный эмулятор
 zsh + starship (промпт) + плагины (автодополнение, подсветка синтаксиса,
-  поиск по истории) — конкретный набор/менеджер плагинов подобрать при
-  реализации по правилу "искать готовые решения" из CLAUDE.md
+  поиск по истории) — реализовано через нативные home-manager опции
+  (programs.zsh.autosuggestion/syntaxHighlighting/historySubstringSearch),
+  отдельный менеджер плагинов не понадобился
 direnv + nix-direnv (авто-окружения на проект)
 podman (контейнеры для сервисов проекта — см. 5.12 про PostgreSQL/Redis)
 mise (менеджер версий ruby/node/etc — версии берутся из .tool-versions

@@ -418,6 +418,52 @@ grim/slurp/wf-recorder, hyprpaper, cliphist, wl-clipboard,
   нет `users.users.*`/`home-manager.users.*` (см. skeleton и
   home-manager design docs).
 
+## Shell и Zellij (modules/home/*)
+
+Первое реальное содержимое `modules/home/*` (home-manager-дотфайлы, не
+только инфраструктура) — `modules/home/shell.nix` и
+`modules/home/zellij.nix`.
+
+`shell.nix`: zsh (`programs.zsh.autosuggestion`/`syntaxHighlighting`/
+`historySubstringSearch` — нативные опции home-manager, отдельный
+менеджер плагинов не нужен) + алиасы (`..`, `...`, `gs`/`gc`/`gp`/`gl`/`gd`)
++ eza вместо `ls` (`ll`/`la`/`lt`/`lla` генерируются автоматически через
+`programs.eza.enableZshIntegration`) + starship (промпт, zsh-интеграция
+включается автоматически) + git (`programs.git.settings` — текущее,
+не-obsolete имя опции; алиасы `co`/`br`/`st`, `init.defaultBranch = "main"`,
+`pull.rebase = true`). Без `user.name`/`user.email` — это реальная
+персональная информация, тот же шаг реальной установки, что и SSH/GPG-
+ключи, `users.users.*`.
+
+`zellij.nix`: `programs.zellij.enable = true;` вместо `tmux`
+(`system-plan.md` §3/§5.3 изначально называли `tmux` — заменено по
+явной просьбе на более новый и популярный инструмент; нативные WASM-плагины
+Zellij закрывают то, для чего `tmux` нужны были `tpm`/`tmux-resurrect`/
+`tmux-continuum`). `enableZshIntegration = false` — осознанно, чтобы не
+подключаться автоматически к существующей сессии в каждом новом шелле.
+
+Проверка — та же глубина, что у home-manager-инфраструктуры (реальная
+активация, не только eval):
+- `nix flake check --no-build` — eval-only проверка композиции
+  (`hosts/test-shell/`, одноразовый хост с тестовым пользователем
+  `testuser`).
+- `nix build .#nixosConfigurations.test-shell.config.system.build.toplevel`
+  — реальная сборка (не dry-run): подтверждает, что весь конфиг реально
+  собирается, включая activation-скрипт с настоящими дотфайлами.
+
+### Известные ограничения
+
+- **neovim, kitty, direnv/nix-direnv, podman, mise** (`system-plan.md`
+  §5.3) — не в этом раунде. neovim — отдельная, заметно большая задача
+  (LazyVim/kickstart.nvim + Ruby-стек); остальные — настоящие пробелы, не
+  забыты.
+- **Никакой визуальной/интерактивной проверки** — агент не может
+  запустить настоящий login-shell и посмотреть, как выглядит промпт или
+  работают алиасы интерактивно; это шаг на реальном хосте.
+- **`hosts/mimir/`'у некому назначать реальные дотфайлы** — реального
+  пользователя всё ещё нет, та же причина, по которой у него нет
+  `users.users.*`/`home-manager.users.*`.
+
 ## Перевод по хоткею (Crow Translate)
 
 Вместо самописного скрипта — готовое, поддерживаемое приложение
