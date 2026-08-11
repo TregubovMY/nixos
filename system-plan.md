@@ -84,11 +84,11 @@ README.md                     # в т.ч. как подключать IDE к п�
 просто соберётся без частей, зависящих от секретов (SSH-ключ и т.п.).
 
 **Статус реализации этой структуры:** `boot.nix`/`disko-luks-btrfs.nix`/
-`secure-boot.nix`/`secrets.nix`/`desktop-apps.nix` реализованы (см. §4-§6,
-README); home-manager подключён как инфраструктура без дотфайлов (см.
-README, раздел «home-manager»); `hosts/mimir/` существует как skeleton
-(см. §4). `modules/home/*`, `hyprland.nix`, `Makefile` — всё ещё
-аспирационная часть этой структуры, не построены.
+`secure-boot.nix`/`secrets.nix`/`desktop-apps.nix`/`hyprland.nix`
+реализованы (см. §4-§6, README); home-manager подключён как
+инфраструктура без дотфайлов (см. README, раздел «home-manager»);
+`hosts/mimir/` существует как skeleton (см. §4). `modules/home/*`,
+`Makefile` — всё ещё аспирационная часть этой структуры, не построены.
 
 ## 4. Разметка диска и загрузка
 
@@ -250,6 +250,14 @@ kdePackages.kdeconnect-kde   # НЕ "kdeconnect" — этот атрибут б�
 трей-иконка подхватывается waybar при запущенном демоне.
 
 ### 5.2 Hyprland-стек (десктоп)
+
+**Реализовано** в `modules/nixos/hyprland.nix` (2026-08-11) —
+`programs.hyprland.enable` плюс пакетный список ниже (`hyprpolkitagent`
+выбран вместо `polkit-gnome`, qt5ct/qt6ct + kvantum — на самом деле
+четыре отдельных пакета, не два). Без реального конфига
+(кейбинды/waybar/тема) — см. README, раздел «Hyprland», и
+`docs/superpowers/specs/2026-08-11-hyprland-design.md`.
+
 ```
 hyprland, xdg-desktop-portal-hyprland,
 waybar,

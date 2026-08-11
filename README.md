@@ -377,6 +377,47 @@ NixOS-module-интегрированную инфраструктуру (`home-
   пользователя всё ещё нет, та же причина, по которой у него нет
   `users.users.*` (см. skeleton design doc).
 
+## Hyprland
+
+`modules/nixos/hyprland.nix` — `programs.hyprland.enable = true;` (уже
+включает `xdg.portal.enable`, `portalPackage` →
+`xdg-desktop-portal-hyprland`, `xwayland.enable` — подтверждено `nix
+eval` на реальных дефолтах опций, не предположение) плюс остальной пакетный
+список из `system-plan.md` §5.2: waybar, fuzzel, mako, hyprlock/hypridle,
+grim/slurp/wf-recorder, hyprpaper, cliphist, wl-clipboard,
+`hyprpolkitagent` (выбран вместо `polkit-gnome` — родной для Hyprland,
+активно поддерживается), qt5ct/qt6ct + kvantum для Qt5 и Qt6 (четыре
+отдельных пакета на нетривиальных путях, не два, как можно подумать по
+`system-plan.md` §5.2). `playerctl` не дублируется — уже есть в
+`desktop-apps.nix` (§5.10).
+
+Проверка — та же глубина, что у `desktop-apps.nix` (`programs.hyprland.enable`
+структурно то же самое, что уже проверенные `programs.throne.enable`/
+`programs.kdeconnect.enable`):
+- `nix flake check --no-build` — eval-only проверка композиции
+  (`hosts/test-hyprland/`, одноразовый хост только для этой цели).
+- `nixos-rebuild dry-build --flake .#test-hyprland` (или `nix build
+  .#nixosConfigurations.test-hyprland.config.system.build.toplevel
+  --dry-run`, если `nixos-rebuild` не в PATH) — подтверждает, что все
+  пакетные атрибуты реально резолвятся и собрались бы.
+
+### Известные ограничения
+
+- **Никакого реального Hyprland-конфига** — кейбинды, виджеты waybar,
+  тема, `exec-once`-автозапуск (включая будущую привязку
+  `hypr/quick-translate.lua` и автозапуск `kdeconnectd`) — всё это ждёт
+  home-manager-дотфайлов (`modules/home/*`, инфраструктура уже есть, см.
+  раздел «home-manager», содержимого пока нет) — отдельная будущая
+  задача.
+- **Визуальная/поведенческая проверка невозможна из этой песочницы** —
+  нет GPU/дисплея, и агент не может "посмотреть глазами" на композитор в
+  принципе (см. `CLAUDE.md`) — это шаг только на реальном железе с живым
+  человеком.
+- **`hosts/mimir/`'у некому назначать реальную Hyprland-сессию** —
+  реального пользователя всё ещё нет, та же причина, по которой у него
+  нет `users.users.*`/`home-manager.users.*` (см. skeleton и
+  home-manager design docs).
+
 ## Перевод по хоткею (Crow Translate)
 
 Вместо самописного скрипта — готовое, поддерживаемое приложение
