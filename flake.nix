@@ -121,6 +121,17 @@
         ];
       };
 
+      # Throwaway verification host for the Hyprland module + package
+      # list — see docs/superpowers/specs/2026-08-11-hyprland-design.md.
+      # Eval + dry-build only, no VM boot possible or useful (no GPU/
+      # display in this sandbox, and no agent can visually verify a
+      # compositor regardless) — see
+      # hosts/test-hyprland/configuration.nix's own header comment.
+      nixosConfigurations.test-hyprland = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [ ./hosts/test-hyprland/configuration.nix ];
+      };
+
       # Real, functional verification (not just eval) of the disk/boot
       # foundation: LUKS unlock, btrfs subvolumes, and the LUKS->swap->
       # resumeDevice nesting the design doc flagged as unverified-by-
