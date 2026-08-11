@@ -464,6 +464,50 @@ Zellij закрывают то, для чего `tmux` нужны были `tpm`
   пользователя всё ещё нет, та же причина, по которой у него нет
   `users.users.*`/`home-manager.users.*`.
 
+## Neovim (modules/home/neovim.nix, база LazyVim)
+
+`modules/home/neovim.nix` — базовый LazyVim, без Ruby-специфичных
+инструментов (LSP/rubocop/treesitter/rails/rspec/dap — отдельный будущий
+раунд). Стартовый конфиг провендорен из `LazyVim/starter` (получен
+свежим при реализации, не предположен) в `modules/home/neovim/` —
+`init.lua`, `lua/config/{lazy,options,keymaps,autocmds}.lua`,
+`lua/plugins/init.lua` (`return {}`, реальный, а не отключённый
+`example.lua` апстрима — сюда позже лягут Ruby-специфичные plugin-спеки).
+
+Генуинно impure в рантайме: `lua/config/lazy.lua` сам клонирует
+`lazy.nvim` через `git clone` при первом запуске, а тот клонирует все
+плагины LazyVim по умолчанию — принятый компромисс выбора LazyVim
+(запрошено явно) вместо полностью декларативной альтернативы вроде
+nixvim.
+
+`home.packages` (не `programs.neovim.extraPackages`, который не попадает
+в реальный `$PATH` для сабшеллов): `ripgrep`/`fd` (telescope),
+`gcc` (nvim-treesitter компилирует парсеры в рантайме), `lazygit`
+(дефолтный кеймап LazyVim `<leader>gg`), `git`.
+
+**Mason** — намеренно не решено в этом раунде: LazyVim тащит `mason.nvim`
+как часть ядра независимо от language-экстра, но без Ruby-экстра ничего
+принудительно не скачивает. Решение (отключать Mason и ставить
+LSP/инструменты через Nix, стандартный NixOS-паттерн, или оставить как
+есть) — за Ruby-раундом, где это первый раз реально важно.
+
+Проверка — та же глубина, что у `shell.nix`:
+- `nix flake check --no-build` — eval-only (`hosts/test-neovim/`).
+- `nix build .#nixosConfigurations.test-neovim.config.system.build.toplevel`
+  — реальная сборка: подтверждает пакеты + symlink конфига через
+  home-manager activation.
+
+### Известные ограничения
+
+- **Первый запуск `lazy.nvim`/установка плагинов не проверены** —
+  генуинно impure, сетевой, требует реального интерактивного запуска
+  `nvim`; та же категория "не проверяемо из этой песочницы", что и
+  визуальная проверка Hyprland.
+- **Ruby-стек не в этом раунде** — LSP/rubocop/treesitter/rails/rspec/dap
+  ждут отдельного будущего раунда.
+- **kitty, direnv/nix-direnv, podman, mise** (`system-plan.md` §5.3) —
+  всё ещё не реализовано.
+
 ## Перевод по хоткею (Crow Translate)
 
 Вместо самописного скрипта — готовое, поддерживаемое приложение
