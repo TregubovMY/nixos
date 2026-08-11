@@ -335,8 +335,47 @@ Bitwarden) и что решено оставить — `system-plan.md` §6/§7.
   ed25519 host key), но "проверено через стенд-ин ключ", а не "проверено
   на `mimir`".
 - **`config.sops.secrets."gpg_key".path` пока без потребителя** —
-  подключение к git commit signing понадобится home-manager/user-слой,
-  которого в этом флейке ещё нет; отдельная будущая задача.
+  home-manager-инфраструктура теперь есть (`modules/nixos/home-manager.nix`),
+  но подключение к git commit signing понадобится реальный
+  `home-manager.users.<имя>` на реальном хосте, которого всё ещё нет;
+  отдельная будущая задача.
+
+## home-manager
+
+`modules/nixos/home-manager.nix` — включает home-manager как
+NixOS-module-интегрированную инфраструктуру (`home-manager.useGlobalPkgs
+= true`, `home-manager.useUserPackages = true`), без содержимого
+дотфайлов (`modules/home/*`: tmux, neovim, shell, waybar, Hyprland-конфиг
+— отдельная будущая задача, ждёт самого Hyprland). Требует
+`home-manager.nixosModules.home-manager`, импортированный на уровне
+флейка вместе с этим модулем — тот же паттерн, что уже используют
+`disko.nixosModules.disko`/`lanzaboote.nixosModules.lanzaboote`.
+
+`home-manager.users.<имя>` — не часть этого модуля: имя пользователя
+хост-специфично, та же граница, что уже есть у `users.users.*` в этом
+репозитории. `hosts/mimir/configuration.nix` пока не объявляет ни того,
+ни другого (см. `docs/superpowers/specs/2026-08-11-mimir-host-skeleton-design.md`)
+— это шаг реальной установки.
+
+Проверка:
+- `nix flake check --no-build` — eval-only проверка композиции модулей
+  (`hosts/test-home-manager/`, одноразовый хост с тестовым пользователем
+  `testuser`, только для этой цели).
+- `nix build .#nixosConfigurations.test-home-manager.config.system.build.toplevel`
+  — реальная (не dry-run) сборка: подтверждает, что деривации
+  activation-скрипта home-manager и профиля пользователя действительно
+  собираются, а не только эвалятся. Без VM-теста — без реальных
+  дотфайлов нечего проверять поведенчески, см. design doc "Testing".
+
+### Известные ограничения
+
+- **Дотфайлы (`modules/home/*`) не существуют** — этот раунд даёт только
+  инфраструктуру; tmux/neovim/shell/waybar/Hyprland-конфиг остаются
+  отдельной будущей задачей, зависящей от самого Hyprland-модуля
+  (`system-plan.md` §5.2, ещё не построен).
+- **`hosts/mimir/`'у некому назначать `home-manager.users.*`** — реального
+  пользователя всё ещё нет, та же причина, по которой у него нет
+  `users.users.*` (см. skeleton design doc).
 
 ## Перевод по хоткею (Crow Translate)
 
