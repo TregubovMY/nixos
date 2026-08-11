@@ -524,6 +524,29 @@ LSP/инструменты через Nix, стандартный NixOS-патт
 `nix flake check --no-build` (`hosts/test-terminal/`) + реальная сборка
 (`nix build .#nixosConfigurations.test-terminal.config.system.build.toplevel`).
 
+## podman + mise (modules/nixos/podman.nix, modules/home/mise.nix)
+
+`modules/nixos/podman.nix` — `virtualisation.podman.enable = true;` для
+интерактивного использования podman под проекты (`system-plan.md` §5.3),
+отдельно от `dev-databases.nix`'ного `virtualisation.oci-containers`.
+
+**Попутная находка:** `dev-databases.nix` объявлял
+`virtualisation.oci-containers.backend = "podman";`, но нигде не включал
+`virtualisation.podman.enable` — подтверждено через `nix eval`, что без
+этого podman не устанавливается и не включается вообще. Значит бэкенд
+`dev-databases.nix` никогда реально не работал. Исправлено — `podman.nix`
+и `dev-databases.nix` оба явно ставят `virtualisation.podman.enable =
+true;` (безопасно: NixOS не конфликтует на одинаковых значениях от
+разных модулей).
+
+`modules/home/mise.nix` — `programs.mise.enable` + zsh-интеграция; версии
+языков берутся из `.tool-versions` каждого проекта, тот же инструмент,
+что использует agent-sandbox внутри (§9.3).
+
+Проверка — та же глубина: `nix flake check --no-build` +
+`nix build .#nixosConfigurations.test-podman-mise.config.system.build.toplevel`
+(`hosts/test-podman-mise/`).
+
 ## Перевод по хоткею (Crow Translate)
 
 Вместо самописного скрипта — готовое, поддерживаемое приложение

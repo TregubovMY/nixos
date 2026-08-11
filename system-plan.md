@@ -91,8 +91,9 @@ README.md                     # в т.ч. как подключать IDE к п�
 README, раздел «Shell и Zellij»), `modules/home/neovim.nix` (базовый
 LazyVim, без Ruby-стека — см. README, раздел «Neovim»),
 `modules/home/kitty.nix` + `modules/home/direnv.nix` (см. README, раздел
-«kitty + direnv»); `hosts/mimir/` существует как skeleton (см. §4).
-`Makefile` — всё ещё аспирационная
+«kitty + direnv»), `modules/nixos/podman.nix` + `modules/home/mise.nix`
+(см. README, раздел «podman + mise»); `hosts/mimir/` существует как
+skeleton (см. §4). `Makefile` — всё ещё аспирационная
 часть этой структуры, не построен.
 
 ## 4. Разметка диска и загрузка
@@ -284,7 +285,10 @@ qt5/qt6ct + kvantum (для консистентного вида Qt-прило�
 (2026-08-11) — базовый LazyVim (вендоренный `LazyVim/starter`), без
 Ruby-стека (см. README, раздел «Neovim»). `modules/home/kitty.nix` +
 `modules/home/direnv.nix` (2026-08-11, см. README, раздел «kitty +
-direnv»). podman, mise — ещё нет.
+direnv»). `modules/nixos/podman.nix` + `modules/home/mise.nix`
+(2026-08-11, см. README, раздел «podman + mise») — включая попутную
+находку и исправление: `dev-databases.nix` (§5.12) никогда реально не
+включал podman.
 
 ```
 zellij (вместо tmux — нативные WASM-плагины, отдельный
