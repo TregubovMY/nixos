@@ -109,6 +109,18 @@
         ];
       };
 
+      # Throwaway verification host for the home-manager infrastructure
+      # design — see docs/superpowers/specs/2026-08-11-home-manager-design.md.
+      # Eval + a real (non-dry-run) build only, no VM boot — see
+      # hosts/test-home-manager/configuration.nix's own header comment.
+      nixosConfigurations.test-home-manager = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          home-manager.nixosModules.home-manager
+          ./hosts/test-home-manager/configuration.nix
+        ];
+      };
+
       # Real, functional verification (not just eval) of the disk/boot
       # foundation: LUKS unlock, btrfs subvolumes, and the LUKS->swap->
       # resumeDevice nesting the design doc flagged as unverified-by-
