@@ -28,5 +28,31 @@
     ../../modules/nixos/secure-boot.nix
   ];
 
+  # Discovered live during the rehearsal run, not anticipated when this
+  # host was written: with no hardware-configuration.nix and no
+  # qemu-vm.nix (deliberately, see header comment), the installed
+  # system's own initrd has none of nixpkgs' default
+  # boot.initrd.includeDefaultModules fallback list (SATA/PATA/NVMe/USB
+  # -- checked nixos/modules/system/boot/kernel.nix at this repo's
+  # pinned nixpkgs rev: it genuinely does not include virtio anything,
+  # that list predates VMs being common and is kept only for backwards
+  # compat). Without a virtio block driver available in the initrd, the
+  # kernel can never see /dev/vda at all during early boot -- the LUKS
+  # partitions' by-partlabel symlinks never appear, hence
+  # "Timed out waiting for device ...cryptroot" and emergency mode. A
+  # real hardware-configuration.nix (nixos-generate-config, run inside
+  # this exact VM) would have detected and declared this automatically
+  # -- this is the minimal manual equivalent for a throwaway rehearsal
+  # host.
+  boot.initrd.availableKernelModules = [ "virtio_pci" "virtio_blk" "virtio_scsi" ];
+
+  # Rehearsal-only convenience -- NOT how hosts/mimir/ should ever be
+  # configured (that needs a real user + real secrets, see
+  # system-plan.md §7). nixos-install left root locked (no password set
+  # interactively during the unattended-ish install run), which blocks
+  # even emergency-mode login. A known, fixed password is fine here:
+  # this is a throwaway synthetic disk, not a real machine.
+  users.users.root.initialPassword = "root";
+
   system.stateVersion = "24.05";
 }

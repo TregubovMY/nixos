@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Re-mount the already-disko'd /dev/vda at /mnt WITHOUT reformatting --
+# see docs/superpowers/plans/tingly-doodling-phoenix.md. Use this after a
+# failed first boot (e.g. the missing-virtio-modules issue
+# hosts/mimir-vm-rehearsal/configuration.nix's header comment documents)
+# to get back into the live installer environment and retry
+# bin/mimir-vm-install with a fixed config, without re-running
+# bin/mimir-vm-disko (which would destroy and recreate the partitions --
+# unnecessary and slower when only the installed system's config needs
+# fixing, not the disk layout). Opens the existing LUKS containers
+# (prompts for the passphrase) and mounts the existing btrfs subvolumes
+# at /mnt, same as bin/mimir-vm-disko's "--mode disko" but disko's
+# non-destructive "--mode mount" instead.
+set -euo pipefail
+
+DISKO_REV="ff8702b4de27f72b4c78573dfb89ec74e36abdf1"
+
+exec sudo nix --extra-experimental-features 'nix-command flakes' run \
+  "github:nix-community/disko/${DISKO_REV}" -- \
+  --mode mount ./hosts/mimir-vm-rehearsal/disk-config.nix
