@@ -4,7 +4,14 @@
 # root, inside the rehearsal VM's NixOS installer session, after
 # bin/mimir-vm-disko has partitioned the disk. Plain shell script, not a
 # Makefile target -- see bin/mimir-vm-disko's header comment for why.
+#
+# nixos-install is its own wrapper script with its own argument parser,
+# not `nix` itself -- it doesn't accept `--extra-experimental-features`
+# (unlike the direct `nix run` in bin/mimir-vm-disko). NIX_CONFIG is the
+# portable way to reach the nix invocations it performs internally.
+# `sudo VAR=val cmd` passes VAR through as part of the command spec
+# regardless of sudo's env_reset default -- no --preserve-env needed.
 set -euo pipefail
 
-exec sudo nixos-install --extra-experimental-features 'nix-command flakes' \
-  --flake .#mimir-vm-rehearsal
+exec sudo NIX_CONFIG='experimental-features = nix-command flakes' \
+  nixos-install --flake .#mimir-vm-rehearsal
