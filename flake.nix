@@ -105,6 +105,20 @@
         ];
       };
 
+      # Full-system VM rehearsal (disko+Secure Boot+desktop-apps+
+      # dev-databases+podman+home-manager -- everything but secrets.nix)
+      # -- see docs/superpowers/plans/tingly-doodling-phoenix.md and
+      # hosts/mimir-vm-full/configuration.nix's own header comment.
+      nixosConfigurations.mimir-vm-full = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          disko.nixosModules.disko
+          lanzaboote.nixosModules.lanzaboote
+          home-manager.nixosModules.home-manager
+          ./hosts/mimir-vm-full/configuration.nix
+        ];
+      };
+
       # Throwaway verification host for the desktop package list design —
       # see docs/superpowers/specs/2026-08-10-desktop-packages-design.md.
       # NOT the real mimir host; eval + dry-build only (no VM boot), see

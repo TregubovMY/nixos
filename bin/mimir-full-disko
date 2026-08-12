@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Partition the mimir-vm-full VM's disk via disko -- see bin/mimir-vm-disko
+# (same shape, different host/config file) and
+# docs/superpowers/plans/tingly-doodling-phoenix.md.
+set -euo pipefail
+
+DISKO_REV="ff8702b4de27f72b4c78573dfb89ec74e36abdf1"
+
+exec sudo nix --extra-experimental-features 'nix-command flakes' run \
+  "github:nix-community/disko/${DISKO_REV}" -- \
+  --mode disko ./hosts/mimir-vm-full/disk-config.nix

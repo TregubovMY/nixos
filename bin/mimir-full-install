@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Install mimir-vm-full, folding in the sbctl-create-keys retry that
+# bin/mimir-vm-sbctl-create-keys needed as a separate manual step last
+# time -- see that script's header comment for the full "why" (lanzaboote
+# signs boot binaries as part of nixos-install's own bootloader-install
+# step, so /var/lib/sbctl/keys/db/db.pem must exist in the target system
+# BEFORE that step runs). Run from the repo root, inside the VM's NixOS
+# installer session, after bin/mimir-full-disko.
+#
+# Not `set -e` for the first attempt: on a fresh install (no sbctl keys
+# yet) it is EXPECTED to fail at the bootloader step, and that failure is
+# handled explicitly below, not treated as a script error.
+set -uo pipefail
+
+NIX_CONFIG='experimental-features = nix-command flakes'
+export NIX_CONFIG
+
+echo "==> First nixos-install attempt (expected to fail at the bootloader step on a fresh install -- lanzaboote needs sbctl keys that don't exist yet)."
+if sudo NIX_CONFIG="$NIX_CONFIG" nixos-install --flake .#mimir-vm-full; then
+  echo "==> Installed cleanly on the first attempt (sbctl keys already existed)."
+  exit 0
+fi
+
+echo "==> First attempt failed as expected -- creating sbctl keys inside the target system (/mnt) and retrying."
+sudo nixos-enter --root /mnt -c 'sbctl create-keys'
+
+echo "==> Retrying nixos-install now that keys exist."
+exec sudo NIX_CONFIG="$NIX_CONFIG" nixos-install --flake .#mimir-vm-full
