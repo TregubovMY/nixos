@@ -41,6 +41,24 @@
 # Hyprland session (bare cursor, DMS never appeared) because Hyprland's
 # generated config tried to start a systemd unit that didn't exist.
 # Enabled below to match.
+#
+# Second correction, found live after the above fix still produced a
+# blank session on the NEXT boot: enabling programs.dank-material-shell's
+# own systemd service isn't enough by itself. `dms setup`'s generated
+# ~/.config/hypr/hyprland.lua execs
+# `systemctl --user start hyprland-session.target` on startup (confirmed
+# by grepping the actual deployed file) -- the exact target
+# wayland.windowManager.hyprland's own systemd.enable used to create
+# (back when this module still used that module, before the
+# xdg.configFile conflict above). Removing that module also removed the
+# target definition, but DMS's own generated config still assumes it
+# exists -- `systemctl --user start` on a target with no unit file just
+# fails silently, so dms.service (WantedBy = graphical-session.target,
+# the default) never gets pulled in. Fix: recreate ONLY the target unit
+# itself here (not the whole conflicting module) -- BindsTo
+# graphical-session.target, same shape
+# wayland.windowManager.hyprland's own module used internally, so
+# DMS's exec-once line has something real to start.
 { pkgs, ... }:
 {
   # quickshell itself comes from home-manager's own programs.quickshell
@@ -51,6 +69,15 @@
   programs.dank-material-shell = {
     enable = true;
     systemd.enable = true;
+  };
+
+  systemd.user.targets.hyprland-session = {
+    Unit = {
+      Description = "Hyprland compositor session";
+      BindsTo = [ "graphical-session.target" ];
+      Wants = [ "graphical-session-pre.target" ];
+      After = [ "graphical-session-pre.target" ];
+    };
   };
 
   # Requested live: a real cursor theme instead of the default GTK
