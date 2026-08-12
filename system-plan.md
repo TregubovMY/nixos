@@ -197,12 +197,26 @@ skeleton (см. §4). `Makefile` реализован (`check`/`check-full`/`dry
   (`nixosConfigurations.test-secure-boot`, `hosts/test-secure-boot/`,
   `nix flake check --no-build`) — одноразовый хост, эвалящий
   `disko-luks-btrfs.nix` и `secure-boot.nix` вместе, доказывающий только
-  отсутствие конфликтов опций между ними, без реальной сборки. **Ни один
-  из двух чеков не доказывает, что цепочка подписи Secure Boot и настоящий
-  disko/LUKS/btrfs-layout реально работают вместе в одной загрузке** —
-  эта комбинация никогда не тестировалась целиком; это именованный,
-  принятый пробел (design doc, "Risk profile"), а не подразумеваемое
-  покрытие только потому, что оба чека проходят.
+  отсутствие конфликтов опций между ними, без реальной сборки. Ни один
+  из этих двух чеков сам по себе не доказывал, что цепочка подписи Secure
+  Boot и настоящий disko/LUKS/btrfs-layout реально работают вместе в
+  одной загрузке.
+
+  **Обновление (2026-08-12): эта комбинация подтверждена реальной
+  загрузкой** — `hosts/mimir-vm-rehearsal/` (disko-luks-btrfs.nix +
+  secure-boot.nix, без qemu-vm.nix, см.
+  `docs/superpowers/plans/tingly-doodling-phoenix.md`), установлен и
+  загружен вручную в QEMU/OVMF VM (реальный disko-раздел на синтетическом
+  диске, не auto-built VM-артефакт). Подтверждено на живой машине: LUKS
+  спросил пароль **один раз** (не дважды — гипотеза про одинаковый
+  пароль для `cryptroot`/`cryptswap` из §4 выше подтвердилась), загрузка
+  прошла через реальный `lanzastub`/`systemd-boot`, `sbctl enroll-keys`
+  и `bootctl status` после перезагрузки показал `Secure Boot: enabled`,
+  `systemctl --failed` пуст. Остаётся непроверенным то же, что и раньше
+  было явно вне охвата VM-репетиции: реальное железо `hosts/mimir/`
+  (другой размер диска/раздела, реальные Option ROM вместо `--yes-this-
+  might-brick-my-machine` в VM без TPM, реальный `sbctl enroll-keys` в
+  прошивке машины, а не в OVMF) и hibernate-цикл.
 
 ## 5. Полный список пакетов по категориям
 

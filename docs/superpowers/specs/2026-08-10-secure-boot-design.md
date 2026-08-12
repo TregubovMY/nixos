@@ -57,6 +57,24 @@ attempted in this plan — the risk/effort would rival or exceed the disk/boot
 plan's own hardest task for a benefit that's mostly already covered by
 lanzaboote's own upstream CI. Instead: two separate, narrower checks (below).
 
+**Update (2026-08-12): attempted for real after all, outside this plan's
+original scope, and it worked.** Not the automated `makeDiskoTest`+`OVMF`
+integration described above (still not built) — instead a manual,
+human-driven rehearsal: `hosts/mimir-vm-rehearsal/` (this repo's real
+`disko-luks-btrfs.nix` + `secure-boot.nix`, no `qemu-vm.nix`) installed
+by hand into a QEMU/OVMF VM via `virt-manager`, on a real disko-partitioned
+synthetic disk. Result: single LUKS prompt for both containers,
+`lanzastub`/`systemd-boot` boot chain, `sbctl enroll-keys` succeeded, and
+`bootctl status` after reboot showed `Secure Boot: enabled` with
+`systemctl --failed` empty. See
+`docs/superpowers/plans/tingly-doodling-phoenix.md` and `system-plan.md`
+§4 for the full account, including the two real bugs this surfaced that
+no eval-only check could have (`hosts/mimir-vm-rehearsal/` has no
+`hardware-configuration.nix`, so it was missing virtio initrd modules;
+and `sbctl create-keys` must run *between* two `nixos-install` attempts,
+not after one, since lanzaboote signs boot binaries as part of
+`nixos-install`'s own bootloader-install step).
+
 ## Module
 
 ```
