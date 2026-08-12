@@ -13,7 +13,7 @@
 # live rehearsal), plus a real home-manager user
 # (max, matching the username already anticipated by
 # docs/superpowers/specs/2026-08-11-mimir-host-skeleton-design.md)
-# importing hyprland.nix/neovim.nix/shell.nix/zellij.nix/kitty.nix/
+# importing hyprland.nix/neovim.nix/shell.nix/zellij.nix/ghostty.nix/
 # direnv.nix/mise.nix -- the actual day-to-day desktop config, not just
 # the disk/boot layer.
 { pkgs, ... }:
@@ -90,7 +90,7 @@
       ../../modules/home/neovim.nix
       ../../modules/home/shell.nix
       ../../modules/home/zellij.nix
-      ../../modules/home/kitty.nix
+      ../../modules/home/ghostty.nix
       ../../modules/home/direnv.nix
       ../../modules/home/mise.nix
     ];

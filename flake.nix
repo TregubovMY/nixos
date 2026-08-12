@@ -219,7 +219,7 @@
         ];
       };
 
-      # Throwaway verification host for modules/home/kitty.nix +
+      # Throwaway verification host for modules/home/ghostty.nix +
       # direnv.nix — real build (not dry-run), no VM boot — see
       # hosts/test-terminal/configuration.nix's own header comment.
       nixosConfigurations.test-terminal = nixpkgs.lib.nixosSystem {
