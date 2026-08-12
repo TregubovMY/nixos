@@ -5,54 +5,36 @@
 # defaults against this repo's pinned nixpkgs (see
 # docs/superpowers/specs/2026-08-11-hyprland-design.md "Research
 # findings"), not assumed from §5.2's flat package list. Real config
-# content (keybinds, waybar, mako, hyprlock/hypridle, crow-translate
-# hotkey) lives in modules/home/hyprland.nix, see
-# docs/superpowers/specs/2026-08-12-hyprland-config-design.md.
+# content lives in modules/home/hyprland.nix, see
+# docs/superpowers/specs/2026-08-12-hyprland-config-design.md and
+# docs/superpowers/plans/tingly-doodling-phoenix.md for the later
+# DankMaterialShell switch.
+#
+# waybar/fuzzel/mako/hyprlock/hypridle/hyprpolkitagent used to be listed
+# here -- removed, DankMaterialShell (modules/home/hyprland.nix) replaces
+# all of them as one integrated system (confirmed against its own
+# README's explicit "replaces waybar, swaylock, swayidle, mako, fuzzel,
+# polkit" claim). security.pam.services.hyprlock removed for the same
+# reason -- DMS's own lock screen handles PAM itself (its NixOS module
+# sets up a dedicated dankshell-u2f PAM service when its security-key
+# option is enabled, not used here).
 { pkgs, ... }:
 {
   programs.hyprland.enable = true;
 
-  # Required for hyprlock (modules/home/hyprland.nix) to actually
-  # authenticate -- without this PAM service, the home-manager-installed
-  # hyprlock binary can't unlock the session at all, per hyprlock's own
-  # documented requirement (home-manager's programs.hyprlock.enable
-  # option description says so explicitly). System-level, so it lives
-  # here, not in the home-manager module.
-  security.pam.services.hyprlock = { };
-
-  # Needed for the Catppuccin Mocha waybar/hyprlock theming in
-  # modules/home/hyprland.nix -- both reference "JetBrainsMono Nerd Font"
-  # by name (matching catppuccin/hyprlock's own vendored config, which
-  # uses the same family). Without the font installed, those glyphs/text
-  # just fall back to whatever default GTK/Pango picks, not a hard
-  # failure, but the icons Nerd Font provides wouldn't render. System
-  # level (fonts.packages), not home-manager, since font availability is
-  # host-wide, not per-user.
-  fonts.packages = [ pkgs.nerd-fonts.jetbrains-mono ];
-
   environment.systemPackages = with pkgs; [
-    waybar
-    fuzzel
-    mako
-    hyprlock
-    hypridle
     grim
     slurp
     wf-recorder
     hyprpaper
     cliphist
     wl-clipboard
-    # Hyprland's own polkit agent, not polkit-gnome -- system-plan.md
-    # §5.2 left this an open either/or; hyprpolkitagent is actively
-    # maintained by the Hyprland project itself and purpose-built for
-    # this exact compositor rather than borrowed from GNOME. See design
-    # doc "Research findings" for the full comparison.
-    hyprpolkitagent
     # qt5ct/qt6ct + kvantum: system-plan.md §5.2's single "qt5/qt6ct +
     # kvantum" bullet is actually four separate packages at non-obvious
     # attribute paths -- bare qt6ct doesn't exist (renamed), bare qt5ct
     # doesn't exist either (needs libsForQt5 prefix). Confirmed against
-    # this repo's pinned nixpkgs via nix eval, not assumed.
+    # this repo's pinned nixpkgs via nix eval, not assumed. Unrelated to
+    # DMS (Qt theming for other Qt apps like RubyMine), kept.
     libsForQt5.qt5ct
     qt6Packages.qt6ct
     libsForQt5.qtstyleplugin-kvantum

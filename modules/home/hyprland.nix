@@ -1,423 +1,56 @@
-# Real Hyprland config content -- see
-# docs/superpowers/specs/2026-08-12-hyprland-config-design.md. Uses
-# home-manager's own wayland.windowManager.hyprland module (fetched and
-# read in full against this repo's pinned home-manager rev before
-# writing this -- see design doc "Decision"), not hand-vendored Lua text:
-# package/portalPackage = null defers installation to
-# modules/nixos/hyprland.nix's programs.hyprland.enable (this module only
-# generates config, matching that option's own documented purpose for
-# NixOS-module users). configType = "lua" -- Hyprland 0.55 (2026-05-09)
-# deprecated the old hyprlang .conf format in favor of Lua, see
-# system-plan.md §5.11.
-{ lib, pkgs, ... }:
-let
-  inherit (lib.generators) mkLuaInline;
-
-  # One `hl.bind(key, <raw lua handler>, opts?)` call. handler is raw Lua
-  # source (wrapped in mkLuaInline here so callers just pass a string) --
-  # see design doc "Nix -> Lua translation rules" for why this needs
-  # mkLuaInline and _var/string-concat locals don't (nothing here is a
-  # runtime Lua variable, it's all resolved at Nix-eval time).
-  bind =
-    key: handler: opts:
-    {
-      _args = [ key (mkLuaInline handler) ] ++ lib.optional (opts != null) opts;
-    };
-in
+# Real Hyprland desktop config -- now built on DankMaterialShell (DMS), a
+# Quickshell-based desktop shell, per explicit user request after
+# hand-styled waybar/mako/hyprlock iterations were repeatedly flagged as
+# "выглядит плохо/пусто". DMS replaces waybar, mako, hyprlock, hypridle,
+# fuzzel, and the polkit agent as one integrated system (confirmed
+# against DankMaterialShell's own README: "It replaces waybar, swaylock,
+# swayidle, mako, fuzzel, polkit, and everything else you'd normally
+# stitch together") -- see docs/superpowers/plans/tingly-doodling-phoenix.md
+# for the fuller discussion (why not end-4/dots-hyprland directly: that
+# repo is an Arch/AUR-specific installer with configs for apps we don't
+# use, not portable to NixOS; DMS ships real nixosModules/homeModules
+# under distro/nix/, fetched and read in full before wiring this in).
+#
+# IMPORTANT — deliberately NOT using home-manager's own
+# wayland.windowManager.hyprland module at all, even just for its
+# systemd.enable session-target wiring. Checked live: that module claims
+# xdg.configFile."hypr/hyprland.conf"/".lua" as a home-manager-managed
+# (read-only, Nix-store-symlinked) file the moment `enable = true` is
+# set, REGARDLESS of whether settings/extraConfig are populated -- its
+# own `config` block sets xdg.configFile unconditionally under
+# `mkIf cfg.enable`. DMS's own `dms setup` CLI (interactive, run once
+# after first login) needs to WRITE ~/.config/hypr/hyprland.lua and
+# ~/.config/hypr/dms/*.lua (colors/outputs/layout/cursor/binds/
+# binds-user/windowrules) itself and keep them DMS-managed from then on
+# (confirmed via DMS's own docs/Hyprland_Lua_Migration.md, fetched and
+# read in full) -- a Nix-owned symlink there would block that outright.
+# So this repo leaves ~/.config/hypr/ entirely unmanaged by Nix/home-
+# manager, fully owned by DMS. Same "genuinely impure, accepted"
+# category as LazyVim's lazy.nvim bootstrap in modules/home/neovim.nix,
+# one step further (not even a Nix-vendored starting point -- DMS
+# bootstraps the whole directory from nothing via `dms setup`).
+#
+# Consequence: programs.dank-material-shell.systemd.enable is left off
+# too -- that option's WantedBy target (wayland.systemd.target,
+# "graphical-session.target" by default) is normally reached via
+# wayland.windowManager.hyprland's own dbus-update-activation-environment
+# + hyprland-session.target dance, which isn't available here. DMS's own
+# `dms setup` writes the real startup wiring (an exec-once line launching
+# `dms run` directly from Hyprland's own config) instead -- no systemd
+# session-target chain needed on our side.
+#
+# Custom keybinds this repo previously hand-wrote in Nix (Crow Translate
+# hotkey, cliphist picker, screenshot bind) are consequently NOT
+# reproduced here either -- they'd need to be re-added by hand into
+# ~/.config/hypr/dms/binds-user.lua after `dms setup`, the same
+# human-editable, DMS-managed file its own Settings UI writes to. Noted
+# as a follow-up, not silently dropped.
+{ ... }:
 {
-  wayland.windowManager.hyprland = {
-    enable = true;
-    configType = "lua";
-    package = null;
-    portalPackage = null;
-    systemd.enable = true;
-
-    settings = {
-      monitor = {
-        output = "";
-        mode = "preferred";
-        position = "auto";
-        scale = "auto";
-      };
-
-      # "overshot" bezier + window/fade/workspace animations -- also
-      # ported verbatim (values, not just the idea) from
-      # rubyowo/dotfiles' real hyprland.conf. First pass had animations
-      # left at Hyprland's own compiled-in defaults, not this repo's own
-      # choice either way.
-      curve = {
-        _args = [
-          "overshot"
-          {
-            type = "bezier";
-            points = [
-              [ 0.05 0.9 ]
-              [ 0.1 1.1 ]
-            ];
-          }
-        ];
-      };
-      animation = [
-        {
-          leaf = "windows";
-          enabled = true;
-          speed = 8;
-          bezier = "overshot";
-          style = "popin";
-        }
-        {
-          leaf = "fade";
-          enabled = true;
-          speed = 8;
-          bezier = "overshot";
-        }
-        {
-          leaf = "workspaces";
-          enabled = true;
-          speed = 8;
-          bezier = "overshot";
-          style = "slidevert";
-        }
-      ];
-
-      # general/decoration/input/dwindle etc. all nest inside one
-      # hl.config({...}) call -- see design doc, multiple hl.config()
-      # calls are equivalent but this is simpler.
-      config = {
-        general = {
-          gaps_in = 5;
-          gaps_out = 10;
-          border_size = 2;
-          layout = "dwindle";
-          # Catppuccin Mocha border colors -- ported from
-          # rubyowo/dotfiles' real hyprland.conf (the same config
-          # catppuccin/waybar's README points to), not invented: active
-          # border = mauve (matches waybar/mako's accent), inactive =
-          # surface0. First pass had no border coloring at all -- part
-          # of the "выглядит плохо/пусто" feedback.
-          col = {
-            active_border = "rgba(cba6f7ee)";
-            inactive_border = "rgba(313244aa)";
-          };
-        };
-        # Rounding + blur -- also ported from rubyowo/dotfiles, same
-        # reasoning: Hyprland's own visual polish (corners/blur) was
-        # never configured at all in the first pass, purely upstream
-        # square-corner/no-blur defaults.
-        decoration = {
-          rounding = 10;
-          blur = {
-            enabled = true;
-            size = 2;
-            passes = 1;
-          };
-        };
-        # Removes Hyprland's own built-in fallback background (a
-        # mascot-art image shown whenever no wallpaper daemon is
-        # running) -- flagged live as "странная фоновая картинка".
-        # force_default_wallpaper = 0 (not -1/1): picks the plainer of
-        # the two built-in options as an extra belt-and-suspenders,
-        # disable_hyprland_logo is the one that actually removes it
-        # (confirmed against official example/hyprland.lua's own
-        # comment: "If true disables ... anime girl background").
-        # hyprpaper still deliberately not enabled (no wallpaper image
-        # asset in this repo, see below) -- this just leaves a plain
-        # black background instead, which is what "minimalist" asked
-        # for, not a placeholder asset invented to fill the gap.
-        misc = {
-          disable_hyprland_logo = true;
-          force_default_wallpaper = 0;
-        };
-        input = {
-          kb_layout = "us";
-          follow_mouse = 1;
-          touchpad.natural_scroll = true;
-        };
-        dwindle.preserve_split = true;
-      };
-
-      bind = [
-        (bind "SUPER + RETURN" ''hl.dsp.exec_cmd("kitty")'' null)
-        (bind "SUPER + Q" "hl.dsp.window.close()" null)
-        (bind "SUPER + D" ''hl.dsp.exec_cmd("fuzzel")'' null)
-        (bind "SUPER + V" ''hl.dsp.window.float({ action = "toggle" })'' null)
-        (bind "SUPER + F" ''hl.dsp.window.fullscreen({ action = "toggle" })'' null)
-        (bind "SUPER + L" ''hl.dsp.exec_cmd("hyprlock")'' null)
-        # Region screenshot -> clipboard. Nix's ''...'' strings don't
-        # treat " or \ specially, so \" here passes through untouched
-        # into the generated Lua source as the correct Lua string-escape
-        # for grim's embedded "$(slurp)" quoting -- see design doc.
-        (bind "SUPER + SHIFT + S" ''hl.dsp.exec_cmd("grim -g \"$(slurp)\" - | wl-copy")'' null)
-        (bind "SUPER + SHIFT + V" ''hl.dsp.exec_cmd("cliphist list | fuzzel --dmenu | cliphist decode | wl-copy")'' null)
-        # Crow Translate hotkey -- system-plan.md §5.11, verbatim
-        # (translateSelection is the app's own documented D-Bus
-        # integration point for compositors without global hotkeys).
-        (bind "SUPER + T" ''hl.dsp.exec_cmd("gdbus call --session --dest io.crow_translate.CrowTranslate --object-path /io/crow_translate/CrowTranslate/MainWindow --method io.crow_translate.CrowTranslate.MainWindow.translateSelection")'' null)
-
-        (bind "SUPER + left" ''hl.dsp.focus({ direction = "left" })'' null)
-        (bind "SUPER + right" ''hl.dsp.focus({ direction = "right" })'' null)
-        (bind "SUPER + up" ''hl.dsp.focus({ direction = "up" })'' null)
-        (bind "SUPER + down" ''hl.dsp.focus({ direction = "down" })'' null)
-
-        (bind "SUPER + mouse_down" ''hl.dsp.focus({ workspace = "e+1" })'' null)
-        (bind "SUPER + mouse_up" ''hl.dsp.focus({ workspace = "e-1" })'' null)
-
-        (bind "SUPER + mouse:272" "hl.dsp.window.drag()" {
-          mouse = true;
-        })
-        (bind "SUPER + mouse:273" "hl.dsp.window.resize()" {
-          mouse = true;
-        })
-
-        (bind "SUPER + SHIFT + Q" "hl.dsp.exit()" null)
-      ]
-      # Workspaces 1-9,0 (key "0" maps to workspace 10, matching
-      # upstream example/hyprland.lua's own convention) + move-window
-      # variants.
-      ++ (lib.concatMap (
-        i:
-        let
-          key = if i == 10 then 0 else i;
-        in
-        [
-          (bind "SUPER + ${toString key}" "hl.dsp.focus({ workspace = ${toString i} })" null)
-          (bind "SUPER + SHIFT + ${toString key}" ''hl.dsp.window.move({ workspace = ${toString i} })'' null)
-        ]
-      ) (lib.range 1 10));
-
-      # Autostart -- one hook, not scattered exec_cmd calls at
-      # file-load time (those would fire on every config reload, not
-      # just session start). crow-translate: backgrounded so its D-Bus
-      # service is ready before the first SUPER+T. wl-paste --watch:
-      # the standard (and only) way cliphist actually populates its
-      # history -- the package alone does nothing without this.
-      on = [
-        {
-          _args = [
-            "hyprland.start"
-            (mkLuaInline ''
-              function()
-                hl.exec_cmd("crow-translate")
-                hl.exec_cmd("wl-paste --type text --watch cliphist store")
-                hl.exec_cmd("wl-paste --type image --watch cliphist store")
-              end
-            '')
-          ];
-        }
-      ];
-    };
-  };
-
-  # Shared session target waybar/hypridle/mako's own systemd integration
-  # binds to -- defaults to generic "graphical-session.target", which
-  # nothing here would ever start. wayland.windowManager.hyprland's
-  # hyprland-session.target (above, systemd.enable = true) is what
-  # actually gets reached on hyprland.start.
-  wayland.systemd.target = "hyprland-session.target";
-
-  programs.waybar = {
-    enable = true;
-    systemd.enable = true;
-    settings.mainBar = {
-      layer = "top";
-      position = "top";
-      height = 34;
-      modules-left = [ "hyprland/workspaces" ];
-      modules-center = [ "clock" ];
-      modules-right = [
-        "pulseaudio"
-        "network"
-        "battery"
-        "tray"
-      ];
-
-      # First pass shipped with no format-icons/format strings at all --
-      # flagged live as "почти ничего не содержит" (network showed the
-      # raw interface name, battery/pulseaudio were bare numbers, no
-      # icons anywhere). Icon glyphs below aren't invented: taken from
-      # the actual working config catppuccin/waybar's own README points
-      # to for its preview screenshot (rubyowo/dotfiles, real Nerd Font
-      # codepoints already proven to render), not guessed.
-      "hyprland/workspaces" = {
-        format = "{id}";
-        disable-scroll = true;
-      };
-
-      clock = {
-        format = " {:%H:%M}";
-        tooltip-format = "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>";
-      };
-
-      battery = {
-        states = {
-          warning = 30;
-          critical = 15;
-        };
-        format = "{icon} {capacity}%";
-        format-charging = " {capacity}%";
-        format-icons = [
-          ""
-          ""
-          ""
-          ""
-          ""
-        ];
-      };
-
-      pulseaudio = {
-        format = "{icon} {volume}%";
-        format-muted = " muted";
-        format-icons = {
-          default = [
-            ""
-            ""
-            ""
-          ];
-        };
-        on-click = "pavucontrol";
-      };
-
-      network = {
-        format-wifi = " {essid} ({signalStrength}%)";
-        format-ethernet = " {ipaddr}";
-        format-disconnected = "⚠ disconnected";
-        tooltip-format = "{ifname}: {ipaddr}/{cidr}";
-      };
-    };
-    # Catppuccin Mocha -- user picked this after being shown the choice
-    # of a few ready-made themes (Catppuccin/Cherry Crush/etc), not
-    # invented here. Vendored palette + our own module styling, see
-    # ./hyprland/waybar-mocha.css's own header comment for the split.
-    style = ./hyprland/waybar-mocha.css;
-  };
-
-  # D-Bus-activatable (org.freedesktop.Notifications) -- no autostart
-  # entry needed. Catppuccin Mocha Mauve, vendored verbatim from
-  # https://github.com/catppuccin/mako (themes/catppuccin-mocha/
-  # catppuccin-mocha-mauve), MIT license -- matches waybar's accent
-  # (mauve) for a consistent look across both.
-  # Layout fields (anchor/font/margin/padding/border-size/border-radius/
-  # default-timeout/group-by) ported from rubyowo/dotfiles' real mako
-  # config, same source as waybar's icons above -- first pass only had
-  # the Catppuccin colors, no layout at all (bare corners, default
-  # anchor/timeout), which was part of the "пусто/просто" feedback.
-  services.mako = {
-    enable = true;
-    settings = {
-      anchor = "top-right";
-      font = "JetBrainsMono Nerd Font 12";
-      margin = "0,20,20";
-      padding = "10";
-      border-size = 2;
-      border-radius = 5;
-      default-timeout = 10000;
-      group-by = "summary";
-
-      background-color = "#1e1e2e";
-      text-color = "#cdd6f4";
-      border-color = "#cba6f7";
-      "progress-color" = "over #313244";
-      "urgency=high" = {
-        border-color = "#fab387";
-      };
-    };
-  };
-
-  # Needs system-level PAM config to actually authenticate -- see
-  # modules/nixos/hyprland.nix's security.pam.services.hyprlock.
-  # Settings below translate catppuccin/hyprlock's real
-  # hyprlock.conf + themes/mocha.conf (MIT license) into this module's
-  # Nix settings attrset -- their $accent/$mauve variable indirection
-  # (hyprlock's own feature) isn't used here since Nix is already doing
-  # that substitution at eval time. Dropped: the user-avatar image block
-  # (needs $HOME/.face, no such asset in this repo) and the fingerprint
-  # label (no fingerprint hardware to assume) -- same "no fabricated
-  # asset/preference" boundary as skipping hyprpaper below.
-  programs.hyprlock = {
-    enable = true;
-    settings = {
-      general.hide_cursor = true;
-      background = [
-        {
-          # No hyprpaper wallpaper (see comment below) -- solid Mocha
-          # base color instead of a path.
-          color = "rgba(1e1e2eff)";
-        }
-      ];
-      label = [
-        {
-          text = "$TIME";
-          color = "rgba(cdd6f4ff)";
-          font_size = 90;
-          font_family = "JetBrainsMono Nerd Font";
-          position = "-30, 0";
-          halign = "right";
-          valign = "top";
-        }
-        {
-          text = ''cmd[update:43200000] date +"%A, %d %B %Y"'';
-          color = "rgba(cdd6f4ff)";
-          font_size = 25;
-          font_family = "JetBrainsMono Nerd Font";
-          position = "-30, -150";
-          halign = "right";
-          valign = "top";
-        }
-      ];
-      input-field = [
-        {
-          size = "300, 60";
-          outline_thickness = 4;
-          dots_size = 0.2;
-          dots_spacing = 0.2;
-          dots_center = true;
-          outer_color = "rgba(cba6f7ff)";
-          inner_color = "rgba(313244ff)";
-          font_color = "rgba(cdd6f4ff)";
-          fade_on_empty = false;
-          hide_input = false;
-          check_color = "rgba(cba6f7ff)";
-          fail_color = "rgba(f38ba8ff)";
-          fail_text = "<i>$FAIL <b>($ATTEMPTS)</b></i>";
-          capslock_color = "rgba(f9e2afff)";
-          position = "0, -47";
-          halign = "center";
-          valign = "center";
-        }
-      ];
-    };
-  };
-
-  # settings taken directly from the module's own documented example
-  # (real, required auto-lock timing, not invented from nothing):
-  # lock after 15min idle, screen off after 20min, guard against
-  # stacking multiple hyprlock instances.
-  services.hypridle = {
-    enable = true;
-    settings = {
-      general = {
-        lock_cmd = "pidof hyprlock || hyprlock";
-        before_sleep_cmd = "loginctl lock-session";
-        after_sleep_cmd = "hyprctl dispatch dpms on";
-      };
-      listener = [
-        {
-          timeout = 900;
-          on-timeout = "loginctl lock-session";
-        }
-        {
-          timeout = 1200;
-          on-timeout = "hyprctl dispatch dpms off";
-          on-resume = "hyprctl dispatch dpms on";
-        }
-      ];
-    };
-  };
-
-  # services.hyprpaper deliberately not enabled -- no wallpaper image
-  # asset in this repo, picking one is a personal choice out of this
-  # round's scope (see design doc). Binary is already installed at the
-  # system level (modules/nixos/hyprland.nix).
-
-  home.packages = with pkgs; [ crow-translate ];
+  # quickshell itself comes from home-manager's own programs.quickshell
+  # module (confirmed present at this repo's pinned home-manager rev) --
+  # programs.dank-material-shell's own home.nix sets
+  # programs.quickshell.enable = true automatically, so it isn't
+  # separately enabled here.
+  programs.dank-material-shell.enable = true;
 }

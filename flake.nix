@@ -33,8 +33,28 @@
     url = "github:nix-community/home-manager";
     inputs.nixpkgs.follows = "nixpkgs";
   };
+  # DankMaterialShell (Quickshell-based desktop shell) -- replaces
+  # waybar/mako/hyprlock/hypridle/fuzzel entirely, see
+  # modules/home/hyprland.nix's header comment for the full "why".
+  # `inputs.nixpkgs.follows` here only affects DMS's OWN flake outputs
+  # (packages/devShells we don't use) -- the nixosModules/homeModules we
+  # actually import build dms-shell from source using WHATEVER pkgs our
+  # own module system passes them (confirmed by reading
+  # distro/nix/{nixos,home}.nix's `mkModuleWithDmsPkgs pkgs` plumbing),
+  # i.e. this repo's own pinned nixpkgs either way -- .follows is just
+  # lockfile hygiene, not load-bearing for the actual build.
+  inputs.dank-material-shell = {
+    # Pinned to an explicit commit (via `git ls-remote`, master HEAD at
+    # the time this was added) rather than a bare branch reference --
+    # GitHub's REST API (used to resolve a bare `github:owner/repo` ref
+    # to a commit) was rate-limited (403) from this network at write
+    # time; an explicit rev sidesteps that resolution call entirely.
+    url = "github:AvengeMedia/DankMaterialShell/7974887295d2691fba5f885a899c3f8ba7ef59dd";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
 
-  outputs = { self, nixpkgs, disko, lanzaboote, sops-nix, home-manager, ... }:
+  outputs =
+    { self, nixpkgs, disko, lanzaboote, sops-nix, home-manager, dank-material-shell, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
@@ -115,6 +135,17 @@
           disko.nixosModules.disko
           lanzaboote.nixosModules.lanzaboote
           home-manager.nixosModules.home-manager
+          dank-material-shell.nixosModules.default
+          # home-manager.sharedModules, not just the nixosModules import
+          # above -- that only wires the system-level pieces (systemd
+          # deps like power-profiles-daemon). programs.dank-material-shell
+          # itself is a per-user home-manager option
+          # (modules/home/hyprland.nix references it), which needs the
+          # homeModules side injected into every home-manager user
+          # explicitly -- confirmed live: without this,
+          # home-manager.users.max.programs.dank-material-shell doesn't
+          # exist at all.
+          { home-manager.sharedModules = [ dank-material-shell.homeModules.default ]; }
           ./hosts/mimir-vm-full/configuration.nix
         ];
       };
@@ -221,6 +252,11 @@
         inherit system;
         modules = [
           home-manager.nixosModules.home-manager
+          dank-material-shell.nixosModules.default
+          # See nixosConfigurations.mimir-vm-full's own comment on this
+          # same line -- homeModules must be injected via sharedModules
+          # too, not just the nixosModules import above.
+          { home-manager.sharedModules = [ dank-material-shell.homeModules.default ]; }
           ./hosts/test-hyprland-config/configuration.nix
         ];
       };
