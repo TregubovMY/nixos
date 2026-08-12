@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Partition the rehearsal VM's disk via disko -- see
+# docs/superpowers/plans/tingly-doodling-phoenix.md and
+# hosts/mimir-vm-rehearsal/. Run from the repo root, inside the rehearsal
+# VM's NixOS installer session. Plain shell script, not a Makefile target
+# (`make` isn't guaranteed present on the installer ISO -- bash is).
+#
+# --extra-experimental-features: the plain installer ISO doesn't enable
+# nix-command/flakes by default. disko pinned to this repo's own
+# flake.lock rev, so this CLI run matches what flake.nix's
+# disko.nixosModules.disko actually evaluates against.
+set -euo pipefail
+
+DISKO_REV="ff8702b4de27f72b4c78573dfb89ec74e36abdf1"
+
+exec sudo nix --extra-experimental-features 'nix-command flakes' run \
+  "github:nix-community/disko/${DISKO_REV}" -- \
+  --mode disko ./hosts/mimir-vm-rehearsal/disk-config.nix

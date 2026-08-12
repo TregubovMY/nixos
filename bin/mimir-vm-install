@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Install hosts/mimir-vm-rehearsal via nixos-install -- see
+# docs/superpowers/plans/tingly-doodling-phoenix.md. Run from the repo
+# root, inside the rehearsal VM's NixOS installer session, after
+# bin/mimir-vm-disko has partitioned the disk. Plain shell script, not a
+# Makefile target -- see bin/mimir-vm-disko's header comment for why.
+set -euo pipefail
+
+exec sudo nixos-install --extra-experimental-features 'nix-command flakes' \
+  --flake .#mimir-vm-rehearsal

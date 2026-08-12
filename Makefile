@@ -9,7 +9,7 @@
 # a real NixOS machine, where nixos-rebuild is standard.
 SYSTEM := x86_64-linux
 
-.PHONY: check check-full dry vm disko-test mimir-vm-disko mimir-vm-install
+.PHONY: check check-full dry vm disko-test
 
 check:
 	nix flake check --no-build
@@ -25,21 +25,3 @@ vm:
 
 disko-test:
 	nix build .#checks.$(SYSTEM).disko-luks-btrfs -L
-
-# hosts/mimir-vm-rehearsal/ manual install, run from inside the rehearsal
-# VM's NixOS installer session (see
-# docs/superpowers/plans/tingly-doodling-phoenix.md) -- two separate
-# targets, not one combined, since both are interactive (LUKS passphrase
-# prompts) and you'll want to watch each finish before the next.
-# --extra-experimental-features: the plain installer ISO doesn't enable
-# nix-command/flakes by default. disko pinned to this repo's own
-# flake.lock rev, so the CLI run here matches what flake.nix's
-# disko.nixosModules.disko actually evaluates against.
-mimir-vm-disko:
-	sudo nix --extra-experimental-features 'nix-command flakes' run \
-		github:nix-community/disko/ff8702b4de27f72b4c78573dfb89ec74e36abdf1 -- \
-		--mode disko ./hosts/mimir-vm-rehearsal/disk-config.nix
-
-mimir-vm-install:
-	sudo nixos-install --extra-experimental-features 'nix-command flakes' \
-		--flake .#mimir-vm-rehearsal
