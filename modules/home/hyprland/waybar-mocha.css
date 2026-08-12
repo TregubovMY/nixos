@@ -1,11 +1,17 @@
 /* Catppuccin Mocha palette -- vendored verbatim from
  * https://github.com/catppuccin/waybar (themes/mocha.css), MIT license.
- * Module styling below is ours, written for this repo's actual module
- * list (modules/home/hyprland.nix's programs.waybar.settings.mainBar:
- * hyprland/workspaces, clock, pulseaudio, network, battery, tray) --
- * catppuccin/waybar ships the palette only, its README points at a
- * third party's full config for a worked example, not something to
- * blindly copy in (different module list, different apps). */
+ *
+ * Module styling below adapted from rubyowo/dotfiles' waybar config --
+ * the exact config catppuccin/waybar's own README links to as "the
+ * waybar config for the preview image", not invented from scratch --
+ * rewritten for this repo's actual module list (workspaces/clock/
+ * pulseaudio/network/battery/tray, no wlr/workspaces-icon-only or
+ * custom/music/backlight modules the source didn't need here). First
+ * pass here (no icons, flat single-color blocks) was flagged live as
+ * "почти ничего не содержит" -- this version has real Nerd Font icons
+ * (see the format-icons in modules/home/hyprland.nix) and per-module
+ * accent colors in a rounded "capsule" grouping, not just a palette
+ * swap on the same bare layout. */
 @define-color rosewater #f5e0dc;
 @define-color flamingo #f2cdcd;
 @define-color pink #f5c2e7;
@@ -35,57 +41,83 @@
 
 * {
   font-family: "JetBrainsMono Nerd Font", sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   min-height: 0;
 }
 
-window#waybar {
-  background-color: @base;
+#waybar {
+  background: transparent;
   color: @text;
+  margin: 5px 5px;
 }
 
 #workspaces {
-  margin: 4px 4px;
-  border-radius: 10px;
-  background-color: @mantle;
+  border-radius: 1rem;
+  margin: 5px 0 5px 1rem;
+  background-color: @surface0;
 }
 
 #workspaces button {
-  padding: 0 8px;
-  color: @subtext0;
-  background: transparent;
-  border-radius: 10px;
+  color: @lavender;
+  border-radius: 1rem;
+  padding: 0.3rem 0.7rem;
 }
 
 #workspaces button.active {
   color: @base;
   background-color: @mauve;
+  border-radius: 1rem;
 }
 
 #workspaces button:hover {
-  background-color: @surface0;
+  color: @sapphire;
 }
 
 #clock,
-#pulseaudio,
-#network,
+#tray,
 #battery,
-#tray {
-  padding: 0 10px;
-  margin: 4px 2px;
-  border-radius: 10px;
-  background-color: @mantle;
-  color: @text;
+#pulseaudio,
+#network {
+  background-color: @surface0;
+  padding: 0.4rem 1rem;
+  margin: 5px 0;
 }
 
-#battery.warning {
+#clock {
+  color: @blue;
+  border-radius: 1rem;
+  margin-right: 1rem;
+}
+
+#battery {
+  color: @green;
+  border-radius: 0px 1rem 1rem 0px;
+  margin-right: 1rem;
+}
+
+#battery.warning:not(.charging) {
   color: @peach;
 }
 
-#battery.critical {
+#battery.critical:not(.charging) {
   color: @red;
+}
+
+#pulseaudio {
+  color: @maroon;
+  border-radius: 1rem 0px 0px 1rem;
+}
+
+#network {
+  color: @teal;
+  border-radius: 0px;
 }
 
 #network.disconnected {
   color: @overlay1;
+}
+
+#tray {
+  margin-right: 1rem;
+  border-radius: 1rem;
 }

@@ -50,6 +50,22 @@ in
           border_size = 2;
           layout = "dwindle";
         };
+        # Removes Hyprland's own built-in fallback background (a
+        # mascot-art image shown whenever no wallpaper daemon is
+        # running) -- flagged live as "странная фоновая картинка".
+        # force_default_wallpaper = 0 (not -1/1): picks the plainer of
+        # the two built-in options as an extra belt-and-suspenders,
+        # disable_hyprland_logo is the one that actually removes it
+        # (confirmed against official example/hyprland.lua's own
+        # comment: "If true disables ... anime girl background").
+        # hyprpaper still deliberately not enabled (no wallpaper image
+        # asset in this repo, see below) -- this just leaves a plain
+        # black background instead, which is what "minimalist" asked
+        # for, not a placeholder asset invented to fill the gap.
+        misc = {
+          disable_hyprland_logo = true;
+          force_default_wallpaper = 0;
+        };
         input = {
           kb_layout = "us";
           follow_mouse = 1;
@@ -143,7 +159,7 @@ in
     settings.mainBar = {
       layer = "top";
       position = "top";
-      height = 30;
+      height = 34;
       modules-left = [ "hyprland/workspaces" ];
       modules-center = [ "clock" ];
       modules-right = [
@@ -152,6 +168,59 @@ in
         "battery"
         "tray"
       ];
+
+      # First pass shipped with no format-icons/format strings at all --
+      # flagged live as "почти ничего не содержит" (network showed the
+      # raw interface name, battery/pulseaudio were bare numbers, no
+      # icons anywhere). Icon glyphs below aren't invented: taken from
+      # the actual working config catppuccin/waybar's own README points
+      # to for its preview screenshot (rubyowo/dotfiles, real Nerd Font
+      # codepoints already proven to render), not guessed.
+      "hyprland/workspaces" = {
+        format = "{id}";
+        disable-scroll = true;
+      };
+
+      clock = {
+        format = " {:%H:%M}";
+        tooltip-format = "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>";
+      };
+
+      battery = {
+        states = {
+          warning = 30;
+          critical = 15;
+        };
+        format = "{icon} {capacity}%";
+        format-charging = " {capacity}%";
+        format-icons = [
+          ""
+          ""
+          ""
+          ""
+          ""
+        ];
+      };
+
+      pulseaudio = {
+        format = "{icon} {volume}%";
+        format-muted = " muted";
+        format-icons = {
+          default = [
+            ""
+            ""
+            ""
+          ];
+        };
+        on-click = "pavucontrol";
+      };
+
+      network = {
+        format-wifi = " {essid} ({signalStrength}%)";
+        format-ethernet = " {ipaddr}";
+        format-disconnected = "⚠ disconnected";
+        tooltip-format = "{ifname}: {ipaddr}/{cidr}";
+      };
     };
     # Catppuccin Mocha -- user picked this after being shown the choice
     # of a few ready-made themes (Catppuccin/Cherry Crush/etc), not
