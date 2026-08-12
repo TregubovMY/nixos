@@ -59,7 +59,7 @@
 # graphical-session.target, same shape
 # wayland.windowManager.hyprland's own module used internally, so
 # DMS's exec-once line has something real to start.
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 {
   # quickshell itself comes from home-manager's own programs.quickshell
   # module (confirmed present at this repo's pinned home-manager rev) --
@@ -86,4 +86,55 @@
   # itself, not Nix-managed, same boundary as the rest of ~/.config/hypr/
   # this module already draws).
   home.packages = [ pkgs.bibata-cursors ];
+
+  # Requested live: ru+en layout with CapsLock as the switcher (real
+  # xkb option, verified against xkeyboard-config's own
+  # symbols/capslock source, not guessed) + binds that work in both
+  # layouts, plus a keybind for DMS's own built-in keybinds cheatsheet
+  # (`dms ipc call hypr toggleBinds` -- no separate app needed, see
+  # docs/IPC.md), all applied automatically on every `nixos-rebuild
+  # switch` instead of by hand.
+  #
+  # Still can't avoid ~/.config/hypr/ being DMS-owned (see this file's
+  # own header comment on why wayland.windowManager.hyprland isn't used
+  # at all) -- so this is a home.activation script, not xdg.configFile:
+  # it APPENDS to the real files `dms setup` already deployed, once,
+  # idempotently (guarded by a marker comment so re-running on every
+  # activation doesn't duplicate the block). Only runs once
+  # hyprland.lua/dms/binds-user.lua actually exist -- `dms setup` itself
+  # still has to run once by hand first (same one-time-bootstrap
+  # category as `sbctl create-keys`/lazy.nvim's first plugin install
+  # elsewhere in this repo), this just removes every step *after* that.
+  home.activation.dmsHyprlandExtras = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    HYPR_CONF="$HOME/.config/hypr/hyprland.lua"
+    if [ -f "$HYPR_CONF" ] && ! ${pkgs.gnugrep}/bin/grep -q "NIXOS-MANAGED INPUT BLOCK" "$HYPR_CONF"; then
+      cat >> "$HYPR_CONF" <<'HYPRLUA'
+
+-- NIXOS-MANAGED INPUT BLOCK -- appended idempotently by home-manager
+-- activation (modules/home/hyprland.nix), not hand-edited. kb_options
+-- "grp:caps_switch": CapsLock switches ru/en, Alt+CapsLock is real
+-- Caps Lock (verified against xkeyboard-config's symbols/capslock).
+-- resolve_binds_by_sym: keybinds match by symbol, not physical key, so
+-- they keep working after switching to the ru layout.
+hl.config({
+  input = {
+    kb_layout = "us,ru",
+    kb_options = "grp:caps_switch",
+    resolve_binds_by_sym = true,
+  },
+})
+HYPRLUA
+    fi
+
+    BINDS_USER="$HOME/.config/hypr/dms/binds-user.lua"
+    if [ -f "$BINDS_USER" ] && ! ${pkgs.gnugrep}/bin/grep -q "NIXOS-MANAGED BINDS" "$BINDS_USER"; then
+      cat >> "$BINDS_USER" <<'HYPRLUA'
+
+-- NIXOS-MANAGED BINDS -- appended idempotently by home-manager
+-- activation (modules/home/hyprland.nix), not hand-edited.
+-- Shows DMS's own built-in keybinds cheatsheet modal.
+hl.bind("SUPER + slash", hl.dsp.exec_cmd("dms ipc call hypr toggleBinds"))
+HYPRLUA
+    fi
+  '';
 }
