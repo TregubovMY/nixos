@@ -16,7 +16,7 @@
 # importing hyprland.nix/neovim.nix/shell.nix/zellij.nix/kitty.nix/
 # direnv.nix/mise.nix -- the actual day-to-day desktop config, not just
 # the disk/boot layer.
-{ ... }:
+{ pkgs, ... }:
 {
   imports = [
     ./disk-config.nix
@@ -63,6 +63,17 @@
 
   networking.hostName = "mimir-vm-full";
 
+  # Gap found live: modules/home/shell.nix's programs.zsh.enable = true
+  # (home-manager) configures zsh but does NOT change the user's actual
+  # login shell -- that's users.users.<name>.shell, a NixOS-level,
+  # host-specific setting (same "username is host-specific" boundary
+  # CLAUDE.md already draws elsewhere, so this can't live in shell.nix
+  # itself). Booting without it left `max` on bash by default, zsh
+  # installed but unused. programs.zsh.enable = true at the system level
+  # too (not just home-manager's) -- registers zsh in
+  # environment.shells/etc/shells, which users.users.*.shell expects.
+  programs.zsh.enable = true;
+
   # Rehearsal-only convenience, same as hosts/mimir-vm-rehearsal/'s root
   # password -- NOT how hosts/mimir/ should ever be configured (real
   # install needs a real decision about auth, see system-plan.md §7).
@@ -70,6 +81,7 @@
     isNormalUser = true;
     extraGroups = [ "wheel" ];
     initialPassword = "max";
+    shell = pkgs.zsh;
   };
 
   home-manager.users.max = {
