@@ -32,6 +32,27 @@
   # already sets this, mirrored here for the same reason.
   nixpkgs.config.allowUnfree = true;
 
+  # jetbrains.ruby-mine's fetchurl hits HTTP 451 from
+  # download.jetbrains.com (geo/sanctions block) -- real, will recur on
+  # the real hosts/mimir/ install too, not a VM-only quirk. system-plan.md
+  # §5.8's programs.throne (already in desktop-apps.nix) is the eventual
+  # real fix, but its VLESS config lives in Bitwarden, not this repo, so
+  # it isn't configured yet and wouldn't help nixos-install's own fetch
+  # anyway. Not editing desktop-apps.nix itself (shared with the real
+  # host, where this needs a real decision once Throne is set up) --
+  # instead, overlay just this host's jetbrains.ruby-mine to an empty
+  # stub so environment.systemPackages still evaluates but doesn't
+  # actually try to fetch anything. VM-rehearsal-only workaround.
+  nixpkgs.overlays = [
+    (final: prev: {
+      jetbrains = prev.jetbrains // {
+        ruby-mine = prev.runCommand "ruby-mine-stub-unavailable-in-this-vm" { } ''
+          mkdir -p "$out/bin"
+        '';
+      };
+    })
+  ];
+
   networking.hostName = "mimir-vm-full";
 
   # Rehearsal-only convenience, same as hosts/mimir-vm-rehearsal/'s root
