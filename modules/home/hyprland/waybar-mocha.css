@@ -1,0 +1,91 @@
+/* Catppuccin Mocha palette -- vendored verbatim from
+ * https://github.com/catppuccin/waybar (themes/mocha.css), MIT license.
+ * Module styling below is ours, written for this repo's actual module
+ * list (modules/home/hyprland.nix's programs.waybar.settings.mainBar:
+ * hyprland/workspaces, clock, pulseaudio, network, battery, tray) --
+ * catppuccin/waybar ships the palette only, its README points at a
+ * third party's full config for a worked example, not something to
+ * blindly copy in (different module list, different apps). */
+@define-color rosewater #f5e0dc;
+@define-color flamingo #f2cdcd;
+@define-color pink #f5c2e7;
+@define-color mauve #cba6f7;
+@define-color red #f38ba8;
+@define-color maroon #eba0ac;
+@define-color peach #fab387;
+@define-color yellow #f9e2af;
+@define-color green #a6e3a1;
+@define-color teal #94e2d5;
+@define-color sky #89dceb;
+@define-color sapphire #74c7ec;
+@define-color blue #89b4fa;
+@define-color lavender #b4befe;
+@define-color text #cdd6f4;
+@define-color subtext1 #bac2de;
+@define-color subtext0 #a6adc8;
+@define-color overlay2 #9399b2;
+@define-color overlay1 #7f849c;
+@define-color overlay0 #6c7086;
+@define-color surface2 #585b70;
+@define-color surface1 #45475a;
+@define-color surface0 #313244;
+@define-color base #1e1e2e;
+@define-color mantle #181825;
+@define-color crust #11111b;
+
+* {
+  font-family: "JetBrainsMono Nerd Font", sans-serif;
+  font-size: 14px;
+  min-height: 0;
+}
+
+window#waybar {
+  background-color: @base;
+  color: @text;
+}
+
+#workspaces {
+  margin: 4px 4px;
+  border-radius: 10px;
+  background-color: @mantle;
+}
+
+#workspaces button {
+  padding: 0 8px;
+  color: @subtext0;
+  background: transparent;
+  border-radius: 10px;
+}
+
+#workspaces button.active {
+  color: @base;
+  background-color: @mauve;
+}
+
+#workspaces button:hover {
+  background-color: @surface0;
+}
+
+#clock,
+#pulseaudio,
+#network,
+#battery,
+#tray {
+  padding: 0 10px;
+  margin: 4px 2px;
+  border-radius: 10px;
+  background-color: @mantle;
+  color: @text;
+}
+
+#battery.warning {
+  color: @peach;
+}
+
+#battery.critical {
+  color: @red;
+}
+
+#network.disconnected {
+  color: @overlay1;
+}

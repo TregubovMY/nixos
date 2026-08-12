@@ -153,19 +153,95 @@ in
         "tray"
       ];
     };
-    # No custom style (CSS) -- upstream defaults, same "no fabricated
-    # preferences" boundary as kitty.nix/zellij.nix. Theming is a live,
-    # visual, human-only decision (CLAUDE.md: agent can't "look at" a
-    # compositor).
+    # Catppuccin Mocha -- user picked this after being shown the choice
+    # of a few ready-made themes (Catppuccin/Cherry Crush/etc), not
+    # invented here. Vendored palette + our own module styling, see
+    # ./hyprland/waybar-mocha.css's own header comment for the split.
+    style = ./hyprland/waybar-mocha.css;
   };
 
   # D-Bus-activatable (org.freedesktop.Notifications) -- no autostart
-  # entry needed, no settings beyond upstream defaults to function.
-  services.mako.enable = true;
+  # entry needed. Catppuccin Mocha Mauve, vendored verbatim from
+  # https://github.com/catppuccin/mako (themes/catppuccin-mocha/
+  # catppuccin-mocha-mauve), MIT license -- matches waybar's accent
+  # (mauve) for a consistent look across both.
+  services.mako = {
+    enable = true;
+    settings = {
+      background-color = "#1e1e2e";
+      text-color = "#cdd6f4";
+      border-color = "#cba6f7";
+      "progress-color" = "over #313244";
+      "urgency=high" = {
+        border-color = "#fab387";
+      };
+    };
+  };
 
   # Needs system-level PAM config to actually authenticate -- see
   # modules/nixos/hyprland.nix's security.pam.services.hyprlock.
-  programs.hyprlock.enable = true;
+  # Settings below translate catppuccin/hyprlock's real
+  # hyprlock.conf + themes/mocha.conf (MIT license) into this module's
+  # Nix settings attrset -- their $accent/$mauve variable indirection
+  # (hyprlock's own feature) isn't used here since Nix is already doing
+  # that substitution at eval time. Dropped: the user-avatar image block
+  # (needs $HOME/.face, no such asset in this repo) and the fingerprint
+  # label (no fingerprint hardware to assume) -- same "no fabricated
+  # asset/preference" boundary as skipping hyprpaper below.
+  programs.hyprlock = {
+    enable = true;
+    settings = {
+      general.hide_cursor = true;
+      background = [
+        {
+          # No hyprpaper wallpaper (see comment below) -- solid Mocha
+          # base color instead of a path.
+          color = "rgba(1e1e2eff)";
+        }
+      ];
+      label = [
+        {
+          text = "$TIME";
+          color = "rgba(cdd6f4ff)";
+          font_size = 90;
+          font_family = "JetBrainsMono Nerd Font";
+          position = "-30, 0";
+          halign = "right";
+          valign = "top";
+        }
+        {
+          text = ''cmd[update:43200000] date +"%A, %d %B %Y"'';
+          color = "rgba(cdd6f4ff)";
+          font_size = 25;
+          font_family = "JetBrainsMono Nerd Font";
+          position = "-30, -150";
+          halign = "right";
+          valign = "top";
+        }
+      ];
+      input-field = [
+        {
+          size = "300, 60";
+          outline_thickness = 4;
+          dots_size = 0.2;
+          dots_spacing = 0.2;
+          dots_center = true;
+          outer_color = "rgba(cba6f7ff)";
+          inner_color = "rgba(313244ff)";
+          font_color = "rgba(cdd6f4ff)";
+          fade_on_empty = false;
+          hide_input = false;
+          check_color = "rgba(cba6f7ff)";
+          fail_color = "rgba(f38ba8ff)";
+          fail_text = "<i>$FAIL <b>($ATTEMPTS)</b></i>";
+          capslock_color = "rgba(f9e2afff)";
+          position = "0, -47";
+          halign = "center";
+          valign = "center";
+        }
+      ];
+    };
+  };
 
   # settings taken directly from the module's own documented example
   # (real, required auto-lock timing, not invented from nothing):

@@ -20,6 +20,16 @@
   # here, not in the home-manager module.
   security.pam.services.hyprlock = { };
 
+  # Needed for the Catppuccin Mocha waybar/hyprlock theming in
+  # modules/home/hyprland.nix -- both reference "JetBrainsMono Nerd Font"
+  # by name (matching catppuccin/hyprlock's own vendored config, which
+  # uses the same family). Without the font installed, those glyphs/text
+  # just fall back to whatever default GTK/Pango picks, not a hard
+  # failure, but the icons Nerd Font provides wouldn't render. System
+  # level (fonts.packages), not home-manager, since font availability is
+  # host-wide, not per-user.
+  fonts.packages = [ pkgs.nerd-fonts.jetbrains-mono ];
+
   environment.systemPackages = with pkgs; [
     waybar
     fuzzel
