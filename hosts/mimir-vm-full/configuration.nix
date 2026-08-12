@@ -22,6 +22,7 @@
     ./disk-config.nix
     ../../modules/nixos/secure-boot.nix
     ../../modules/nixos/hyprland.nix
+    ../../modules/nixos/greetd.nix
     ../../modules/nixos/desktop-apps.nix
     ../../modules/nixos/dev-databases.nix
     ../../modules/nixos/podman.nix
