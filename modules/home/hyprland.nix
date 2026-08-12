@@ -41,7 +41,7 @@
 # Hyprland session (bare cursor, DMS never appeared) because Hyprland's
 # generated config tried to start a systemd unit that didn't exist.
 # Enabled below to match.
-{ ... }:
+{ pkgs, ... }:
 {
   # quickshell itself comes from home-manager's own programs.quickshell
   # module (confirmed present at this repo's pinned home-manager rev) --
@@ -52,4 +52,11 @@
     enable = true;
     systemd.enable = true;
   };
+
+  # Requested live: a real cursor theme instead of the default GTK
+  # fallback ("уродски"). Just the package -- selecting it is a DMS
+  # Settings → Cursor action (writes ~/.config/hypr/dms/cursor.lua
+  # itself, not Nix-managed, same boundary as the rest of ~/.config/hypr/
+  # this module already draws).
+  home.packages = [ pkgs.bibata-cursors ];
 }
