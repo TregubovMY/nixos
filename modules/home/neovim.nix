@@ -1,5 +1,6 @@
-# Base LazyVim (no Ruby-specific tooling yet -- separate future round,
-# see docs/superpowers/specs/2026-08-11-neovim-base-design.md). Vendored
+# Base LazyVim, see docs/superpowers/specs/2026-08-11-neovim-base-design.md.
+# Ruby stack (LSP/rubocop/treesitter/vim-rails/rspec/dap) added on top,
+# see docs/superpowers/specs/2026-08-12-neovim-ruby-design.md. Vendored
 # starter config under ./neovim/ (fetched fresh from LazyVim/starter, not
 # assumed -- see design doc "What was verified before writing this"), not
 # live-referenced -- same vendor-not-live-reference precedent as
@@ -25,7 +26,13 @@
   # etc. spawn from inside neovim; home.packages puts them on the user's
   # real $PATH, which is what LazyVim's keymaps and treesitter actually
   # need.
-  home.packages = with pkgs; [ ripgrep fd gcc lazygit git ];
+  #
+  # ruby-lsp/rubocop: deliberately Nix, not Mason -- see
+  # docs/superpowers/specs/2026-08-12-neovim-ruby-design.md "Decision:
+  # Mason vs Nix". lua/plugins/ruby.lua sets `mason = false` on both
+  # server entries so nvim-lspconfig resolves them from $PATH instead of
+  # mason-lspconfig auto-installing them.
+  home.packages = with pkgs; [ ripgrep fd gcc lazygit git ruby-lsp rubocop ];
 
   xdg.configFile."nvim" = {
     source = ./neovim;
