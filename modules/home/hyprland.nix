@@ -30,21 +30,17 @@
 # one step further (not even a Nix-vendored starting point -- DMS
 # bootstraps the whole directory from nothing via `dms setup`).
 #
-# Consequence: programs.dank-material-shell.systemd.enable is left off
-# too -- that option's WantedBy target (wayland.systemd.target,
-# "graphical-session.target" by default) is normally reached via
-# wayland.windowManager.hyprland's own dbus-update-activation-environment
-# + hyprland-session.target dance, which isn't available here. DMS's own
-# `dms setup` writes the real startup wiring (an exec-once line launching
-# `dms run` directly from Hyprland's own config) instead -- no systemd
-# session-target chain needed on our side.
-#
-# Custom keybinds this repo previously hand-wrote in Nix (Crow Translate
-# hotkey, cliphist picker, screenshot bind) are consequently NOT
-# reproduced here either -- they'd need to be re-added by hand into
-# ~/.config/hypr/dms/binds-user.lua after `dms setup`, the same
-# human-editable, DMS-managed file its own Settings UI writes to. Noted
-# as a follow-up, not silently dropped.
+# Correction, found live: `dms setup` itself asks "Use systemd for
+# session management?" and defaults to/recommends Yes -- when answered
+# Yes (as it was here), the config it deploys expects a real `dms.service`
+# systemd user unit to exist and starts DMS through it, not via a plain
+# exec-once. Originally left programs.dank-material-shell.systemd.enable
+# off on the theory that DMS would launch itself directly with no
+# systemd involved -- wrong for the systemd-managed path `dms setup`
+# actually offers and this session used. Symptom was a real blank
+# Hyprland session (bare cursor, DMS never appeared) because Hyprland's
+# generated config tried to start a systemd unit that didn't exist.
+# Enabled below to match.
 { ... }:
 {
   # quickshell itself comes from home-manager's own programs.quickshell
@@ -52,5 +48,8 @@
   # programs.dank-material-shell's own home.nix sets
   # programs.quickshell.enable = true automatically, so it isn't
   # separately enabled here.
-  programs.dank-material-shell.enable = true;
+  programs.dank-material-shell = {
+    enable = true;
+    systemd.enable = true;
+  };
 }
