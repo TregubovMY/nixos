@@ -4,8 +4,13 @@
 # see docs/superpowers/plans/tingly-doodling-phoenix.md), and broader in
 # scope than hosts/mimir-vm-rehearsal/ (which only proved disko+LUKS+
 # btrfs+Secure Boot boot). This host pulls in everything else this repo
-# has actually built: desktop-apps.nix, dev-databases.nix, podman.nix,
-# home-manager.nix at the system level, plus a real home-manager user
+# has actually built: modules/nixos/hyprland.nix, desktop-apps.nix,
+# dev-databases.nix, podman.nix, home-manager.nix at the system level
+# (modules/nixos/hyprland.nix is NOT optional here -- home-manager's own
+# hyprland.nix below deliberately sets package = null, expecting the
+# NixOS module to provide the actual Hyprland binary; missing this import
+# once already produced a real "Hyprland: command not known" during the
+# live rehearsal), plus a real home-manager user
 # (max, matching the username already anticipated by
 # docs/superpowers/specs/2026-08-11-mimir-host-skeleton-design.md)
 # importing hyprland.nix/neovim.nix/shell.nix/zellij.nix/kitty.nix/
@@ -16,6 +21,7 @@
   imports = [
     ./disk-config.nix
     ../../modules/nixos/secure-boot.nix
+    ../../modules/nixos/hyprland.nix
     ../../modules/nixos/desktop-apps.nix
     ../../modules/nixos/dev-databases.nix
     ../../modules/nixos/podman.nix
