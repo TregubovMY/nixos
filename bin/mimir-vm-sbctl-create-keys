@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Create local Secure Boot signing keys inside the not-yet-fully-installed
+# hosts/mimir-vm-rehearsal/ system -- see
+# docs/superpowers/plans/tingly-doodling-phoenix.md.
+#
+# Ordering that isn't obvious from system-plan.md's own §4/§6 text: this
+# MUST run between two bin/mimir-vm-install attempts, not after a single
+# successful one. secure-boot.nix's `boot.lanzaboote.pkiBundle =
+# "/var/lib/sbctl"` refers to the TARGET system's path -- lanzaboote signs
+# the boot binaries as part of nixos-install's own "installing the boot
+# loader" step, so it needs /var/lib/sbctl/keys/db/db.pem to already
+# exist before that step runs, not after. In practice: run
+# bin/mimir-vm-install once (it gets far enough to copy the system into
+# /mnt, then fails at the bootloader step -- that's expected), run this
+# script, then run bin/mimir-vm-install again.
+#
+# nixos-enter chroots into the already-copied /mnt so `sbctl create-keys`
+# writes into the TARGET system's /var/lib/sbctl, not the live installer
+# ISO's own (irrelevant, throwaway) root. Pure local keypair generation --
+# no EFI variable access needed for this step (that's sbctl enroll-keys,
+# a separate, later, real-firmware-only step -- see
+# hosts/mimir-vm-rehearsal/configuration.nix's header comment).
+set -euo pipefail
+
+exec sudo nixos-enter --root /mnt -c 'sbctl create-keys'
