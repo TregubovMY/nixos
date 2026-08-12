@@ -4,14 +4,21 @@
 # working values -- confirmed by evaluating the module's real option
 # defaults against this repo's pinned nixpkgs (see
 # docs/superpowers/specs/2026-08-11-hyprland-design.md "Research
-# findings"), not assumed from §5.2's flat package list. No real Hyprland
-# config content here (keybinds, waybar widgets, theme, exec-once
-# autostart) -- that needs home-manager dotfiles (modules/home/*, not
-# built yet), a separate later task, same boundary the desktop-packages
-# and home-manager rounds already drew.
+# findings"), not assumed from §5.2's flat package list. Real config
+# content (keybinds, waybar, mako, hyprlock/hypridle, crow-translate
+# hotkey) lives in modules/home/hyprland.nix, see
+# docs/superpowers/specs/2026-08-12-hyprland-config-design.md.
 { pkgs, ... }:
 {
   programs.hyprland.enable = true;
+
+  # Required for hyprlock (modules/home/hyprland.nix) to actually
+  # authenticate -- without this PAM service, the home-manager-installed
+  # hyprlock binary can't unlock the session at all, per hyprlock's own
+  # documented requirement (home-manager's programs.hyprlock.enable
+  # option description says so explicitly). System-level, so it lives
+  # here, not in the home-manager module.
+  security.pam.services.hyprlock = { };
 
   environment.systemPackages = with pkgs; [
     waybar

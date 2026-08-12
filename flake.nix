@@ -89,6 +89,22 @@
         ];
       };
 
+      # Manual-install rehearsal host — see
+      # docs/superpowers/plans/tingly-doodling-phoenix.md and
+      # hosts/mimir-vm-rehearsal/configuration.nix's own header comment.
+      # Unlike test-secure-boot above, this is meant to be installed for
+      # real (disko + nixos-install, by hand, inside a user-launched VM)
+      # rather than auto-built — no qemu-vm.nix, so nothing here overrides
+      # the real LUKS/btrfs layout.
+      nixosConfigurations.mimir-vm-rehearsal = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          disko.nixosModules.disko
+          lanzaboote.nixosModules.lanzaboote
+          ./hosts/mimir-vm-rehearsal/configuration.nix
+        ];
+      };
+
       # Throwaway verification host for the desktop package list design —
       # see docs/superpowers/specs/2026-08-10-desktop-packages-design.md.
       # NOT the real mimir host; eval + dry-build only (no VM boot), see
@@ -178,6 +194,20 @@
         modules = [
           home-manager.nixosModules.home-manager
           ./hosts/test-podman-mise/configuration.nix
+        ];
+      };
+
+      # Throwaway verification host for modules/home/hyprland.nix (real
+      # config content) — see docs/superpowers/specs/
+      # 2026-08-12-hyprland-config-design.md. Real build (not dry-run),
+      # no VM boot, no live/visual check — see
+      # hosts/test-hyprland-config/configuration.nix's own header
+      # comment.
+      nixosConfigurations.test-hyprland-config = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          home-manager.nixosModules.home-manager
+          ./hosts/test-hyprland-config/configuration.nix
         ];
       };
 
