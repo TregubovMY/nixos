@@ -40,6 +40,46 @@ in
         scale = "auto";
       };
 
+      # "overshot" bezier + window/fade/workspace animations -- also
+      # ported verbatim (values, not just the idea) from
+      # rubyowo/dotfiles' real hyprland.conf. First pass had animations
+      # left at Hyprland's own compiled-in defaults, not this repo's own
+      # choice either way.
+      curve = {
+        _args = [
+          "overshot"
+          {
+            type = "bezier";
+            points = [
+              [ 0.05 0.9 ]
+              [ 0.1 1.1 ]
+            ];
+          }
+        ];
+      };
+      animation = [
+        {
+          leaf = "windows";
+          enabled = true;
+          speed = 8;
+          bezier = "overshot";
+          style = "popin";
+        }
+        {
+          leaf = "fade";
+          enabled = true;
+          speed = 8;
+          bezier = "overshot";
+        }
+        {
+          leaf = "workspaces";
+          enabled = true;
+          speed = 8;
+          bezier = "overshot";
+          style = "slidevert";
+        }
+      ];
+
       # general/decoration/input/dwindle etc. all nest inside one
       # hl.config({...}) call -- see design doc, multiple hl.config()
       # calls are equivalent but this is simpler.
@@ -49,6 +89,28 @@ in
           gaps_out = 10;
           border_size = 2;
           layout = "dwindle";
+          # Catppuccin Mocha border colors -- ported from
+          # rubyowo/dotfiles' real hyprland.conf (the same config
+          # catppuccin/waybar's README points to), not invented: active
+          # border = mauve (matches waybar/mako's accent), inactive =
+          # surface0. First pass had no border coloring at all -- part
+          # of the "выглядит плохо/пусто" feedback.
+          col = {
+            active_border = "rgba(cba6f7ee)";
+            inactive_border = "rgba(313244aa)";
+          };
+        };
+        # Rounding + blur -- also ported from rubyowo/dotfiles, same
+        # reasoning: Hyprland's own visual polish (corners/blur) was
+        # never configured at all in the first pass, purely upstream
+        # square-corner/no-blur defaults.
+        decoration = {
+          rounding = 10;
+          blur = {
+            enabled = true;
+            size = 2;
+            passes = 1;
+          };
         };
         # Removes Hyprland's own built-in fallback background (a
         # mascot-art image shown whenever no wallpaper daemon is
@@ -234,9 +296,23 @@ in
   # https://github.com/catppuccin/mako (themes/catppuccin-mocha/
   # catppuccin-mocha-mauve), MIT license -- matches waybar's accent
   # (mauve) for a consistent look across both.
+  # Layout fields (anchor/font/margin/padding/border-size/border-radius/
+  # default-timeout/group-by) ported from rubyowo/dotfiles' real mako
+  # config, same source as waybar's icons above -- first pass only had
+  # the Catppuccin colors, no layout at all (bare corners, default
+  # anchor/timeout), which was part of the "пусто/просто" feedback.
   services.mako = {
     enable = true;
     settings = {
+      anchor = "top-right";
+      font = "JetBrainsMono Nerd Font 12";
+      margin = "0,20,20";
+      padding = "10";
+      border-size = 2;
+      border-radius = 5;
+      default-timeout = 10000;
+      group-by = "summary";
+
       background-color = "#1e1e2e";
       text-color = "#cdd6f4";
       border-color = "#cba6f7";
