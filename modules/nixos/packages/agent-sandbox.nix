@@ -6,6 +6,41 @@
 { pkgs }:
 
 let
+  # nix-ld: same fix as programs.nix-ld.enable on a real NixOS host
+  # (modules/nixos/nix-ld.nix), applied by hand here since this image has
+  # no NixOS module system to just flip that option on. Lets ordinary
+  # precompiled dynamically-linked Linux binaries (mise's node/python/go
+  # downloads) find a real ELF interpreter instead of hitting "cannot
+  # execute: required file not found" -- the gap the comment below Ruby's
+  # toolchain list used to describe as unfixed. Mechanism (symlink at
+  # /lib64/ld-linux-x86-64.so.2 below + NIX_LD/NIX_LD_LIBRARY_PATH in the
+  # entrypoint) mirrors nixpkgs' own nixos/modules/programs/nix-ld.nix
+  # exactly, not reinvented.
+  #
+  # Library list is copied verbatim from that same upstream module's
+  # `programs.nix-ld.libraries` default (checked against this repo's
+  # pinned nixpkgs rev directly, not assumed) -- deliberately kept
+  # identical rather than trimmed for image size, so the host and the
+  # sandbox resolve foreign binaries against the same baseline and
+  # "works on the host" reliably predicts "works in the sandbox" too. If
+  # upstream's default list changes, re-sync from there.
+  nixLdLibraries = pkgs.lib.makeLibraryPath (with pkgs; [
+    zlib
+    zstd
+    stdenv.cc.cc
+    curl
+    openssl
+    attr
+    libssh
+    bzip2
+    libxml2
+    acl
+    libsodium
+    util-linux
+    xz
+    systemd
+  ]);
+
   # podman's `--userns=keep-id` runs the container's process under the
   # *host* uid — but this minimal image's /etc/passwd only knows about
   # the uid baked in at build time, so tools that call getpwuid() (git,
@@ -36,6 +71,15 @@ let
     export HOME=/home/agent
     export MISE_DATA_DIR=/home/agent/.local/share/mise
     export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+
+    # nix-ld env vars (see the `nixLdLibraries`/loader-symlink comments
+    # above and in extraCommands below) -- NIX_LD is the *real* glibc
+    # dynamic linker nix-ld's shim defers to once it's done its job;
+    # NIX_LD_LIBRARY_PATH covers the third-party libs (openssl/zlib/...)
+    # a precompiled binary might need beyond glibc itself, which glibc's
+    # own ld.so already knows how to find via its own embedded rpath.
+    export NIX_LD=${pkgs.stdenv.cc.bintools.dynamicLinker}
+    export NIX_LD_LIBRARY_PATH=${nixLdLibraries}
 
     # Wire the single per-project credentials volume (bin/agent-sandbox's
     # -v agent-creds-$project_hash:/home/agent/.sandbox-creds) up to the
@@ -179,11 +223,15 @@ pkgs.dockerTools.buildLayeredImage {
     # `xz`/`unzip`: node's and python's mise backends ship precompiled
     # `.tar.xz` (and some release assets as `.zip`) — without these the
     # download can't even be unpacked, before it gets anywhere near the
-    # ELF-interpreter problem described below (final review, I3). Cheap
-    # to add; does not by itself make node/python runnable — see the
-    # "Известные ограничения" note in README.
+    # ELF-interpreter problem (final review, I3) that `nix-ld` below now
+    # fixes.
     xz
     unzip
+
+    # See the `nixLdLibraries`/NIX_LD comments above (`let` block) and in
+    # extraCommands below — this package provides the actual loader shim
+    # binary that gets symlinked to /lib64/ld-linux-x86-64.so.2.
+    nix-ld
 
     # A coding agent's shell needs the same basics any interactive Unix
     # shell needs, not just what ruby-build happens to shell out to —
@@ -204,13 +252,13 @@ pkgs.dockerTools.buildLayeredImage {
     # at /lib64/ld-linux-x86-64.so.2, etc) — they can't run unmodified in
     # this Nix-store-only image (confirmed during Task 6: "cannot
     # execute: required file not found", the classic missing-ELF-
-    # interpreter symptom). Rather than build an FHS/nix-ld compat shim
-    # (a bigger, fragile piece of surface area — has to keep matching
-    # whatever glibc mise's upstream binaries were built against), we
-    # keep mise on its *default* behavior (`ruby.compile=true`, i.e.
-    # actually compile Ruby from source via ruby-build) and give it a
-    # real toolchain to do that with. This is the standard ruby-build
-    # Linux build dependency list (see
+    # interpreter symptom). ruby-build specifically stays on its
+    # *default* behavior (`ruby.compile=true`, i.e. actually compile
+    # Ruby from source) rather than switching to nix-ld below (2026-08-13
+    # addition, for node/python/go) -- already working and Task 6
+    # end-to-end verified, no reason to re-risk a proven path just for
+    # consistency with the newer mechanism. This is the standard
+    # ruby-build Linux build dependency list (see
     # https://github.com/rbenv/ruby-build/wiki#suggested-build-environment),
     # minus OpenSSL — ruby-build vendors/builds its own OpenSSL from
     # source rather than linking the system one (observed directly: it
@@ -270,8 +318,16 @@ pkgs.dockerTools.buildLayeredImage {
   ];
 
   extraCommands = ''
-    mkdir -p etc home/agent tmp
+    mkdir -p etc home/agent tmp lib64
     chmod 1777 tmp
+
+    # The actual nix-ld symlink -- same effect as NixOS's own
+    # environment.ldso (nixos/modules/config/ldso.nix, what
+    # programs.nix-ld.enable ultimately sets) writing a systemd-tmpfiles
+    # `L+` rule for this exact path on a real host, done by hand here
+    # since extraCommands is this image's only place to lay down files at
+    # fixed filesystem paths (no systemd/tmpfiles inside the container).
+    ln -s ${pkgs.nix-ld}/libexec/nix-ld lib64/ld-linux-x86-64.so.2
 
     # $HOME needs to be writable by whatever arbitrary host uid
     # `--userns=keep-id` maps us to (not just the build-time owner).
