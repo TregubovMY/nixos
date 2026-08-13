@@ -50,6 +50,22 @@
     # packages here
     OVMFFull
     spice-vdagent
+
+    # Заметки / трекинг времени — запрошено live 2026-08-13, вне
+    # исходной нумерации system-plan.md §5.x.
+    obsidian
+    # awatcher, NOT the plain `activitywatch` package -- проверено live:
+    # activitywatch's own aw-watcher-window исторически X11-only, а под
+    # Wayland/Hyprland требует отдельный aw-watcher-window-wayland,
+    # который сами авторы ActivityWatch называют слабо поддерживаемым
+    # (github.com/ActivityWatch/aw-watcher-window-wayland). awatcher
+    # (github.com/2e3s/awatcher) — самостоятельный, лучше поддерживаемый
+    # трекер с полной поддержкой Hyprland через протокол wlr
+    # foreign-toplevel-management (окна) + ext-idle-notify-v1 (AFK), и
+    # умеет работать в bundle-режиме (aw-server-rust + сам трекер в одном
+    # бинарнике, без отдельной установки activitywatch) -- поэтому
+    # только этот пакет, без activitywatch/aw-qt рядом.
+    awatcher
   ];
 
   # §5.1.2 Телефон ↔ ПК (решено 2026-08-10) — module auto-provides
