@@ -37,6 +37,28 @@ let
     export MISE_DATA_DIR=/home/agent/.local/share/mise
     export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
 
+    # Wire the single per-project credentials volume (bin/agent-sandbox's
+    # -v agent-creds-$project_hash:/home/agent/.sandbox-creds) up to the
+    # actual paths claude-code/opencode read: ~/.claude (dir),
+    # ~/.claude.json (file, NOT inside ~/.claude -- claude-code's own
+    # top-level session file, confirmed against its real layout), and
+    # ~/.config/opencode (dir). A podman named volume mounts cleanly onto
+    # a directory but not onto a lone file, so this symlinks each real
+    # path into one shared mounted directory instead of trying to mount
+    # the volume three times (which also wouldn't work for the file case
+    # at all). `[ -e ... ]` guards make this idempotent across container
+    # restarts of the same project once the symlinks exist from a
+    # previous run -- container itself is --rm (fresh rootfs every time),
+    # only the named volume persists, so without this the entrypoint
+    # would otherwise need to recreate the symlinks every single launch
+    # regardless, but the guard also makes it safe to re-run by hand.
+    mkdir -p /home/agent/.sandbox-creds/claude /home/agent/.sandbox-creds/opencode
+    touch /home/agent/.sandbox-creds/claude.json
+    [ -e /home/agent/.claude ] || ln -s /home/agent/.sandbox-creds/claude /home/agent/.claude
+    [ -e /home/agent/.claude.json ] || ln -s /home/agent/.sandbox-creds/claude.json /home/agent/.claude.json
+    mkdir -p /home/agent/.config
+    [ -e /home/agent/.config/opencode ] || ln -s /home/agent/.sandbox-creds/opencode /home/agent/.config/opencode
+
     # `dockerTools.buildLayeredImage`'s `contents` merges every listed
     # package's outputs into shared top-level dirs (/bin, /lib, /include,
     # /lib/pkgconfig, ...) via symlinks — confirmed directly: `zlib.dev`

@@ -91,8 +91,32 @@ args=(
   -v "$project_dir:/workspace"
   -v "agent-mise:/home/agent/.local/share/mise"
   -v "agent-cache-$project_hash:/home/agent/.cache"
+  # Per-project (not shared) credentials volume, keyed by the same
+  # project_hash as the cache volume above. A single shared volume was
+  # rejected on purpose (README "Известные ограничения"): it would make
+  # one project's sandbox able to read every other project's Claude/
+  # opencode session, defeating the whole point of per-project blast-
+  # radius containment this script's header comment describes. Per-project
+  # still means "claude login"/"opencode auth" once per NEW project, but
+  # not on every single container restart of the SAME project -- the
+  # actual pain this was fixing. The real path->volume wiring (symlinking
+  # ~/.claude, ~/.claude.json, ~/.config/opencode into this one mount) is
+  # the entrypoint's job (modules/nixos/packages/agent-sandbox.nix),
+  # not this script's -- a single volume here keeps the podman invocation
+  # from growing one flag per credential file/dir.
+  -v "agent-creds-$project_hash:/home/agent/.sandbox-creds"
   --network=bridge
 )
+
+# Optional API-key auth passthrough, alternative to the OAuth-style
+# `claude login` session persisted via the volume above -- `-e VAR` with
+# no `=value` forwards the host's current value into the container
+# (podman/docker convention), and only added when actually set on the
+# host so an unset var doesn't punch a hole through to an empty string
+# inside the container.
+if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+  args+=(-e ANTHROPIC_API_KEY)
+fi
 
 if [ "$gui" = 1 ]; then
   # `readlink -f "${BASH_SOURCE[0]}"`, not `dirname "$0"` (final review,
