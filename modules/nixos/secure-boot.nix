@@ -43,6 +43,17 @@
     # Secure Boot keys; they're the machine's root of trust, root-only
     # permissions, analogous to a private CA key.
     pkiBundle = "/var/lib/sbctl";
+    # boot.loader.systemd-boot.configurationLimit (boot.nix's setting) is
+    # inert here -- systemd-boot itself is force-disabled above, and
+    # lanzaboote installs its own signed bootloader via boot.loader.external
+    # instead of calling bootctl (same "checked against lanzaboote's own
+    # source" category as this file's canTouchEfiVariables comment). Its
+    # own configurationLimit is the one that actually caps how many old
+    # signed kernels/initrds pile up on the ESP -- set explicitly rather
+    # than relying on its default (which just reads the inert
+    # systemd-boot option's value, confirmed against lanzaboote's own
+    # nix/modules/lanzaboote.nix). Same number as boot.nix.
+    configurationLimit = 5;
   };
   environment.systemPackages = [ pkgs.sbctl ]; # for the real-install `sbctl
     # create-keys`/`sbctl enroll-keys` step — matches upstream's own
