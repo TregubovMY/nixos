@@ -85,7 +85,13 @@
   # Settings → Cursor action (writes ~/.config/hypr/dms/cursor.lua
   # itself, not Nix-managed, same boundary as the rest of ~/.config/hypr/
   # this module already draws).
-  home.packages = [ pkgs.bibata-cursors ];
+  # grimblast (hyprwm/contrib, packaged in nixpkgs) -- DMS's own
+  # screenshot IPC target (`dms ipc call niri screenshot*`) is niri-only
+  # per DMS's own IPC docs, doesn't work under Hyprland. grimblast is
+  # the Hyprland-wiki-recommended tool for this instead (Screenshots &
+  # Recording page), so no custom derivation needed, just wire up binds
+  # below the same way as the rest of this file's activation script.
+  home.packages = [ pkgs.bibata-cursors pkgs.grimblast ];
 
   # Requested live: ru+en layout with CapsLock as the switcher (real
   # xkb option, verified against xkeyboard-config's own base.xml.in,
@@ -157,6 +163,15 @@ HYPRLUA
 -- `nixos-rebuild switch`, don't edit between START/END by hand.
 -- Shows DMS's own built-in keybinds cheatsheet modal.
 hl.bind("SUPER + slash", hl.dsp.exec_cmd("dms ipc call hypr toggleBinds"))
+-- Screenshots via grimblast (DMS's own screenshot IPC is niri-only, see
+-- comment above this activation script's home.packages entry) --
+-- "copysave" copies to clipboard AND writes a file in one shot, the
+-- scheme recommended on Hyprland's own Screenshots & Recording wiki
+-- page: bare Print = region select, Shift+Print = whole screen,
+-- Super+Print = focused window only.
+hl.bind("Print", hl.dsp.exec_cmd("grimblast copysave area"))
+hl.bind("SHIFT + Print", hl.dsp.exec_cmd("grimblast copysave screen"))
+hl.bind("SUPER + Print", hl.dsp.exec_cmd("grimblast copysave active"))
 -- NIXOS-MANAGED BINDS END
 HYPRLUA
     fi
