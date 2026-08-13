@@ -5,6 +5,17 @@
 # registration, users.users.max, real secrets/secrets.yaml content) and
 # why each is a separate, future, real-hardware-only step, not this file's
 # job. Do not treat this file's mere existence as "mimir is installable."
+#
+# 2026-08-13: module list brought up to parity with hosts/mimir-vm-full/,
+# which already VM-rehearsed this exact set (hyprland.nix/greetd.nix/
+# nix-settings.nix/dev-databases.nix/podman.nix/home-manager.nix) end to
+# end, including the "Hyprland: command not known" gap that surfaced when
+# hyprland.nix was missing and the tuigreet/zsh-shell gaps documented in
+# that host's own configuration.nix. None of these six need a real user
+# to already exist -- checked each module doesn't reference users.users.*
+# -- unlike users.users.max/home-manager.users.max itself, which stays
+# out per the skeleton design doc's own reasoning (real auth is a human
+# decision at install time, not something to pre-bake here).
 {
   imports = [
     ./disk-config.nix
@@ -14,6 +25,12 @@
       # wants Secure Boot per system-plan.md §2/§4.
     ../../modules/nixos/secrets.nix
     ../../modules/nixos/desktop-apps.nix
+    ../../modules/nixos/hyprland.nix
+    ../../modules/nixos/greetd.nix
+    ../../modules/nixos/nix-settings.nix
+    ../../modules/nixos/dev-databases.nix
+    ../../modules/nixos/podman.nix
+    ../../modules/nixos/home-manager.nix
   ];
 
   networking.hostName = "mimir";
@@ -26,6 +43,13 @@
   # any nixosSystem call — same requirement hosts/test-desktop-apps/
   # already has, see system-plan.md §2.
   nixpkgs.config.allowUnfree = true;
+
+  # Gap mimir-vm-full's rehearsal found live: modules/home/shell.nix's
+  # programs.zsh.enable (home-manager level) configures zsh but doesn't
+  # register it in /etc/shells, which users.users.<name>.shell needs --
+  # harmless to set now even before a real user exists, and one less
+  # thing to remember at real-install time.
+  programs.zsh.enable = true;
 
   system.stateVersion = "24.05"; # matches every other host in this repo
 }
