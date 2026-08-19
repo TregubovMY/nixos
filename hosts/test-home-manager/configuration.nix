@@ -6,8 +6,8 @@
 # "Testing" for why.
 #
 # testuser exists only to give home-manager.users.* something to bind to
-# -- same throwaway-only status as hosts/test-disko-luks/'s virtual disk
-# or hosts/test-secrets/'s test SSH key. NOT a preview of mimir's real
+# -- same throwaway-only status as hosts/test-disko-luks/'s virtual disk.
+# NOT a preview of mimir's real
 # username; hosts/mimir/configuration.nix still has no users.users.* or
 # home-manager.users.* block (see docs/superpowers/specs/
 # 2026-08-11-mimir-host-skeleton-design.md) and this host doesn't change

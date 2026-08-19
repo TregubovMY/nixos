@@ -2,9 +2,14 @@
 # incomplete and NOT registered as nixosConfigurations.mimir in flake.nix
 # — see docs/superpowers/specs/2026-08-11-mimir-host-skeleton-design.md
 # for exactly what's missing (hardware-configuration.nix, flake.nix
-# registration, users.users.max, real secrets/secrets.yaml content) and
-# why each is a separate, future, real-hardware-only step, not this file's
-# job. Do not treat this file's mere existence as "mimir is installable."
+# registration, users.users.max) and why each is a separate, future,
+# real-hardware-only step, not this file's job. Do not treat this file's
+# mere existence as "mimir is installable."
+#
+# No secrets.nix / sops-nix import — system-plan.md §7 resolved the one
+# secret that used to live there (GPG key for git commit signing) to
+# Bitwarden instead, same place SSH keys and the Throne proxy config
+# already are (§6). sops-nix is no longer part of this plan at all.
 {
   imports = [
     ./disk-config.nix
@@ -12,7 +17,6 @@
       # replaces systemd-boot rather than layering on it (secure-boot.nix
       # itself force-disables boot.loader.systemd-boot.enable); mimir
       # wants Secure Boot per system-plan.md §2/§4.
-    ../../modules/nixos/secrets.nix
     ../../modules/nixos/desktop-apps.nix
   ];
 
