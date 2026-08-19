@@ -91,7 +91,31 @@
   # the Hyprland-wiki-recommended tool for this instead (Screenshots &
   # Recording page), so no custom derivation needed, just wire up binds
   # below the same way as the rest of this file's activation script.
-  home.packages = [ pkgs.bibata-cursors pkgs.grimblast ];
+  #
+  # crow-translate: regression found live while rewriting README (2026-08-18)
+  # -- system-plan.md §5.11's hotkey-translate feature (repo root
+  # `hypr/quick-translate.lua`, `require("quick-translate")`) was written
+  # against the pre-DMS, hand-managed ~/.config/hypr/hyprland.lua and
+  # silently stopped being wired up anywhere once the 099ef17 DMS switch
+  # made that whole directory DMS-owned -- the package itself was also
+  # never in desktop-apps.nix's actual package list, only assumed there in
+  # the original plan. Re-wired below via this file's existing
+  # activation-script pattern instead of the old require()-a-repo-file
+  # approach (that approach needed the repo checked out at a known path on
+  # the target machine and a manual symlink step -- the activation script
+  # already solves "get Lua into DMS's files" more simply, so folding this
+  # into it is less machinery, not more). `hypr/quick-translate.lua`
+  # removed as dead: nothing references it anymore.
+  # glib -- provides `gdbus`, which the Crow Translate bind below shells
+  # out to. Almost certainly already pulled in transitively by the
+  # Qt6/quickshell stack DMS needs, but wasn't declared anywhere in this
+  # repo before -- declaring it explicitly instead of relying on that.
+  home.packages = [
+    pkgs.bibata-cursors
+    pkgs.grimblast
+    pkgs.crow-translate
+    pkgs.glib
+  ];
 
   # Requested live: ru+en layout with CapsLock as the switcher (real
   # xkb option, verified against xkeyboard-config's own base.xml.in,
@@ -125,7 +149,10 @@
   home.activation.dmsHyprlandExtras = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
     HYPR_CONF="$HOME/.config/hypr/hyprland.lua"
     if [ -f "$HYPR_CONF" ]; then
-      ${pkgs.gnused}/bin/sed -i '/-- NIXOS-MANAGED INPUT BLOCK START/,/-- NIXOS-MANAGED INPUT BLOCK END/d' "$HYPR_CONF"
+      ${pkgs.gnused}/bin/sed -i \
+        -e '/-- NIXOS-MANAGED INPUT BLOCK START/,/-- NIXOS-MANAGED INPUT BLOCK END/d' \
+        -e '/-- NIXOS-MANAGED AUTOSTART BLOCK START/,/-- NIXOS-MANAGED AUTOSTART BLOCK END/d' \
+        "$HYPR_CONF"
       cat >> "$HYPR_CONF" <<'HYPRLUA'
 
 -- NIXOS-MANAGED INPUT BLOCK START -- managed by home-manager activation
@@ -150,6 +177,19 @@ hl.config({
   },
 })
 -- NIXOS-MANAGED INPUT BLOCK END
+
+-- NIXOS-MANAGED AUTOSTART BLOCK START -- managed by home-manager activation
+-- (modules/home/hyprland.nix), not hand-edited; re-synced on every
+-- `nixos-rebuild switch`, don't edit between START/END by hand.
+-- Crow Translate needs to be running for its D-Bus service to answer the
+-- hotkey below -- launched at session start rather than requiring a
+-- manual launch first. NOTE: "start minimized to tray" is a setting on
+-- Crow Translate's own General tab, not a CLI flag -- expect a visible
+-- window at first login until that's turned on by hand.
+hl.on("hyprland.start", function()
+  hl.exec_cmd("crow-translate")
+end)
+-- NIXOS-MANAGED AUTOSTART BLOCK END
 HYPRLUA
     fi
 
@@ -172,6 +212,31 @@ hl.bind("SUPER + slash", hl.dsp.exec_cmd("dms ipc call hypr toggleBinds"))
 hl.bind("Print", hl.dsp.exec_cmd("grimblast copysave area"))
 hl.bind("SHIFT + Print", hl.dsp.exec_cmd("grimblast copysave screen"))
 hl.bind("SUPER + Print", hl.dsp.exec_cmd("grimblast copysave active"))
+-- Translate the current text selection via Crow Translate's D-Bus method
+-- (system-plan.md §5.11) -- Wayland has no global-shortcut API of its
+-- own, this D-Bus call is Crow Translate's documented integration point
+-- for compositors like Hyprland that bind arbitrary shell commands to
+-- keys. SUPER+T, NOT the "obvious" choice -- confirmed live against DMS's
+-- own embedded default (core/internal/config/embedded/hypr-binds-user.lua
+-- in AvengeMedia/DankMaterialShell at this flake's pinned rev): `dms
+-- setup` seeds dms/binds-user.lua itself with `SUPER + T` already bound to
+-- launching the terminal, so reusing it here would have silently
+-- shadowed/collided with that default the moment this activation script's
+-- append landed after DMS's own seed content in the same file. SUPER+ALT+T
+-- checked against that same embedded file -- not used by any default
+-- bind. MANUAL VERIFICATION REQUIRED (agent cannot check this -- no
+-- visual/runtime access to a running Hyprland session, per CLAUDE.md):
+-- confirm the hotkey fires, the popup appears, and the D-Bus service has
+-- registered by the time this fires (it may not have in the first couple
+-- seconds right after login).
+hl.bind(
+  "SUPER + ALT + T",
+  hl.dsp.exec_cmd(
+    "gdbus call --session --dest io.crow_translate.CrowTranslate "
+      .. "--object-path /io/crow_translate/CrowTranslate/MainWindow "
+      .. "--method io.crow_translate.CrowTranslate.MainWindow.translateSelection"
+  )
+)
 -- NIXOS-MANAGED BINDS END
 HYPRLUA
     fi
