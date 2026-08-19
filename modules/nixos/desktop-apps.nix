@@ -19,6 +19,11 @@
     # verify with `NIXPKGS_ALLOW_UNFREE=1 nix eval --impure` instead.
     jetbrains.ruby-mine
     vscode
+    # Android Studio — запрошено live 2026-08-19, вне исходной нумерации
+    # system-plan.md §5.4. Unfree, тот же allowUnfree-путь, что и
+    # RubyMine/Chrome/VSCode/Postman (см. nixpkgs.config.allowUnfree в
+    # hosts/mimir/configuration.nix).
+    android-studio
 
     # §5.5 AI coding agents — host-level packages for one-off interactive
     # use (system-plan.md §5.5); the sandboxed/per-project path is
@@ -51,9 +56,11 @@
     OVMFFull
     spice-vdagent
 
-    # Заметки / трекинг времени — запрошено live 2026-08-13, вне
-    # исходной нумерации system-plan.md §5.x.
+    # Заметки / трекинг времени / карточки — запрошено live 2026-08-13
+    # (obsidian/awatcher) и 2026-08-19 (anki), вне исходной нумерации
+    # system-plan.md §5.x.
     obsidian
+    anki
     # awatcher, NOT the plain `activitywatch` package -- проверено live:
     # activitywatch's own aw-watcher-window исторически X11-only, а под
     # Wayland/Hyprland требует отдельный aw-watcher-window-wayland,
