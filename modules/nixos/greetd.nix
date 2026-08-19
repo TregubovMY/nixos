@@ -18,7 +18,17 @@
     # greeter (checked nixos/modules/services/display-managers/greetd.nix
     # at this repo's pinned nixpkgs rev, not assumed).
     useTextGreeter = true;
+    # --cmd start-hyprland, NOT --cmd Hyprland: the latter execs the
+    # compositor binary raw, which upstream Hyprland flags with "started
+    # without start-hyprland... strongly discouraged" on every boot (real
+    # bug found live -- github.com/hyprwm/Hyprland/discussions/12661 --
+    # not just a cosmetic message, see modules/nixos/hyprland.nix's
+    # withUWSM comment for what it actually breaks). `start-hyprland` is
+    # the wrapper the Hyprland package itself ships (confirmed in this
+    # repo's pinned nixpkgs -- programs.hyprland's own `enable` option
+    # docs it directly), and is what withUWSM's systemd/UWSM integration
+    # (enabled in hyprland.nix) actually expects to be launched through.
     settings.default_session.command =
-      "${pkgs.tuigreet}/bin/tuigreet --time --remember --asterisks --cmd Hyprland";
+      "${pkgs.tuigreet}/bin/tuigreet --time --remember --asterisks --cmd start-hyprland";
   };
 }

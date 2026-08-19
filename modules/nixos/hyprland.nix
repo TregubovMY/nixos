@@ -20,7 +20,35 @@
 # option is enabled, not used here).
 { pkgs, ... }:
 {
-  programs.hyprland.enable = true;
+  programs.hyprland = {
+    enable = true;
+    # UWSM (Universal Wayland Session Manager) -- greetd was execing the
+    # raw `Hyprland` binary (see modules/nixos/greetd.nix), which prints
+    # "Hyprland was started without start-hyprland. This is strongly
+    # discouraged..." on every boot: a real, upstream-documented warning
+    # (github.com/hyprwm/Hyprland/discussions/12661), not cosmetic noise
+    # from this repo's own config. Root cause: launched that way, Hyprland
+    # never imports its env into systemd/D-Bus activation environment and
+    # never starts graphical-session(-pre).target itself, so anything
+    # depending on those targets (portals, xdg-autostart) is relying on
+    # luck/ordering, not a real dependency. withUWSM = true switches on
+    # this module's own upstream integration (confirmed by reading this
+    # repo's pinned nixpkgs rev's nixos/modules/programs/wayland/
+    # hyprland.nix directly, not assumed from memory): it flips
+    # programs.uwsm.enable on automatically and makes `start-hyprland` (a
+    # wrapper the Hyprland package itself ships) the real entrypoint --
+    # greetd's --cmd changes to that wrapper below. NOT setting
+    # programs.uwsm.waylandCompositors by hand -- that generates a
+    # separate "Hyprland (UWSM)" *.desktop entry for session-picker
+    # display managers (GDM/SDDM-style); greetd/tuigreet here selects the
+    # session via --cmd directly, so that entry would just be dead
+    # config. NOT relevant here: the wiki's "disable
+    # wayland.windowManager.hyprland.systemd.enable" caveat -- this repo
+    # never used that home-manager module at all (see modules/home/
+    # hyprland.nix's own header comment on why), so there's no conflict
+    # to disable.
+    withUWSM = true;
+  };
 
   environment.systemPackages = with pkgs; [
     grim
