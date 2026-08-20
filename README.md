@@ -244,7 +244,8 @@ auto-built VM-артефакт, установка через `nixos-install` п
 Самый полный из существующих хостов — тянет всё, что этот репозиторий
 реально построил: disko+LUKS+btrfs, Secure Boot, `hyprland.nix`,
 `greetd.nix`, `nix-settings.nix`, `desktop-apps.nix`, `dev-databases.nix`,
-`podman.nix`, `home-manager.nix` на системном уровне, плюс реальный
+`podman.nix`, `home-manager.nix`, `notebooklm-tooling.nix` на системном
+уровне, плюс реальный
 home-manager-пользователь `max` с `hyprland.nix`/`neovim.nix`/`shell.nix`/
 `zellij.nix`/`ghostty.nix`/`direnv.nix`/`mise.nix`. Единственное, чего у
 него нет по сравнению с гипотетическим `hosts/mimir/` — `secrets.nix`
@@ -346,6 +347,49 @@ nix build .#nixosConfigurations.test-desktop-apps.config.system.build.toplevel -
   хост с unfree-пакетами (`hosts/mimir/`, `hosts/test-desktop-apps/`,
   `hosts/mimir-vm-full/`) объявляет `nixpkgs.config.allowUnfree = true;`
   сам.
+
+## Obsidian-вольт + notebooklm-py (modules/nixos/notebooklm-tooling.nix)
+
+Собрано по итогам `docs/superpowers/user/NixOS setup.md` (чек-лист,
+написанный 2026-08-20 по факту реальной установки на текущей, не-NixOS
+машине разработки) — что из того чек-листа декларативно, а что остаётся
+ручным шагом реальной установки.
+
+**Декларативно (уже в репозитории):**
+- `obsidian` и `anki` — пакеты, `modules/nixos/desktop-apps.nix` (§5.x,
+  добавлены вживую 2026-08-13/2026-08-19).
+- `yt-dlp` — там же, есть в nixpkgs напрямую.
+- `uv` и `playwright-driver.browsers` — отдельный модуль
+  `modules/nixos/notebooklm-tooling.nix`, подключён в `hosts/mimir/` и
+  `hosts/mimir-vm-full/`. Модуль выделен отдельно от `desktop-apps.nix`,
+  потому что это не просто пакеты, а пакет + системные
+  `environment.variables`, обвязывающие один конкретный воркэраунд:
+  Playwright (тянется `notebooklm-py`) по умолчанию скачивает Chromium
+  универсальной Linux-сборкой, ждущей FHS-путей вроде `/lib64`, которых на
+  NixOS нет — `PLAYWRIGHT_BROWSERS_PATH` указывает на патченный
+  `playwright-driver.browsers` из nixpkgs вместо этого,
+  `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` не даёт Playwright параллельно
+  тянуть несовместимый билд поверх.
+
+**Остаётся ручным шагом (не в Nix — реальная идентичность/учётки, тот же
+принцип, что и SSH/GPG-ключи и `programs.git.settings.user` в
+`modules/home/shell.nix`):**
+- `ssh-keygen` под Obsidian-синк и добавление публичного ключа в GitHub;
+  `git clone git@github.com:TregubovMY/Obsidian-Athena.git` — сам вольт,
+  все community-плагины (QuickAdd, Templater, Dataview, Yanki, Homepage,
+  obsidian-git) лежат внутри вольта в `.obsidian/plugins/` и приезжают
+  вместе с клоном, отдельно их ставить не нужно; `obsidian-git` внутри
+  вольта уже настроен на автокоммит/автопуш.
+- `uv tool install "notebooklm-py[browser]"` — самого пакета в nixpkgs
+  нет (чистый PyPI-пакет), `uv` только даёт изолированный venv для этой
+  установки, сама установка не декларативна.
+- `notebooklm login` — вход в гугл-аккаунт при первом запуске, тоже не
+  автоматизируется.
+- AnkiConnect (код аддона `2055492159` через Anki → Tools → Add-ons → Get
+  Add-ons) — аддон внутри уже установленного Anki, не системный пакет.
+- Если Obsidian (Electron) на конкретном GPU показывает чёрный экран —
+  `--unsupported-gpu` в команде запуска; не захардкожено в модуль, т.к.
+  зависит от конкретного железа, а не от системы вообще.
 
 ## Hyprland + DankMaterialShell (DMS)
 

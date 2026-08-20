@@ -29,6 +29,7 @@
     ../../modules/nixos/podman.nix
     ../../modules/nixos/home-manager.nix
     ../../modules/nixos/nix-ld.nix
+    ../../modules/nixos/notebooklm-tooling.nix
   ];
 
   # Same gap as hosts/mimir-vm-rehearsal/ -- no hardware-configuration.nix,

@@ -36,6 +36,7 @@
     ../../modules/nixos/podman.nix
     ../../modules/nixos/home-manager.nix
     ../../modules/nixos/nix-ld.nix
+    ../../modules/nixos/notebooklm-tooling.nix
   ];
 
   networking.hostName = "mimir";
