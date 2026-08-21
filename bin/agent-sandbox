@@ -90,6 +90,13 @@ args=(
   --userns=keep-id
   -v "$project_dir:/workspace"
   -v "agent-mise:/home/agent/.local/share/mise"
+  # Shared across projects, same as agent-mise above and for the same
+  # reason (system-plan.md §9.6): `uv tool install "notebooklm-py[browser]"`
+  # is a user-level install, not project data, so re-running it on every
+  # single container restart for every project would be wasteful. Entry
+  # point (modules/nixos/packages/agent-sandbox.nix) points UV_TOOL_DIR/
+  # UV_TOOL_BIN_DIR at this one mounted path.
+  -v "agent-uv-tools:/home/agent/.local/share/uv"
   -v "agent-cache-$project_hash:/home/agent/.cache"
   # Per-project (not shared) credentials volume, keyed by the same
   # project_hash as the cache volume above. A single shared volume was

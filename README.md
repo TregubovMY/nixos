@@ -370,6 +370,15 @@ nix build .#nixosConfigurations.test-desktop-apps.config.system.build.toplevel -
   `playwright-driver.browsers` из nixpkgs вместо этого,
   `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` не даёт Playwright параллельно
   тянуть несовместимый билд поверх.
+- Тот же `uv` + `playwright-driver.browsers` (плюс те же две переменные)
+  продублированы и в `agent-sandbox` (`modules/nixos/packages/
+  agent-sandbox.nix`) — если claude-code/opencode запускаются внутри
+  песочницы (см. секцию про agent-sandbox выше), а не прямо на хосте, им
+  для того же тулинга нужна та же обвязка внутри контейнера. Персистентность
+  `uv tool install "notebooklm-py[browser]"` между перезапусками
+  контейнера (он `--rm`, ничего не остаётся сам по себе) обеспечивает
+  общий на все проекты named volume `agent-uv-tools` — та же логика,
+  что и у `agent-mise` в известных ограничениях ниже.
 
 **Остаётся ручным шагом (не в Nix — реальная идентичность/учётки, тот же
 принцип, что и SSH/GPG-ключи и `programs.git.settings.user` в

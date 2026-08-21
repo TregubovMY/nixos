@@ -81,6 +81,35 @@ let
     export NIX_LD=${pkgs.stdenv.cc.bintools.dynamicLinker}
     export NIX_LD_LIBRARY_PATH=${nixLdLibraries}
 
+    # notebooklm-py tooling, mirroring modules/nixos/notebooklm-tooling.nix
+    # (host-side module) inside the sandbox too -- an agent running in
+    # here needs the same escape hatch to drive NotebookLM/yt-dlp as a
+    # user working directly on the host. Same two reasons that module
+    # documents apply verbatim here: notebooklm-py isn't in nixpkgs (pure
+    # PyPI package, `uv tool install` is still a manual one-time step per
+    # environment) and Playwright's own Chromium download is a generic
+    # Linux build that won't run against this Nix-store-only image
+    # (expects FHS paths like /lib64) -- point it at nixpkgs' pre-patched
+    # playwright-driver.browsers instead and stop it from trying to
+    # download its own build on top.
+    export PLAYWRIGHT_BROWSERS_PATH=${pkgs.playwright-driver.browsers}
+    export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
+    # `uv tool install` itself isn't baked into the image (same "not
+    # declarative, done by hand" boundary as the host module) -- but
+    # unlike the host, this container is `--rm` (fresh rootfs every
+    # launch), so without redirecting uv's install/shim dirs onto the
+    # persistent agent-mise-style volume bin/agent-sandbox mounts at
+    # /home/agent/.local/share/uv, `uv tool install "notebooklm-py[browser]"`
+    # would have to be repeated on every single container start. Both
+    # dirs kept under that one mounted volume (rather than uv's separate
+    # default ~/.local/bin for shims) so bin/agent-sandbox only needs one
+    # extra -v flag, not two.
+    export UV_TOOL_DIR=/home/agent/.local/share/uv/tools
+    export UV_TOOL_BIN_DIR=/home/agent/.local/share/uv/bin
+    export PATH="$UV_TOOL_BIN_DIR:$PATH"
+    mkdir -p "$UV_TOOL_DIR" "$UV_TOOL_BIN_DIR"
+
     # Wire the single per-project credentials volume (bin/agent-sandbox's
     # -v agent-creds-$project_hash:/home/agent/.sandbox-creds) up to the
     # actual paths claude-code/opencode read: ~/.claude (dir),
@@ -207,6 +236,13 @@ pkgs.dockerTools.buildLayeredImage {
     claude-code
     opencode
     chromium
+    # notebooklm-py's own runtime deps -- see the entrypoint's
+    # PLAYWRIGHT_BROWSERS_PATH/UV_TOOL_DIR comment above for why both are
+    # needed (uv installs the PyPI package itself in an isolated venv,
+    # playwright-driver.browsers is the NixOS-compatible Chromium build
+    # Playwright needs instead of its own FHS-assuming download).
+    uv
+    playwright-driver.browsers
     dockerTools.usrBinEnv
     dockerTools.binSh
     # `coreutils` does NOT include sed/grep/awk/tar/gzip (those are
