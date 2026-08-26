@@ -634,7 +634,17 @@ git, curl, ripgrep и т.п. # базовые CLI
 claude-code, opencode     # сами агенты
 chromium (+ Wayland/Mesa) # для GUI-браузера, см. 9.5
 uv, playwright-driver.browsers # notebooklm-py тулинг, см. modules/nixos/notebooklm-tooling.nix
+nodejs                    # только рантайм для `npm install -g @deepseek-ai/dsh` (DeepSeek Harness), см. ниже
 ```
+
+`dsh` (DeepSeek Harness, npм-пакет `@deepseek-ai/dsh`) в nixpkgs нет —
+выложен 2026-08-13, апстрим сам предупреждает о breaking changes в
+developer preview, так что пиновать его отдельной Nix-деривацией
+бессмысленно: устареет сразу же. Ставится тем же паттерном, что и
+`notebooklm-py` (§ ниже, `modules/nixos/notebooklm-tooling.nix`): `nodejs`
+в образе декларативен, сама установка (`npm install -g @deepseek-ai/dsh`)
+— ручной шаг внутри контейнера, персистентный между перезапусками через
+volume `agent-npm-global` (§9.4). Требует `DEEPSEEK_API_KEY`.
 
 Версии ruby/node/etc агент получает через `mise install`, читая
 `.tool-versions`/`mise.toml` **из самого проекта** при первом запуске —
@@ -648,6 +658,7 @@ podman run --rm -it \
   -v <project-dir>:/workspace \
   -v agent-mise:/home/agent/.local/share/mise \        # общий кэш версий рантаймов между проектами
   -v agent-uv-tools:/home/agent/.local/share/uv \       # общий, uv tool install notebooklm-py и т.п.
+  -v agent-npm-global:/home/agent/.local/share/npm-global \  # общий, npm install -g @deepseek-ai/dsh
   -v agent-cache-<project-hash>:/home/agent/.cache \    # индекс/история сессии агента, per-project
   --network=bridge \
   [--device /dev/dri -v "$XDG_RUNTIME_DIR/wayland-0":... -e WAYLAND_DISPLAY]  # только с --gui
@@ -686,9 +697,9 @@ podman run --rm -it \
   интернет, если агент к этому приведён (prompt injection и т.п.).
   Осознанно принято ради простоты и функциональности (агенту нужен
   реальный доступ в сеть для дебага/браузера).
-- Общие volumes `agent-mise` и `agent-uv-tools` (см. §9.4) — канал
-  распространения между проектами: каждый один на все контейнеры (в
-  отличие от `agent-cache-*`, который per-project), поэтому
+- Общие volumes `agent-mise`, `agent-uv-tools` и `agent-npm-global` (см.
+  §9.4) — канал распространения между проектами: каждый один на все
+  контейнеры (в отличие от `agent-cache-*`, который per-project), поэтому
   скомпрометированный/сломанный агент в проекте A может подменить
   установленный туда рантайм или shim (например, бинарник `ruby` или
   `notebooklm`), и он затем выполнится в контейнере проекта B при

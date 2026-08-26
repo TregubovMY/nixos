@@ -97,6 +97,11 @@ args=(
   # point (modules/nixos/packages/agent-sandbox.nix) points UV_TOOL_DIR/
   # UV_TOOL_BIN_DIR at this one mounted path.
   -v "agent-uv-tools:/home/agent/.local/share/uv"
+  # Shared across projects, same reasoning as agent-uv-tools right above:
+  # `npm install -g @deepseek-ai/dsh` (DeepSeek Harness) is a user-level
+  # install, not project data. Entry point (modules/nixos/packages/
+  # agent-sandbox.nix) points NPM_CONFIG_PREFIX at this one mounted path.
+  -v "agent-npm-global:/home/agent/.local/share/npm-global"
   -v "agent-cache-$project_hash:/home/agent/.cache"
   # Per-project (not shared) credentials volume, keyed by the same
   # project_hash as the cache volume above. A single shared volume was
@@ -123,6 +128,13 @@ args=(
 # inside the container.
 if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
   args+=(-e ANTHROPIC_API_KEY)
+fi
+
+# Same passthrough, for DeepSeek Harness (`dsh`) -- it refuses to do
+# anything without a DeepSeek API key (see README's DeepSeek Harness
+# section).
+if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
+  args+=(-e DEEPSEEK_API_KEY)
 fi
 
 if [ "$gui" = 1 ]; then

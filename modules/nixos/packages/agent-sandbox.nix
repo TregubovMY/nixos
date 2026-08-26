@@ -110,6 +110,22 @@ let
     export PATH="$UV_TOOL_BIN_DIR:$PATH"
     mkdir -p "$UV_TOOL_DIR" "$UV_TOOL_BIN_DIR"
 
+    # DeepSeek Harness (`dsh`, npm package `@deepseek-ai/dsh`) -- same
+    # category of dependency as notebooklm-py above: not in nixpkgs
+    # (published 2026-08-13, and upstream's own README says "developer
+    # preview ... THERE WILL BE COMPATIBILITY-BREAKING CHANGES"), so a
+    # pinned Nix derivation would go stale by design, not by neglect. Reuses
+    # the exact same pattern as uv-tool-install rather than inventing a new
+    # one: `nodejs` in `contents` below is only the runtime `npm install -g
+    # @deepseek-ai/dsh` needs, the install itself stays a manual one-time
+    # step per environment (see README) -- and NPM_CONFIG_PREFIX points at a
+    # path under the persistent agent-npm-global volume (bin/agent-sandbox)
+    # so that one-time install survives this container being --rm, same as
+    # UV_TOOL_DIR/UV_TOOL_BIN_DIR above survives via agent-uv-tools.
+    export NPM_CONFIG_PREFIX=/home/agent/.local/share/npm-global
+    export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
+    mkdir -p "$NPM_CONFIG_PREFIX"
+
     # Wire the single per-project credentials volume (bin/agent-sandbox's
     # -v agent-creds-$project_hash:/home/agent/.sandbox-creds) up to the
     # actual paths claude-code/opencode read: ~/.claude (dir),
@@ -243,6 +259,12 @@ pkgs.dockerTools.buildLayeredImage {
     # Playwright needs instead of its own FHS-assuming download).
     uv
     playwright-driver.browsers
+    # DeepSeek Harness's own runtime -- see the entrypoint's
+    # NPM_CONFIG_PREFIX comment above for why this stays an
+    # `npm install -g @deepseek-ai/dsh` done by hand rather than a baked-in
+    # nixpkgs derivation. `nodejs` here is *only* the interpreter/npm CLI;
+    # `dsh` itself is not part of this image's closure.
+    nodejs
     dockerTools.usrBinEnv
     dockerTools.binSh
     # `coreutils` does NOT include sed/grep/awk/tar/gzip (those are
