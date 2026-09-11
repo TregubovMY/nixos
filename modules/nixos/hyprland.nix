@@ -90,4 +90,20 @@
   # DMS/Hyprland pick up the graphical session's environment before any
   # per-user home-manager session vars would apply.
   environment.sessionVariables.QS_ICON_THEME = "Papirus-Dark";
+
+  # A Nerd Font, system-wide via fonts.packages (a NixOS option, not
+  # home-manager -- fontconfig is shared across the whole system anyway).
+  # nixpkgs restructured the old monolithic `nerdfonts` attribute (which
+  # pulled the entire multi-GB collection via a `fonts = [...]` override)
+  # into one package per font family under the `nerd-fonts` namespace --
+  # `nerdfonts` no longer resolves at all on this repo's pinned nixpkgs.
+  # JetBrainsMono picked as a single reasonable default: this repo already
+  # has starship (prompt segment icons), eza (file-type icons) and
+  # lazygit (UI glyphs) in modules/home/shell.nix/neovim.nix, all of which
+  # render private-use-area glyphs that a plain font doesn't have -- none
+  # of them are wired to actually USE it yet (same "no fabricated
+  # preferences" boundary as modules/home/ghostty.nix: installing the font
+  # makes the glyphs available, picking it as kitty/ghostty/starship's
+  # font is a separate live decision for whoever uses the terminal).
+  fonts.packages = [ pkgs.nerd-fonts.jetbrains-mono ];
 }

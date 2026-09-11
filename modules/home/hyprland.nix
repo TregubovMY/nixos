@@ -110,11 +110,20 @@
   # out to. Almost certainly already pulled in transitively by the
   # Qt6/quickshell stack DMS needs, but wasn't declared anywhere in this
   # repo before -- declaring it explicitly instead of relying on that.
+  # swappy: annotation editor for screenshots (arrows/text/blur/shapes),
+  # wired via grimblast's own `edit` action + GRIMBLAST_EDITOR below,
+  # rather than a separate hand-rolled `grim -g "$(slurp)" | swappy -f -`
+  # pipeline -- grimblast (already installed for the copysave binds
+  # above) already implements that exact pattern internally and just
+  # needs to be told which editor to launch (default is gimp, confirmed
+  # by reading hyprwm/contrib's grimblast script directly: `edit()` calls
+  # `$GRIMBLAST_EDITOR "$file"` on the captured region).
   home.packages = [
     pkgs.bibata-cursors
     pkgs.grimblast
     pkgs.crow-translate
     pkgs.glib
+    pkgs.swappy
   ];
 
   # Requested live: ru+en layout with CapsLock as the switcher (real
@@ -212,6 +221,12 @@ hl.bind("SUPER + slash", hl.dsp.exec_cmd("dms ipc call hypr toggleBinds"))
 hl.bind("Print", hl.dsp.exec_cmd("grimblast copysave area"))
 hl.bind("SHIFT + Print", hl.dsp.exec_cmd("grimblast copysave screen"))
 hl.bind("SUPER + Print", hl.dsp.exec_cmd("grimblast copysave active"))
+-- Annotate: opens the region capture in swappy (arrows/text/blur/shapes)
+-- instead of saving it directly, via grimblast's own `edit` action --
+-- GRIMBLAST_EDITOR set inline in the command string, not exported
+-- globally, so it only affects this one bind and leaves the copysave
+-- binds above (which don't call `edit` at all) unaffected either way.
+hl.bind("SUPER + SHIFT + Print", hl.dsp.exec_cmd("GRIMBLAST_EDITOR=swappy grimblast edit area"))
 -- Translate the current text selection via Crow Translate's D-Bus method
 -- (system-plan.md §5.11) -- Wayland has no global-shortcut API of its
 -- own, this D-Bus call is Crow Translate's documented integration point
