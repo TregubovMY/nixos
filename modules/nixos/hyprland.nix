@@ -55,7 +55,23 @@
     slurp
     wf-recorder
     hyprpaper
-    cliphist
+    # cliphist removed (2026-09-11): was dead weight even before this --
+    # grepped the actual live modules/ code (not the pre-DMS planning
+    # docs under docs/superpowers/plans|specs, which still show it), and
+    # nothing here ever ran the `wl-paste --watch cliphist store` daemon
+    # that's required to feed it, nor bound any `cliphist list | ... |
+    # wl-copy` picker -- those only ever existed in the pre-DMS design
+    # docs, never carried into modules/home/hyprland.nix's real binds.
+    # Also independently redundant now: this flake's pinned DMS rev
+    # (github:AvengeMedia/DankMaterialShell, 2026-08-11) postdates DMS
+    # 1.2 "Spicy Miso" (released 2026-01-13, per danklinux.com/blog/
+    # v1-2-release), which shipped "full, zero-dependency clipboard and
+    # clipboard history integration -- no dependency on external tools,
+    # such as cliphist or wl-clipboard" (own bbolt DB under
+    # ~/.cache/DankMaterialShell/clipboard/). wl-clipboard kept for now
+    # even though it's unused here too -- much smaller/more generic
+    # (wl-copy/wl-paste), a plausible future script dependency, out of
+    # scope for this specific check.
     wl-clipboard
     # qt5ct/qt6ct + kvantum: system-plan.md §5.2's single "qt5/qt6ct +
     # kvantum" bullet is actually four separate packages at non-obvious
