@@ -567,16 +567,33 @@ Bitwarden — вся инфраструктура выше удалена из �
 
 ## 8. Порядок разворачивания на новой машине
 
+**Статус (2026-09-11):** `hosts/laptop/`, на который эта секция раньше
+ссылалась, в репозитории никогда не существовал под этим именем —
+реальный целевой хост называется `hosts/mimir/` (skeleton: только
+`configuration.nix` + `disk-config.nix`), и он **не зарегистрирован**
+в `flake.nix`'s `nixosConfigurations` — `.#mimir` пока не резолвится.
+Реальной установки на физическое железо ещё не было (см. README.md,
+верхний абзац). Ближайший реально проверенный аналог — `hosts/mimir-vm-full`
+(полная репетиция десктопа на виртуальном диске, README.md, раздел
+"Полная репетиция десктопа"), для которого есть готовые скрипты
+`bin/mimir-full-disko`/`bin/mimir-full-install`. Шаги ниже — целевой
+процесс для реальной машины, актуализированный на `hosts/mimir`, но
+перед первым реальным запуском на железе `hosts/mimir` нужно: (1)
+добавить `nixosConfigurations.mimir` в `flake.nix` по образцу
+`mimir-vm-full`, (2) сгенерировать настоящий `hardware-configuration.nix`
+(см. "Структура модулей" в CLAUDE.md), (3) поправить `disk-config.nix`
+под реальное блочное устройство.
+
 ```bash
 # 1. Загрузиться с NixOS install ISO (или Hyprland-минимал ISO)
 # 2. Клонировать репозиторий
 git clone <repo> && cd <repo>
 
 # 3. Разметить диск (LUKS + btrfs) декларативно
-nix run github:nix-community/disko -- --mode disko ./hosts/laptop/disk-config.nix
+nix run github:nix-community/disko -- --mode disko ./hosts/mimir/disk-config.nix
 
 # 4. Установить систему
-nixos-install --flake .#laptop
+nixos-install --flake .#mimir
 
 # 5. Перезагрузка, ввод пароля LUKS
 reboot

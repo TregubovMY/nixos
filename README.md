@@ -265,6 +265,17 @@ auto-built VM-артефакт, установка через `nixos-install` п
 `bootctl status` после перезагрузки показали `Secure Boot: enabled`,
 `systemctl --failed` пуст.
 
+Скрипты, которыми эта репетиция реально прогонялась (запускать из корня
+репозитория, изнутри installer-сессии VM) — `bin/mimir-vm-disko`
+(разметка через disko), `bin/mimir-vm-install` (`nixos-install --flake
+.#mimir-vm-rehearsal`), `bin/mimir-vm-sbctl-create-keys` (генерация
+Secure Boot ключей между двумя попытками `mimir-vm-install` — lanzaboote
+подписывает загрузчик уже во время самого `nixos-install`, поэтому ключи
+нужны ДО второй попытки, не после первой) и `bin/mimir-vm-remount`
+(пересмонтировать уже размеченный диск после неудачной первой загрузки,
+не переразмечая заново). Порядок и почему он именно такой — заголовки
+самих скриптов и `docs/superpowers/plans/tingly-doodling-phoenix.md`.
+
 ### Известные ограничения
 
 - **Настоящая генерация ключей и enroll в UEFI происходят только на реальном
@@ -276,6 +287,14 @@ auto-built VM-артефакт, установка через `nixos-install` п
   прошивке машины (не в OVMF), и hibernate-цикл.
 
 ## Полная репетиция десктопа: `hosts/mimir-vm-full`
+
+Упрощённая установка — `bin/mimir-full-disko` (разметка через disko) и
+`bin/mimir-full-install` (`nixos-install --flake .#mimir-vm-full`, с
+той же sbctl-keys-между-попытками логикой, что и у `mimir-vm-*`
+скриптов выше, свёрнутой внутрь одного скрипта вместо отдельного
+`mimir-vm-sbctl-create-keys`-шага). Запускать из корня репозитория,
+изнутри installer-сессии VM, `mimir-full-disko` перед
+`mimir-full-install`.
 
 Самый полный из существующих хостов — тянет всё, что этот репозиторий
 реально построил: disko+LUKS+btrfs, Secure Boot, `hyprland.nix`,
