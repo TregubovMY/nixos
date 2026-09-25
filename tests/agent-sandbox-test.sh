@@ -30,6 +30,12 @@ if [ "${1:-}" = container ] && [ "${2:-}" = inspect ]; then
   if [ "${FAKE_RUNNING:-false}" = true ]; then echo true; exit 0; fi
   exit 125
 fi
+# `podman network exists NAME`: the project's sidecar network, from
+# $FAKE_NETWORK; also a probe, not recorded.
+if [ "${1:-}" = network ] && [ "${2:-}" = exists ]; then
+  [ "${FAKE_NETWORK:-false}" = true ] && exit 0
+  exit 1
+fi
 printf '%s\n' "$@" >"$FAKE_PODMAN_LOG"
 exit "${FAKE_PODMAN_EXIT:-0}"
 EOF
@@ -58,7 +64,7 @@ bad() { fail=$((fail + 1)); echo "FAIL [$current]: $*" >&2; }
 run() {
   local rc=0
   env -i PATH="$PATH" HOME="$tmp" FAKE_PODMAN_LOG="$FAKE_PODMAN_LOG" \
-    FAKE_PODMAN_EXIT="${FAKE_PODMAN_EXIT:-0}" FAKE_RUNNING="${FAKE_RUNNING:-false}" \
+    FAKE_PODMAN_EXIT="${FAKE_PODMAN_EXIT:-0}" FAKE_RUNNING="${FAKE_RUNNING:-false}" FAKE_NETWORK="${FAKE_NETWORK:-false}" \
     "$@" </dev/null >"$tmp/out" 2>"$tmp/err" || rc=$?
   echo "$rc"
 }
@@ -88,6 +94,18 @@ expect log_seq agent-sandbox:latest echo
 expect log_lacks --
 expect log_has -i
 expect log_lacks -it
+
+t "no sidecar network: plain bridge networking"
+rc=$(run bash "$script" "$project" -- true)
+expect log_has --network=bridge
+expect log_lacks "agent-sb-$hash"
+
+t "sidecar network exists: agent joins it next to the default network"
+rc=$(FAKE_NETWORK=true run bash "$script" up "$project")
+expect_rc "$rc" 0
+expect log_seq --network podman
+expect log_seq --network "agent-sb-$hash"
+expect log_lacks --network=bridge
 
 t "env allowlist: service tokens in the host env never reach the container"
 rc=$(run JIRA_API_TOKEN=j GITLAB_TOKEN=g GITLAB_PRIVATE_TOKEN=p GITHUB_TOKEN=h \

@@ -327,9 +327,11 @@
 
         # bin/agent-sandbox's own logic (argument parsing, the env
         # allowlist that keeps Jira/GitLab tokens out of the container,
-        # --workdir validation, exit-code passthrough, up/exec wiring),
-        # tested against a fake `podman` -- see the header of
-        # tests/agent-sandbox-test.sh. Unlike the two VM tests around it
+        # --workdir validation, exit-code passthrough, up/exec wiring) and
+        # bin/agent-secret-load + bin/agent-sidecar (secrets via stdin
+        # only, sidecar images built from a commit rather than the working
+        # tree, config parsed not sourced), tested against fake `podman`/
+        # `rbw` -- see the headers of tests/*.sh. Unlike the two VM tests around it
         # this one is cheap (bash + shellcheck, seconds), so a plain
         # `nix build .#checks.x86_64-linux.agent-sandbox-cli` or `make
         # test` is fine to run after every change to the wrapper.
@@ -339,8 +341,12 @@
               nativeBuildInputs = with pkgs; [
                 bash
                 coreutils
+                findutils
                 gawk
+                gitMinimal
                 gnugrep
+                gnutar
+                jq
                 shellcheck
               ];
             }
@@ -348,8 +354,9 @@
               cp -r ${./bin} bin
               cp -r ${./tests} tests
               chmod -R u+w .
-              shellcheck -x bin/agent-sandbox tests/agent-sandbox-test.sh
+              shellcheck -x bin/agent-sandbox bin/agent-secret-load bin/agent-sidecar tests/*.sh
               bash tests/agent-sandbox-test.sh
+              HOME=$TMPDIR bash tests/agent-sidecar-test.sh
               touch $out
             '';
 

@@ -395,8 +395,19 @@ args+=(
   # not this script's -- a single volume here keeps the podman invocation
   # from growing one flag per credential file/dir.
   -v "agent-creds-$project_hash:/home/agent/.sandbox-creds"
-  --network=bridge
 )
+
+# Networking: the default rootless bridge network ("podman") for open
+# egress (system-plan.md §9.2), plus — when bin/agent-sidecar has created
+# one for this project — the project's internal sidecar network, so the
+# agent can reach sidecars by name (e.g. http://signer:8080) while the
+# sidecars themselves have no route out (§9.8).
+sidecar_network="agent-sb-$project_hash"
+if podman network exists "$sidecar_network" 2>/dev/null; then
+  args+=(--network podman --network "$sidecar_network")
+else
+  args+=(--network=bridge)
+fi
 args+=(${env_args[@]+"${env_args[@]}"} ${publish_args[@]+"${publish_args[@]}"})
 [ -z "$container_workdir" ] || args+=(-e "AGENT_WORKDIR=$container_workdir")
 
