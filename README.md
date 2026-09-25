@@ -90,6 +90,48 @@ bin/agent-sandbox down ~/code/myproject                    # остановит�
   (`tests/agent-sandbox-test.sh`, фейковый podman) и flake-check
   `agent-sandbox-cli`.
 
+### Секреты для соседей: `agent-secret-load` и `agent-sidecar`
+
+Когда агенту нужен настоящий ключ для реальных запросов или системных
+тестов (например, криптоконтейнер для подписи запросов в тестовую ЕСИА),
+ключ не кладётся в его контейнер. Его держит **сосед** — отдельный
+контейнер во внутренней сети проекта без выхода наружу; агент ходит к
+нему по имени. Образ соседа собирается **только из проверенного коммита**
+(`promote`), конфиг соседей лежит на хосте вне проекта. Зачем так и какие
+риски остаются — `system-plan.md` §9.8.
+
+```bash
+# один раз: rbw config set email you@example.com; rbw login
+agent-secret-load esia-test-key "ESIA test signer" --field container-b64 --base64
+conf="$(bin/agent-sidecar config-dir ~/code/proj)"; mkdir -p "$conf"
+printf 'CONTEXT=services/signer\nSECRETS=esia-test-key\n' > "$conf/signer.conf"
+bin/agent-sidecar promote ~/code/proj signer <commit-после-ревью>
+bin/agent-sidecar up ~/code/proj signer
+bin/agent-sandbox up ~/code/proj        # подключится к сети соседа сам
+bin/agent-sidecar status ~/code/proj
+bin/agent-sidecar down ~/code/proj signer
+bin/agent-secret-load --rm esia-test-key
+```
+
+- `rbw` не скачивает вложения Bitwarden — бинарный секрет храни
+  base64-строкой в поле элемента и загружай с `--base64`.
+- Штатный драйвер podman secrets хранит загруженный секрет в своём
+  хранилище на диске (0600) до `--rm` — см. оговорку в §9.8.
+- `rbw` и `jq` на хосте ставит `modules/nixos/agent-host-tools.nix`.
+
+**Ручная проверка на целевой машине** (в среде разработки podman нет,
+логика покрыта `make test`):
+1. `agent-secret-load test-secret <элемент>` → `podman secret ls` видит
+   секрет, `podman secret inspect --showsecret test-secret` — значение без
+   лишнего перевода строки.
+2. Тестовый сосед (`CONTEXT` с Containerfile на базе, например,
+   `busybox`, который отдаёт `/run/secrets/test-secret` по HTTP) →
+   `promote` → `up`; `agent-sandbox up` → `attach` → `wget -qO- http://<имя>:<порт>`
+   отвечает; из соседа `wget https://example.com` **не** проходит (сеть
+   internal).
+3. Изменить файл соседа в рабочем дереве без коммита → `promote` на
+   старый коммит → в образе старая версия.
+
 ### LSP для агентов
 
 В образе есть `gopls` и `typescript-language-server` (+ `typescript`) —
