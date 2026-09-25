@@ -25,3 +25,9 @@ vm:
 
 disko-test:
 	nix build .#checks.$(SYSTEM).disko-luks-btrfs -L
+
+# Wrapper tests for bin/agent-sandbox (fake podman, seconds) -- same
+# script the `agent-sandbox-cli` flake check runs, minus shellcheck.
+.PHONY: test
+test:
+	bash tests/agent-sandbox-test.sh

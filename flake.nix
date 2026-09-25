@@ -325,6 +325,34 @@
           '';
         };
 
+        # bin/agent-sandbox's own logic (argument parsing, the env
+        # allowlist that keeps Jira/GitLab tokens out of the container,
+        # --workdir validation, exit-code passthrough, up/exec wiring),
+        # tested against a fake `podman` -- see the header of
+        # tests/agent-sandbox-test.sh. Unlike the two VM tests around it
+        # this one is cheap (bash + shellcheck, seconds), so a plain
+        # `nix build .#checks.x86_64-linux.agent-sandbox-cli` or `make
+        # test` is fine to run after every change to the wrapper.
+        agent-sandbox-cli =
+          pkgs.runCommand "agent-sandbox-cli-test"
+            {
+              nativeBuildInputs = with pkgs; [
+                bash
+                coreutils
+                gawk
+                gnugrep
+                shellcheck
+              ];
+            }
+            ''
+              cp -r ${./bin} bin
+              cp -r ${./tests} tests
+              chmod -R u+w .
+              shellcheck -x bin/agent-sandbox tests/agent-sandbox-test.sh
+              bash tests/agent-sandbox-test.sh
+              touch $out
+            '';
+
         # Confirms Secure Boot works with this repo's exact
         # boot.initrd.systemd.enable = true choice, via lanzaboote's own
         # upstream test architecture (vendored, see
