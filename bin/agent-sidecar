@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# Sidecar services for a project's agent sandbox: a separate container that
+# holds a secret (podman secret, tmpfs at /run/secrets/<name>) and offers a
+# narrow service to the agent over an internal podman network — e.g. a
+# signing service holding a test key container, so the agent can make real
+# signed requests and run system tests without ever being able to read the
+# key. Design, threat model and residual risks: system-plan.md §9.8.
+#
+# Two rules this script enforces, both because the agent can edit anything
+# under the project directory:
+# 1. The sidecar image is built only from a *commit* (`git archive`), never
+#    from the working tree — `promote` is the human step "I reviewed this
+#    code, let it near the key". Until then the agent tests its changes to
+#    the service against a throwaway test key, not the real one.
+# 2. Sidecar configuration (which secret goes into which sidecar, what gets
+#    built) lives on the host under ~/.config/agent-sandbox, outside the
+#    mounted project, so the agent cannot rewrite it to widen its access.
+#    The config file is parsed as KEY=VALUE, never `source`d.
+#
+# The internal network (`podman network create --internal`) has no route
+# out: a sidecar can talk to the agent container and nothing else. The agent
+# container joins it automatically on its next start (bin/agent-sandbox).
+set -euo pipefail
+
+usage_text="Usage:
+  agent-sidecar config-dir <project-dir>                 print where this project's sidecar configs live
+  agent-sidecar promote <project-dir> <name> <commit>    build the sidecar image from <commit> and mark it current
+  agent-sidecar up <project-dir> <name>                  start the sidecar on the project's internal network
+  agent-sidecar down <project-dir> <name>                stop it
+  agent-sidecar logs <project-dir> <name> [podman logs options]
+  agent-sidecar status <project-dir>                     list this project's running sidecars
+
+Config: <config-dir>/<name>.conf, KEY=VALUE lines:
+  CONTEXT=services/signer     build context, path inside the repository (required)
+  CONTAINERFILE=Containerfile file inside CONTEXT (default: Containerfile)
+  SECRETS=esia-test-key       podman secrets to mount (space-separated), see agent-secret-load"
+usage() {
+  echo "$usage_text" >&2
+  exit 1
+}
+
+case "${1:-}" in
+  -h | --help | "")
+    echo "$usage_text" >&2
+    [ -n "${1:-}" ] && exit 0
+    exit 1
+    ;;
+esac
+cmd="$1"
+shift
+
+[ "$#" -ge 1 ] || usage
+project_dir="$(cd "$1" && pwd -P)"
+shift
+# Same hash as bin/agent-sandbox, so sidecars, network and agent container
+# of one project line up.
+project_hash="$(printf '%s' "$project_dir" | sha256sum | cut -c1-12)"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/agent-sandbox/projects/$project_hash/sidecars"
+network="agent-sb-$project_hash"
+
+if [ "$cmd" = config-dir ]; then
+  echo "$config_dir"
+  exit 0
+fi
+
+command -v podman >/dev/null 2>&1 || { echo "agent-sidecar: podman not found on PATH" >&2; exit 1; }
+
+if [ "$cmd" = status ]; then
+  exec podman ps --filter "label=agent-sidecar.project=$project_dir" \
+    --format '{{.Names}}\t{{.Status}}\t{{.Image}}'
+fi
+
+[ "$#" -ge 1 ] || usage
+name="$1"
+shift
+case "$name" in
+  *[!a-z0-9-]* | "" | -*)
+    echo "agent-sidecar: sidecar name must match [a-z0-9-]+ (it becomes a DNS alias): $name" >&2
+    exit 1
+    ;;
+esac
+container="agent-sidecar-$project_hash-$name"
+image="localhost/agent-sidecar-$project_hash-$name"
+conf="$config_dir/$name.conf"
+
+# KEY=VALUE reader: only the three known keys, no shell evaluation.
+conf_get() {
+  local key="$1" default="${2:-}" line value=""
+  [ -f "$conf" ] || { echo "agent-sidecar: no config for '$name': $conf" >&2; exit 1; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "$key="*) value="${line#"$key="}" ;;
+    esac
+  done <"$conf"
+  printf '%s' "${value:-$default}"
+}
+
+case "$cmd" in
+  promote)
+    [ "$#" -eq 1 ] || usage
+    commit_arg="$1"
+    context="$(conf_get CONTEXT)"
+    containerfile="$(conf_get CONTAINERFILE Containerfile)"
+    [ -n "$context" ] || { echo "agent-sidecar: CONTEXT is required in $conf" >&2; exit 1; }
+    case "/$context/$containerfile" in
+      */../* | *//*)
+        echo "agent-sidecar: CONTEXT/CONTAINERFILE must be plain relative paths" >&2
+        exit 1
+        ;;
+    esac
+    commit="$(git -C "$project_dir" rev-parse --verify --quiet "$commit_arg^{commit}")" || {
+      echo "agent-sidecar: not a commit in $project_dir: $commit_arg" >&2
+      exit 1
+    }
+    short="${commit:0:12}"
+    build_dir="$(mktemp -d)"
+    trap 'rm -rf "$build_dir"' EXIT
+    # `git archive <commit> <path>` exports exactly the committed tree —
+    # uncommitted or untracked files in the working tree (where the agent
+    # works) cannot end up in the image.
+    git -C "$project_dir" archive --format=tar "$commit" -- "$context" | tar -x -C "$build_dir"
+    [ -f "$build_dir/$context/$containerfile" ] || {
+      echo "agent-sidecar: $context/$containerfile does not exist at $short" >&2
+      exit 1
+    }
+    podman build --label "agent-sidecar.commit=$commit" -t "$image:$short" \
+      -f "$build_dir/$context/$containerfile" "$build_dir/$context"
+    podman tag "$image:$short" "$image:current"
+    mkdir -p "$config_dir"
+    printf '%s %s\n' "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$config_dir/$name.promoted"
+    echo "agent-sidecar: $name promoted to $short" >&2
+    if [ "$(podman container inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" = true ]; then
+      echo "agent-sidecar: restarting running $name on the new image" >&2
+      podman stop "$container" >/dev/null
+      exec "$0" up "$project_dir" "$name"
+    fi
+    ;;
+  up)
+    [ "$#" -eq 0 ] || usage
+    podman image exists "$image:current" || {
+      echo "agent-sidecar: no promoted image for '$name' — run: agent-sidecar promote $project_dir $name <commit>" >&2
+      exit 1
+    }
+    secret_args=()
+    for s in $(conf_get SECRETS); do
+      case "$s" in
+        *[!A-Za-z0-9._-]* | .*) echo "agent-sidecar: bad secret name in $conf: $s" >&2; exit 1 ;;
+      esac
+      podman secret exists "$s" || {
+        echo "agent-sidecar: podman secret '$s' missing — load it with agent-secret-load" >&2
+        exit 1
+      }
+      secret_args+=(--secret "$s")
+    done
+    podman network create --ignore --internal "$network" >/dev/null
+    exec podman run -d --rm \
+      --name "$container" \
+      --label "agent-sidecar.project=$project_dir" \
+      --label "agent-sidecar.name=$name" \
+      --network "$network" \
+      --network-alias "$name" \
+      --cap-drop=all \
+      --security-opt no-new-privileges \
+      ${secret_args[@]+"${secret_args[@]}"} \
+      "$image:current"
+    ;;
+  down)
+    [ "$#" -eq 0 ] || usage
+    exec podman stop "$container"
+    ;;
+  logs)
+    exec podman logs "$@" "$container"
+    ;;
+  *)
+    usage
+    ;;
+esac

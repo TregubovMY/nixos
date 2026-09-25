@@ -53,6 +53,105 @@ bin/agent-sandbox ~/code/myproject -- claude # сразу запустить cla
 bin/agent-sandbox --gui ~/code/myproject     # + видимое окно браузера на десктопе
 ```
 
+### Долгоживущий контейнер на проект (`up`/`attach`/`exec`/`down`)
+
+Для всего, что должно жить дольше одной команды (daemon доски Multica,
+раздающий задачи агентам, tmux-сессии, web UI) — один именованный
+контейнер на проект (`agent-sandbox-<hash пути>`), те же volume'ы, что и
+в одноразовом режиме. Зачем и как устроено — `system-plan.md` §9.7.
+
+```bash
+bin/agent-sandbox up ~/code/myproject                      # поднять (detached, --init)
+bin/agent-sandbox attach ~/code/myproject                  # интерактивный shell внутри
+bin/agent-sandbox attach --workdir .worktrees/feature/KEY-1-slug ~/code/myproject -- claude
+bin/agent-sandbox exec --no-tty ~/code/myproject -- claude -p "..." --output-format stream-json
+bin/agent-sandbox status                                   # все поднятые проекты
+bin/agent-sandbox down ~/code/myproject                    # остановить (volume'ы остаются)
+```
+
+- `--workdir <путь>` — запуск в подкаталоге проекта (обычно git worktree
+  в `.worktrees/<branch>`), относительно корня проекта или абсолютным
+  путём внутри него. Путь вне проекта (в т.ч. через `..` или симлинк)
+  отклоняется. Работает и в одноразовом режиме.
+- `--no-tty` — никогда не выделять TTY (оркестратор, скрипты), даже при
+  запуске из терминала. Код возврата команды пробрасывается наружу и в
+  одноразовом режиме, и в `exec` (podman сам использует только 125–127).
+- `--publish <host-port>:<container-port>` (у `up` и одноразового режима)
+  — публикует порт **только на `127.0.0.1`** хоста, не в LAN.
+- `--gitlab-token` — передать `GITLAB_TOKEN` в контейнер. По умолчанию
+  выключено; только для Project Access Token (один проект, роль
+  Developer, срок действия), см. §9.7.
+- `--shared-root` (только `up`) — осознанно смонтировать каталог с
+  несколькими проектами: изоляция между проектами при этом теряется.
+- Переменные окружения хоста в контейнер **не** попадают, кроме явного
+  белого списка (`ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `GITLAB_TOKEN`
+  по флагу) — токены Jira/GitLab/облаков, экспортированные в shell
+  хоста, агенту недоступны. Проверяется `make test`
+  (`tests/agent-sandbox-test.sh`, фейковый podman) и flake-check
+  `agent-sandbox-cli`.
+
+### Секреты для соседей: `agent-secret-load` и `agent-sidecar`
+
+Когда агенту нужен настоящий ключ для реальных запросов или системных
+тестов (например, криптоконтейнер для подписи запросов в тестовую ЕСИА),
+ключ не кладётся в его контейнер. Его держит **сосед** — отдельный
+контейнер во внутренней сети проекта без выхода наружу; агент ходит к
+нему по имени. Образ соседа собирается **только из проверенного коммита**
+(`promote`), конфиг соседей лежит на хосте вне проекта. Зачем так и какие
+риски остаются — `system-plan.md` §9.8.
+
+```bash
+# один раз: rbw config set email you@example.com; rbw login
+agent-secret-load esia-test-key "ESIA test signer" --field container-b64 --base64
+conf="$(bin/agent-sidecar config-dir ~/code/proj)"; mkdir -p "$conf"
+printf 'CONTEXT=services/signer\nSECRETS=esia-test-key\n' > "$conf/signer.conf"
+bin/agent-sidecar promote ~/code/proj signer <commit-после-ревью>
+bin/agent-sidecar up ~/code/proj signer
+bin/agent-sandbox up ~/code/proj        # подключится к сети соседа сам
+bin/agent-sidecar status ~/code/proj
+bin/agent-sidecar down ~/code/proj signer
+bin/agent-secret-load --rm esia-test-key
+```
+
+- `rbw` не скачивает вложения Bitwarden — бинарный секрет храни
+  base64-строкой в поле элемента и загружай с `--base64`.
+- Штатный драйвер podman secrets хранит загруженный секрет в своём
+  хранилище на диске (0600) до `--rm` — см. оговорку в §9.8.
+- `rbw` и `jq` на хосте ставит `modules/nixos/agent-host-tools.nix`.
+
+**Ручная проверка на целевой машине** (в среде разработки podman нет,
+логика покрыта `make test`):
+1. `agent-secret-load test-secret <элемент>` → `podman secret ls` видит
+   секрет, `podman secret inspect --showsecret test-secret` — значение без
+   лишнего перевода строки.
+2. Тестовый сосед (`CONTEXT` с Containerfile на базе, например,
+   `busybox`, который отдаёт `/run/secrets/test-secret` по HTTP) →
+   `promote` → `up`; `agent-sandbox up` → `attach` → `wget -qO- http://<имя>:<порт>`
+   отвечает; из соседа `wget https://example.com` **не** проходит (сеть
+   internal).
+3. Изменить файл соседа в рабочем дереве без коммита → `promote` на
+   старый коммит → в образе старая версия.
+
+### LSP для агентов
+
+В образе есть `gopls` и `typescript-language-server` (+ `typescript`) —
+серверы для встроенного LSP-инструмента Claude Code (официальные плагины
+`gopls-lsp`/`typescript-lsp` из `claude-plugins-official`, включаются в
+`.claude/settings.json` проекта) и для LSP-интеграции OpenCode. `ruby-lsp`
+намеренно не в образе — добавляется в Gemfile проекта (development), чтобы
+совпадать с Ruby проекта из mise; плагин `ruby-lsp` Claude Code найдёт его
+через `bundle exec`/PATH.
+
+### Ручные установки (переживают перезапуск, общие на все проекты)
+
+```bash
+bin/agent-sandbox attach ~/code/myproject
+npm install -g @fission-ai/openspec    # OpenSpec (volume agent-npm-global)
+npm install -g @deepseek-ai/dsh        # DeepSeek Harness, см. ниже
+# Multica CLI/daemon — бинарник из GitHub releases (по CLI_INSTALL.md
+# Multica, "Option B") в ~/.local/bin — volume agent-local-bin, в PATH.
+```
+
 Версии ruby/node/etc берутся из `.tool-versions`/`mise.toml` самого
 проекта через `mise install`, который выполняется автоматически при
 старте контейнера, если такие файлы есть в проекте — ничего не нужно
@@ -100,6 +199,21 @@ Wayland-сессии команда сразу завершится с поня�
   (`hosts/mimir/`, `hosts/mimir-vm-full/`) — сделано намеренно одним
   механизмом в обоих местах, чтобы mise resolved одинаково что в
   песочнице, что вне неё.
+- **`up`/`attach`/`exec`/`--publish`/`--init` проверены только тестами
+  обёртки** (фейковый podman, `tests/agent-sandbox-test.sh`) и
+  статически — в среде разработки нет podman. Перед тем как полагаться на
+  них, один раз прогнать руками: `up` → `status` → `attach` → `exec
+  --no-tty … -- false; echo $?` (ожидается 1) → `down`. Отдельно
+  проверить, что `--init` работает с установленным podman (нужен
+  catatonit; на NixOS идёт вместе с `virtualisation.podman`).
+- **Образ с новыми пакетами (gitleaks/jq/glab/tmux/gopls/
+  typescript-language-server) собран в среде разработки только с
+  заглушкой вместо `claude-code`**: `claude-code` — unfree, его нет в
+  бинарном кэше, а скачивание самого бинарника с серверов Anthropic
+  прокси среды разработки не пропускает. Остальной closure, сборка слоёв,
+  симлинк `/agent-entrypoint` и логика `AGENT_WORKDIR` в entrypoint
+  проверены на этом образе. Полная сборка — на целевой машине
+  (`nix build .#agent-sandbox-image`).
 - **Данные агента (логин/токены) переживают перезапуск контейнера, но
   только для того же проекта.** `bin/agent-sandbox` монтирует отдельный
   named volume `agent-creds-$project_hash` (тот же хэш пути проекта, что
@@ -143,15 +257,19 @@ dsh                                # headless/CLI-режим — работае�
   (`export DEEPSEEK_API_KEY=...`), `bin/agent-sandbox` передаёт его в
   контейнер тем же способом, что и `ANTHROPIC_API_KEY` (см. «Известные
   ограничения» выше).
-- `dsh` в первую очередь — локальный web UI (`dsh web`, слушает
-  `127.0.0.1:3080`): в этой песочнице **не проброшен наружу** (сеть —
-  `--network=bridge`, порт из контейнера на хост не публикуется), так что
-  `dsh web` изнутри песочницы с хоста не открыть. Для агентного цикла
-  внутри контейнера используй headless/CLI-профиль (`dsh` без `web`) —
-  он не поднимает сервер и подходит под ту же модель использования, что
-  и `claude`/`opencode` в этой песочнице. Если понадобится именно web UI
-  — добавить `-p 127.0.0.1:3080:3080` в `bin/agent-sandbox` по аналогии с
-  `--gui`, пока не сделано (вне текущего скоупа).
+- `dsh web` (web UI) — через долгоживущий контейнер с опубликованным
+  на loopback портом. Внутри контейнера dsh должен слушать не
+  `127.0.0.1`, а все интерфейсы контейнера, и доверять адресу, по которому
+  его откроет браузер на хосте (флаги `--host`/`--trusted-host` из
+  `packages/bundle/web-app/src/startup.ts` dsh 0.1.5):
+  ```bash
+  bin/agent-sandbox up --publish 3080:3080 ~/code/myproject
+  bin/agent-sandbox attach ~/code/myproject -- \
+    dsh web --host 0.0.0.0 --port 3080 --no-open --trusted-host 127.0.0.1:3080
+  # браузер на хосте: http://127.0.0.1:3080
+  ```
+  Не проверено живьём (в среде разработки нет podman). Для агентного
+  цикла без UI по-прежнему подходит headless-профиль (`dsh` без `web`).
 
 ## Postgres/Redis для локальной разработки
 

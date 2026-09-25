@@ -126,6 +126,18 @@ let
     export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
     mkdir -p "$NPM_CONFIG_PREFIX"
 
+    # Same "manual install, persisted in a shared volume" pattern as
+    # npm-global/uv-tools above, for the one remaining category those two
+    # don't cover: single prebuilt binaries shipped only as GitHub release
+    # assets (first user: the Multica CLI/daemon, `multica`, installed per
+    # its CLI_INSTALL.md "Option B: Download from GitHub Releases" -- not in
+    # nixpkgs, and a fast-moving project where a pinned Nix derivation
+    # would go stale the same way dsh's would). bin/agent-sandbox mounts
+    # the shared `agent-local-bin` volume here. Prebuilt glibc binaries run
+    # via the nix-ld shim configured above.
+    export PATH="/home/agent/.local/bin:$PATH"
+    mkdir -p /home/agent/.local/bin
+
     # Wire the single per-project credentials volume (bin/agent-sandbox's
     # -v agent-creds-$project_hash:/home/agent/.sandbox-creds) up to the
     # actual paths claude-code/opencode read: ~/.claude (dir),
@@ -196,7 +208,36 @@ let
     # at all.
     export MISE_TRUSTED_CONFIG_PATHS=/workspace
 
-    cd /workspace
+    # AGENT_WORKDIR (set by `bin/agent-sandbox --workdir`) starts the
+    # command in a subdirectory of the mounted project instead of its root
+    # -- the use case is a git worktree under `.worktrees/<branch>`, which
+    # lives inside the project precisely so it is covered by the one
+    # /workspace bind mount (system-plan.md §9.7). Done here rather than
+    # with `podman run -w`/`podman exec -w`, because this entrypoint cd's
+    # unconditionally and runs `mise install` for the directory it lands
+    # in: a worktree carries its own copy of `.tool-versions`, so mise has
+    # to resolve versions *there*. Only paths under /workspace are
+    # accepted and `..` components are refused, so the flag cannot be
+    # used to start an agent somewhere outside the project view.
+    workdir="''${AGENT_WORKDIR:-/workspace}"
+    case "$workdir" in
+      /workspace | /workspace/*) ;;
+      *)
+        echo "agent-sandbox: AGENT_WORKDIR must be /workspace or below it: $workdir" >&2
+        exit 64
+        ;;
+    esac
+    case "/$workdir/" in
+      */../*)
+        echo "agent-sandbox: AGENT_WORKDIR must not contain '..': $workdir" >&2
+        exit 64
+        ;;
+    esac
+    if [ ! -d "$workdir" ]; then
+      echo "agent-sandbox: AGENT_WORKDIR does not exist inside the project: $workdir" >&2
+      exit 66
+    fi
+    cd "$workdir"
     # Only run mise install if the project actually pins versions —
     # an agent working on a non-mise project shouldn't wait on this.
     if [ -f .tool-versions ] || [ -f mise.toml ] || [ -f .mise.toml ]; then
@@ -305,6 +346,34 @@ pkgs.dockerTools.buildLayeredImage {
     less
     procps
 
+    # Agent-development workflow tooling (llm-dev-template/forge, system-
+    # plan.md §9.7). All small, all in nixpkgs, so declared here rather
+    # than installed by hand:
+    # - gitleaks: the `scrub` step (ticket/review text through
+    #   `gitleaks stdin` before an agent sees it) and the lefthook
+    #   pre-commit secret scan both run inside this container;
+    # - jq: JSON glue for those scripts and for stream-json agent logs;
+    # - glab: reserved for the later GitLab stage (a project-scoped token
+    #   is opt-in via `agent-sandbox --gitlab-token`, off by default);
+    # - tmux: interactive agent sessions inside the long-lived per-project
+    #   container (`agent-sandbox up`/`attach`) survive a closed terminal.
+    gitleaks
+    jq
+    glab
+    tmux
+
+    # Language servers for Claude Code's built-in LSP tool (official
+    # `gopls-lsp` / `typescript-lsp` plugins from claude-plugins-official)
+    # and OpenCode's LSP integration -- each plugin only wraps a server
+    # binary that has to be on PATH. Chosen over Serena/code-graph MCP
+    # servers as the default code-navigation layer: no MCP, no index, no
+    # embeddings, nothing leaves the container. Ruby's `ruby-lsp` is
+    # deliberately NOT here: it must match the project's own Ruby (mise)
+    # and Gemfile, so it comes from the project's bundle instead.
+    gopls
+    typescript-language-server
+    typescript
+
     # mise/ruby-build's *precompiled* Ruby binaries are ordinary
     # generic-glibc ELF binaries expecting an FHS layout (dynamic linker
     # at /lib64/ld-linux-x86-64.so.2, etc) — they can't run unmodified in
@@ -386,6 +455,14 @@ pkgs.dockerTools.buildLayeredImage {
     # since extraCommands is this image's only place to lay down files at
     # fixed filesystem paths (no systemd/tmpfiles inside the container).
     ln -s ${pkgs.nix-ld}/libexec/nix-ld lib64/ld-linux-x86-64.so.2
+
+    # Stable path to the entrypoint for `podman exec` (bin/agent-sandbox
+    # attach/exec into the long-lived `up` container): exec does not run
+    # the image Entrypoint, and everything above (passwd entry, HOME,
+    # nix-ld, mise, AGENT_WORKDIR) lives in that script, so exec'd
+    # commands have to go through it explicitly. The store path itself is
+    # not known to bin/agent-sandbox, hence this fixed symlink.
+    ln -s ${entrypoint} agent-entrypoint
 
     # $HOME needs to be writable by whatever arbitrary host uid
     # `--userns=keep-id` maps us to (not just the build-time owner).
