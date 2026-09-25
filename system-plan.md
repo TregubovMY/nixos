@@ -652,6 +652,8 @@ claude-code, opencode     # сами агенты
 chromium (+ Wayland/Mesa) # для GUI-браузера, см. 9.5
 uv, playwright-driver.browsers # notebooklm-py тулинг, см. modules/nixos/notebooklm-tooling.nix
 nodejs                    # только рантайм для `npm install -g @deepseek-ai/dsh` (DeepSeek Harness), см. ниже
+gitleaks, jq, glab, tmux  # агентный процесс (scrub, pre-commit, долгоживущие сессии), см. 9.7
+gopls, typescript-language-server, typescript  # LSP для встроенного LSP-инструмента Claude Code / OpenCode, см. 9.7
 ```
 
 `dsh` (DeepSeek Harness, npм-пакет `@deepseek-ai/dsh`) в nixpkgs нет —
@@ -667,7 +669,18 @@ volume `agent-npm-global` (§9.4). Требует `DEEPSEEK_API_KEY`.
 `.tool-versions`/`mise.toml` **из самого проекта** при первом запуске —
 образ остаётся общим для всех проектов, не пересобирается под каждый стек.
 
-### 9.4 Обёртка (`bin/agent-sandbox <project-dir> [--gui]`)
+### 9.4 Обёртка (`bin/agent-sandbox`)
+
+Два режима (подробности и флаги — README, раздел про agent-sandbox; логика
+обёртки покрыта `tests/agent-sandbox-test.sh` и flake-check
+`agent-sandbox-cli`):
+
+- **одноразовый** — `agent-sandbox [--gui] <project-dir> [-- cmd]`,
+  контейнер `--rm` на одну команду (исходный режим, ниже);
+- **долгоживущий на проект** — `agent-sandbox up|attach|exec|down|status`,
+  см. 9.7.
+
+Одноразовый запуск по сути:
 
 ```bash
 podman run --rm -it \
@@ -728,3 +741,61 @@ podman run --rm -it \
   сделать оба volume per-project (ценой потери кэша между проектами).
 - Защищает конкретно от: порчи/утечки файлов и секретов **вне** текущего
   проекта, случайных деструктивных команд, затрагивающих систему хоста.
+
+### 9.7 Агентная разработка поверх песочницы (Multica, worktree, токены)
+
+Процесс «задача → OpenSpec → код» (шаблон и оркестратор `forge` живут в
+отдельном репозитории `llm-dev-template`) строится поверх этой же
+песочницы, не рядом с ней. Решения, которые касаются этого репозитория:
+
+- **На хосте не запускается ни одна нейросеть.** Все агенты (Claude Code,
+  OpenCode, dsh) и то, что их вызывает (daemon доски Multica), — только
+  внутри контейнера. На хосте — детерминированные скрипты без LLM
+  (`bin/agent-sandbox`, в следующих этапах — скрипты соседей с секретами).
+  Серверная часть доски (API + web + PostgreSQL) моделей не запускает и
+  может жить в отдельных podman-контейнерах на loopback.
+- **Долгоживущий контейнер на проект**: `agent-sandbox up <dir>` поднимает
+  именованный контейнер `agent-sandbox-<hash>` (тот же `project_hash`, что
+  у volume'ов) с `sleep infinity` под `--init`, а `attach`/`exec` выполняют
+  команды внутри через `podman exec … /agent-entrypoint`. Нужен всему, что
+  переживает одну команду: daemon, раздающий задачи агентам, tmux-сессии,
+  web UI. `exec` пробрасывает код возврата команды наружу — на этом
+  строится неинтерактивный вызов из оркестратора (`--no-tty` отключает
+  TTY даже при запуске из терминала).
+  `--shared-root` (один контейнер на каталог со многими проектами) — только
+  как осознанный выбор: изоляция между проектами (9.2) при этом теряется.
+- **Worktree — внутри проекта** (`.worktrees/<branch>`, в `.gitignore`
+  проекта), чтобы попадать в единственный bind-mount. `--workdir`
+  запускает команду в таком подкаталоге: путь проверяется на хосте
+  (после разрешения симлинков — строго внутри проекта) и ещё раз в
+  entrypoint (`AGENT_WORKDIR`, только `/workspace/…`, без `..`). Entrypoint
+  делает `mise install` именно там — у worktree своя копия
+  `.tool-versions`. Удаление worktree — с хоста.
+- **Переменные окружения — белый список**, не чёрный: в контейнер
+  попадают только `ANTHROPIC_API_KEY`/`DEEPSEEK_API_KEY` (если заданы) и
+  `GITLAB_TOKEN` строго по флагу `--gitlab-token`; `--env-host`/`--env-file`
+  не используются. Агент читает недоверенный текст тикетов при открытой
+  сети — любой токен в контейнере можно выманить prompt injection'ом, как
+  его ни ограничивай. Поэтому токены Jira сюда не попадают вообще, а для
+  GitLab (когда этот этап включат) допустим только Project Access Token:
+  один проект, роль Developer (Maintainer видит CI/CD-переменные с
+  секретами), срок действия, защищённая `main`. Тест белого списка — в
+  `tests/agent-sandbox-test.sh`.
+- **Claude Code — только официальный CLI** (`claude` интерактивно или
+  `claude -p --output-format stream-json`) на подписке пользователя.
+  Использование OAuth подписки через Claude Agent SDK/ACP-адаптеры в
+  сторонних инструментах условия Anthropic не разрешают (февраль 2026);
+  поэтому Multica выбрана в том числе потому, что запускает именно CLI.
+- **Навигация по коду** — встроенный LSP-инструмент Claude Code с
+  официальными плагинами `gopls-lsp`/`typescript-lsp`/`ruby-lsp`. Серверы
+  `gopls` и `typescript-language-server` — в образе; `ruby-lsp` — из
+  Gemfile проекта, т.к. должен совпадать с Ruby проекта (mise). Без MCP,
+  индексов и эмбеддингов — код не покидает контейнер. Serena/графы кода —
+  только если на реальных задачах этого окажется мало.
+- **Ручные установки** (быстро меняющиеся инструменты, пиновать
+  деривацией бессмысленно): npm-пакеты (`@fission-ai/openspec`,
+  `@deepseek-ai/dsh`) — в общий volume `agent-npm-global`; одиночные
+  бинарники из GitHub releases (CLI/daemon Multica) — в общий volume
+  `agent-local-bin` (`~/.local/bin`, в `PATH`). Оба — общие на все проекты
+  с тем же принятым риском, что и `agent-mise` (9.6).
+
