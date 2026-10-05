@@ -21,6 +21,7 @@
   imports = [
     ./disk-config.nix
     ../../modules/nixos/secure-boot.nix
+    ../../modules/nixos/base.nix
     ../../modules/nixos/hyprland.nix
     ../../modules/nixos/greetd.nix
     ../../modules/nixos/nix-settings.nix
