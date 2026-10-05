@@ -152,6 +152,25 @@
         ];
       };
 
+      # The real machine. Same module set as mimir-vm-full above (which
+      # rehearsed it in a VM), minus the VM-only workarounds. Installed
+      # with bin/mimir-install from the NixOS ISO, which also generates
+      # hosts/mimir/facter.json (the hardware report); see README,
+      # "Установка на реальную машину".
+      nixosConfigurations.mimir = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          disko.nixosModules.disko
+          lanzaboote.nixosModules.lanzaboote
+          home-manager.nixosModules.home-manager
+          dank-material-shell.nixosModules.default
+          # Same reason as in mimir-vm-full: DMS's home-manager options
+          # only exist when homeModules is injected via sharedModules.
+          { home-manager.sharedModules = [ dank-material-shell.homeModules.default ]; }
+          ./hosts/mimir/configuration.nix
+        ];
+      };
+
       # Throwaway verification host for the desktop package list design —
       # see docs/superpowers/specs/2026-08-10-desktop-packages-design.md.
       # NOT the real mimir host; eval + dry-build only (no VM boot), see

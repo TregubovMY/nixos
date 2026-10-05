@@ -18,11 +18,48 @@ Hyprland + DankMaterialShell (DMS), home-manager. Полное описание
 DankMaterialShell как реальный десктоп (не только пакеты — с темой,
 раскладкой, скриншотами), home-manager со всеми текущими дотфайлами
 (shell/zellij/ghostty/direnv/mise/neovim). `hosts/mimir/` (реальная целевая
-машина) существует только как skeleton — не зарегистрирован в `flake.nix`,
-реальная установка на физическое железо ещё не происходила; всё выше
-проверено через одноразовые VM-хосты, в первую очередь
-`hosts/mimir-vm-full/` (см. ниже) — самую близкую к реальному хосту
-репетицию, которая в этом флейке есть.
+машина) зарегистрирован как `.#mimir` и ставится одним скриптом
+`bin/mimir-install` (см. «Установка на реальную машину» ниже); на физическое
+железо ещё не ставился. Всё остальное проверено через одноразовые VM-хосты,
+в первую очередь `hosts/mimir-vm-full/` — самую близкую к реальному хосту
+репетицию.
+
+## Установка на реальную машину (`.#mimir`)
+
+Данные о железе заранее не нужны — их снимает сам скрипт установки.
+
+1. Загрузиться с NixOS ISO **в режиме UEFI**, поднять сеть (`nmtui` или
+   кабель), склонировать репозиторий и перейти в его корень.
+2. Найти диск: `lsblk -d -o NAME,SIZE,MODEL`.
+3. `bin/mimir-install /dev/nvme0n1` — **сотрёт весь диск** (попросит ещё раз
+   ввести путь). По шагам:
+   - `nixos-facter` → `hosts/mimir/facter.json` (отчёт о железе вместо
+     `hardware-configuration.nix`: из него модули nixpkgs сами берут
+     модули initrd, микрокод, прошивки, GPU, bluetooth; серийники/UUID
+     facter в отчёт не пишет, от MAC остаётся 1 байт — коммитить можно);
+   - disko: GPT + LUKS (пароль спросит) + btrfs на указанный диск;
+   - `nixos-install --flake .#mimir` с созданием ключей Secure Boot
+     между попытками (как в репетициях ниже), root без пароля;
+   - `passwd max` — пароль пользователя вводите вы, в репозитории его нет;
+   - копия репозитория вместе с `facter.json` → `/home/max/code/nixos`.
+4. После перезагрузки:
+   - Secure Boot: в прошивке перевести Secure Boot в Setup Mode, затем
+     `sudo sbctl enroll-keys --microsoft` (ключи Microsoft нужны для
+     Option ROM реального железа — видеокарта и т.п.), перезагрузка,
+     включить Secure Boot, проверить `bootctl status`;
+   - закоммитить `hosts/mimir/facter.json`;
+   - Throne: импортировать VLESS-конфиг из Bitwarden, затем в
+     `hosts/mimir/configuration.nix` включить
+     `desktopApps.rubymine.enable = true` и
+     `sudo nixos-rebuild switch --flake .#mimir` (без прокси
+     download.jetbrains.com отвечает 451, поэтому при установке RubyMine
+     выключен).
+
+Базовый слой для «живого» ноутбука — `modules/nixos/base.nix`:
+NetworkManager (Wi-Fi), blueman (если facter нашёл bluetooth), upower и
+power-profiles-daemon (батарея/профили питания в панели DMS), fwupd,
+базовые CLI из `system-plan.md` §5.1. До 2026-10-05 этого слоя не было
+нигде — VM-репетиции не замечали, т.к. в QEMU сеть проводная.
 
 ## Песочница для AI-агентов (agent-sandbox)
 
@@ -389,9 +426,11 @@ nix build .#nixosConfigurations.test-desktop-apps.config.system.build.toplevel -
 
 ### Известные ограничения
 
-- **Группы `libvirtd`/`kvm` никому не назначены** — в этом репозитории
-  ещё нет реального пользователя (`hosts/mimir/configuration.nix` не
-  объявляет `users.users.*`) — шаг реальной установки.
+- Группа `libvirtd` назначается пользователю в самом хосте
+  (`hosts/mimir/configuration.nix`, `users.users.max.extraGroups`), не в
+  этом модуле — пользователи хост-специфичны.
+- RubyMine можно выключить опцией `desktopApps.rubymine.enable` — на
+  `hosts/mimir` выключен до настройки Throne (HTTP 451 от JetBrains).
 - `jetbrains.ruby-mine` (через дефис, не `jetbrains.rubymine` — атрибут
   переименован апстримом), `nix search` по обоим именам показывает пусто
   независимо от переименования (не учитывает `allowUnfree`) — проверять

@@ -567,38 +567,28 @@ Bitwarden — вся инфраструктура выше удалена из �
 
 ## 8. Порядок разворачивания на новой машине
 
-**Статус (2026-09-11):** `hosts/laptop/`, на который эта секция раньше
-ссылалась, в репозитории никогда не существовал под этим именем —
-реальный целевой хост называется `hosts/mimir/` (skeleton: только
-`configuration.nix` + `disk-config.nix`), и он **не зарегистрирован**
-в `flake.nix`'s `nixosConfigurations` — `.#mimir` пока не резолвится.
-Реальной установки на физическое железо ещё не было (см. README.md,
-верхний абзац). Ближайший реально проверенный аналог — `hosts/mimir-vm-full`
-(полная репетиция десктопа на виртуальном диске, README.md, раздел
-"Полная репетиция десктопа"), для которого есть готовые скрипты
-`bin/mimir-full-disko`/`bin/mimir-full-install`. Шаги ниже — целевой
-процесс для реальной машины, актуализированный на `hosts/mimir`, но
-перед первым реальным запуском на железе `hosts/mimir` нужно: (1)
-добавить `nixosConfigurations.mimir` в `flake.nix` по образцу
-`mimir-vm-full`, (2) сгенерировать настоящий `hardware-configuration.nix`
-(см. "Структура модулей" в CLAUDE.md), (3) поправить `disk-config.nix`
-под реальное блочное устройство.
+**Статус (2026-10-05):** `hosts/mimir/` зарегистрирован как
+`nixosConfigurations.mimir`. Три вещи, которые skeleton откладывал до
+реального железа, решены без ручных данных о машине:
+`hardware-configuration.nix` заменён отчётом nixos-facter (`facter.json`,
+генерируется на самой машине при установке), диск передаётся disko
+аргументом при установке (`--argstr device`), пользователь `max`
+объявлен без пароля — пароль задаётся `passwd` в конце установки.
+Реальной установки на физическое железо ещё не было.
 
 ```bash
-# 1. Загрузиться с NixOS install ISO (или Hyprland-минимал ISO)
+# 1. Загрузиться с NixOS install ISO в режиме UEFI, поднять сеть
 # 2. Клонировать репозиторий
 git clone <repo> && cd <repo>
 
-# 3. Разметить диск (LUKS + btrfs) декларативно
-nix run github:nix-community/disko -- --mode disko ./hosts/mimir/disk-config.nix
+# 3. Отчёт о железе + разметка (LUKS + btrfs) + установка + пароль max
+bin/mimir-install /dev/nvme0n1
 
-# 4. Установить систему
-nixos-install --flake .#mimir
+# 4. Перезагрузка, ввод пароля LUKS, Secure Boot enroll-keys,
+#    коммит hosts/mimir/facter.json — см. README.md,
+#    "Установка на реальную машину"
 
-# 5. Перезагрузка, ввод пароля LUKS
-reboot
-
-# 6. Первый вход — логин в Bitwarden + Firefox Sync (2-3 минуты)
+# 5. Первый вход — логин в Bitwarden + Firefox Sync (2-3 минуты)
 ```
 
 ## 9. Безопасный запуск AI-агентов (sandboxing)
