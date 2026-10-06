@@ -22,6 +22,14 @@
       bindkey '^[[1;5D' backward-word
       bindkey '^[[5C' forward-word
       bindkey '^[[5D' backward-word
+      # Ctrl+Backspace / Ctrl+Delete = delete a word back / forward (were
+      # unbound, reported 2026-10-06). Ghostty sends ^H for Ctrl+Backspace
+      # (plain Backspace is \x7f, so ^H is free) or \e[27;5;127~ with
+      # modifyOtherKeys, and \e[3;5~ for Ctrl+Delete (ghostty
+      # src/input/function_keys.zig).
+      bindkey '^H' backward-kill-word
+      bindkey '^[[27;5;127~' backward-kill-word
+      bindkey '^[[3;5~' kill-word
     '';
     shellAliases = {
       ".." = "cd ..";

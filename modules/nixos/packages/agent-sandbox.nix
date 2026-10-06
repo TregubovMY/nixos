@@ -279,11 +279,19 @@ let
     # the home volume's root instead, which belongs to the user.
     export XDG_STATE_HOME=/home/agent/.local-state
     export MISE_STATE_DIR=/home/agent/.local-state/mise
-    # Project gems in the project (vendor/bundle, relative to the Gemfile),
-    # same setting as on the host (modules/home/mise.nix): the host's Ruby
-    # is mounted read-only here, and in the project dir the gems are shared
-    # by host and sandbox -- installed once, usable from both.
-    export BUNDLE_PATH="''${BUNDLE_PATH:-vendor/bundle}"
+    # Gems: reuse everything installed on the host, install only what's
+    # missing. The host's mise Rubies (and the gems installed into them)
+    # are mounted read-only (bin/agent-sandbox, MISE_SHARED_INSTALL_DIRS),
+    # so gems can't be installed there; GEM_HOME is the sandbox's own dir
+    # (in this config's home volume) and GEM_PATH's trailing ':' appends
+    # Ruby's default gem dirs, i.e. the host Ruby's -- Rubygems searches
+    # GEM_HOME first, then the host's, and installs into GEM_HOME
+    # (checked: `GEM_PATH="x:" ruby -e 'puts Gem.path'`). Not shared the
+    # other way on purpose: a sandbox writing into gems the host later
+    # runs would be a way out of the sandbox. (Replaced vendor/bundle in
+    # projects, 2026-10-06 -- one shared dir instead of one per project.)
+    export GEM_HOME=/home/agent/.local-state/gems
+    export GEM_PATH="$GEM_HOME:"
     export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
 
     # nix-ld env vars (see the `nixLdLibraries`/loader-symlink comments
