@@ -107,7 +107,11 @@ let
           die() { echo "dsh-setup: $*" >&2; exit 1; }
           if [ "$#" -eq 0 ]; then set -- core; fi
           for l in "$@"; do
-            [ -f "$lists/$l.txt" ] || die "unknown list '$l' (available: $(cd "$lists" && ls ./*.txt | sed 's|./||; s|\.txt||' | tr '\n' ' '))"
+            if [ ! -f "$lists/$l.txt" ]; then
+              avail=""
+              for f in "$lists"/*.txt; do b="''${f##*/}"; avail="$avail ''${b%.txt}"; done
+              die "unknown list '$l' (available:$avail)"
+            fi
           done
           if ! command -v dsh >/dev/null 2>&1; then
             echo "==> installing dsh 0.2.0-rc.2 (npm -g, shared volume)"
