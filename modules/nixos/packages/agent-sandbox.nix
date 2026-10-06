@@ -79,6 +79,17 @@ let
     paths = with pkgs; [
       # kandev board (modules/nixos/packages/kandev.nix): one sandbox, boards inside it
       (callPackage ./kandev.nix { })
+      # gh: kandev's GitHub integration (PRs, checks) calls the gh CLI.
+      # which: assumed present by many scripts and by agents themselves.
+      # socat: forwards a published port to a service that only listens on
+      # the container's loopback -- dsh web refuses --host 0.0.0.0 ("would
+      # expose remote code execution to the network"), so it runs on
+      # 127.0.0.1:3081 and socat exposes it on 3080 (README, agent-sandbox
+      # config example). podman's publish only reaches the container's
+      # network interface, not its loopback.
+      gh
+      which
+      socat
         bashInteractive
         coreutils
         gitMinimal
