@@ -95,29 +95,36 @@
         default = agent-sandbox-rootfs;
       };
 
-      # The real machine. Installed
-      # with bin/mimir-install from the NixOS ISO, which also generates
-      # hosts/mimir/facter.json (the hardware report); see README,
-      # "Установка на реальную машину".
-      nixosConfigurations.mimir = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          disko.nixosModules.disko
-          lanzaboote.nixosModules.lanzaboote
-          home-manager.nixosModules.home-manager
-          dank-material-shell.nixosModules.default
-          # DMS's home-manager options (programs.dank-material-shell)
-          # only exist when its homeModules is injected via sharedModules,
-          # not just by importing the nixosModules above (found live).
-          {
-            home-manager.sharedModules = [
-              dank-material-shell.homeModules.default
-              dank-calendar.homeModules.default
+      # Machines: every hosts/<name>/ with a configuration.nix becomes
+      # nixosConfigurations.<name> (the shared part is hosts/common.nix,
+      # the hardware report hosts/<name>/facter.json). A new machine is a
+      # new folder -- bin/install-host creates it on first install.
+      nixosConfigurations =
+        let
+          hostNames = builtins.filter
+            (n: builtins.pathExists (./hosts + "/${n}/configuration.nix"))
+            (builtins.attrNames (nixpkgs.lib.filterAttrs (_: t: t == "directory") (builtins.readDir ./hosts)));
+          mkHost = name: nixpkgs.lib.nixosSystem {
+            inherit system;
+            modules = [
+              disko.nixosModules.disko
+              lanzaboote.nixosModules.lanzaboote
+              home-manager.nixosModules.home-manager
+              dank-material-shell.nixosModules.default
+              # DMS's / DankCalendar's home-manager options only exist when
+              # their homeModules are injected via sharedModules, not just
+              # by importing the nixosModules above (found live).
+              {
+                home-manager.sharedModules = [
+                  dank-material-shell.homeModules.default
+                  dank-calendar.homeModules.default
+                ];
+              }
+              (./hosts + "/${name}/configuration.nix")
             ];
-          }
-          ./hosts/mimir/configuration.nix
-        ];
-      };
+          };
+        in
+        nixpkgs.lib.genAttrs hostNames mkHost;
 
       # Real, functional verification (not just eval) of the disk/boot
       # foundation: LUKS unlock, btrfs subvolumes, and the LUKS->swap->

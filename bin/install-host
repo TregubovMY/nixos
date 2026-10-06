@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# Install one machine of this repo from the NixOS installer ISO. Run from
+# the repo root as the ISO's `nixos` user (passwordless sudo), network up:
+#
+#   bin/install-host <machine-name> /dev/<disk>      e.g. mimir /dev/nvme0n1
+#
+# Machines are folders hosts/<name>/ (flake.nix finds them). A name with
+# no folder yet gets one created here -- a configuration.nix that imports
+# hosts/common.nix and sets the hostname -- so a work PC next to the laptop
+# needs no hand-written Nix. Docs: docs/INSTALL.md.
+#
+# Steps, and why each is here rather than in Nix:
+# 1. nixos-facter -> hosts/<name>/facter.json: the hardware report replacing
+#    a hand-made hardware-configuration.nix (hosts/common.nix). `git add`ed
+#    because flakes only see tracked files.
+# 2. disko destroy,format,mount on the given disk, with the disk and the
+#    swap size passed as --argstr (hosts/disk-config.nix): swap = RAM + 2G,
+#    computed here from /proc/meminfo, so hibernate fits on any machine.
+# 3. nixos-install with the sbctl-keys retry from the VM rehearsals:
+#    lanzaboote signs the bootloader during nixos-install, so on a fresh
+#    disk the first attempt fails exactly there; keys are created in /mnt
+#    and it runs again. --no-root-passwd: root stays locked, admin via sudo.
+# 4. `passwd max` inside the installed system -- typed by a human, never
+#    stored in the repo.
+# 5. Copies the repo, including the new facter.json and host folder, to
+#    /home/max/code/nixos (the ISO's copy lives in RAM).
+# Secure Boot enrollment (`sbctl enroll-keys`) is left for after the first
+# boot; the script prints the remaining steps.
+set -euo pipefail
+
+DISKO_REV="ff8702b4de27f72b4c78573dfb89ec74e36abdf1"
+NIX_CONFIG='experimental-features = nix-command flakes'
+export NIX_CONFIG
+
+die() { echo "install-host: $*" >&2; exit 1; }
+
+host="${1:-}"
+disk="${2:-}"
+[ -n "$host" ] && [ -n "$disk" ] || die "usage: bin/install-host <machine-name> /dev/<disk>   (disks: lsblk -d)"
+case "$host" in
+  *[!a-z0-9-]* | -*) die "machine name must be [a-z0-9-]: $host" ;;
+esac
+[ -b "$disk" ] || die "$disk is not a block device"
+[ -f flake.nix ] && [ -f hosts/common.nix ] || die "run from the nixos repo root"
+# lanzaboote/systemd-boot need a UEFI boot; a legacy-BIOS boot of the ISO
+# would get all the way to the bootloader step and fail there.
+[ -d /sys/firmware/efi ] || die "the ISO was not booted in UEFI mode"
+
+hostdir="hosts/$host"
+if [ ! -f "$hostdir/configuration.nix" ]; then
+  echo "==> New machine '$host': creating $hostdir/configuration.nix"
+  mkdir -p "$hostdir"
+  cat > "$hostdir/configuration.nix" <<EOF
+# Machine "$host". Everything shared lives in ../common.nix; this file only
+# names the machine. Its hardware report, ./facter.json, is written by
+# bin/install-host on the machine itself and committed.
+{
+  imports = [ ../common.nix ];
+  networking.hostName = "$host";
+}
+EOF
+  git add "$hostdir/configuration.nix"
+fi
+
+ram_kib="$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)"
+swap_gib=$(( (ram_kib + 1048575) / 1048576 + 2 ))
+
+echo "==> Machine: $host   swap: ${swap_gib}G (RAM + 2G)"
+echo "==> Target disk -- EVERYTHING ON IT WILL BE DESTROYED:"
+lsblk -o NAME,SIZE,MODEL,SERIAL,MOUNTPOINTS "$disk"
+read -r -p "Type the disk path again to confirm ($disk): " confirm
+[ "$confirm" = "$disk" ] || die "confirmation did not match, nothing touched"
+
+echo "==> 1/5 Hardware report (nixos-facter) -> $hostdir/facter.json"
+# --inputs-from . : nixos-facter from this flake's pinned nixpkgs, i.e. the
+# same version whose hardware.facter modules will read the report. Built
+# as the invoking user and only *run* as root: root evaluating a flake in
+# a git checkout owned by another user can trip git's "dubious ownership"
+# check. facter itself needs root to read SMBIOS/PCI details.
+facter_out="$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#nixos-facter)"
+sudo "$facter_out/bin/nixos-facter" -o "$hostdir/facter.json"
+sudo chown "$(id -u):$(id -g)" "$hostdir/facter.json"
+[ -s "$hostdir/facter.json" ] || die "facter.json was not produced"
+git add "$hostdir/facter.json"
+
+echo "==> 2/5 Partitioning $disk (disko: LUKS + btrfs; you'll set the LUKS passphrase)"
+# --yes-wipe-all-disks: the human already confirmed above by retyping the
+# path; disko's own prompt would only ask the same question again.
+sudo NIX_CONFIG="$NIX_CONFIG" nix run "github:nix-community/disko/${DISKO_REV}" -- \
+  --mode destroy,format,mount --yes-wipe-all-disks \
+  --argstr device "$disk" \
+  --argstr swapSize "${swap_gib}G" \
+  ./hosts/disk-config.nix
+
+echo "==> 3/5 nixos-install .#$host (first attempt may fail at the bootloader step -- expected)"
+if ! sudo NIX_CONFIG="$NIX_CONFIG" nixos-install --no-root-passwd --flake ".#$host"; then
+  echo "==> Creating Secure Boot keys inside /mnt and retrying"
+  sudo nixos-enter --root /mnt -c 'sbctl create-keys'
+  sudo NIX_CONFIG="$NIX_CONFIG" nixos-install --no-root-passwd --flake ".#$host"
+fi
+
+echo "==> 4/5 Password for user max"
+until sudo nixos-enter --root /mnt -c 'passwd max'; do
+  echo "passwd failed, try again"
+done
+
+echo "==> 5/5 Copying this repo (with $hostdir) to /home/max/code/nixos"
+sudo mkdir -p /mnt/home/max/code
+sudo cp -a . /mnt/home/max/code/nixos
+# max's uid/gid as the installed system sees them, not the ISO's.
+owner="$(sudo nixos-enter --root /mnt -c 'echo "$(id -u max):$(id -g max)"' | tail -n1)"
+sudo chown -R "$owner" /mnt/home/max/code
+
+cat <<EOF
+
+==> Done. Next steps (docs/INSTALL.md, "После установки"):
+  1. reboot, remove the USB stick, enter the LUKS passphrase, log in as max.
+  2. Secure Boot: firmware setup -> reset Secure Boot to Setup Mode, boot,
+     sudo sbctl enroll-keys --microsoft, reboot, enable Secure Boot,
+     check: bootctl status
+  3. cd ~/code/nixos && git commit $hostdir && git push
+     (in a VM rehearsal: don't push -- that facter.json describes the VM)
+  4. Throne (VLESS from Bitwarden), then desktopApps.rubymine.enable = true
+     in hosts/common.nix and: sudo nixos-rebuild switch --flake .#$host
+EOF

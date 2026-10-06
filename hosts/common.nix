@@ -1,0 +1,110 @@
+# Everything every machine of this repo shares. A machine is a folder
+# hosts/<name>/ with a configuration.nix that imports this file and sets
+# networking.hostName = "<name>"; plus its own facter.json (hardware
+# report, written by bin/install-host on that machine). flake.nix turns
+# every such folder into nixosConfigurations.<name>, so a laptop and a
+# work PC live side by side in git (2026-10-06; before, mimir was the only
+# host and the hardware report path was fixed).
+#
+# History of the decisions below (facter instead of
+# hardware-configuration.nix, disk passed at install time, user without a
+# password, rehearsal findings): this file was hosts/mimir/configuration.nix
+# until 2026-10-06, see git history and docs/INSTALL.md.
+{ config, lib, pkgs, ... }:
+let
+  # This machine's hardware report, next to its configuration.nix.
+  hostFacter = ./. + "/${config.networking.hostName}/facter.json";
+in
+{
+  imports = [
+    ./disk-config.nix # shared layout, the disk itself is chosen at install time
+    ../modules/nixos/secure-boot.nix # not boot.nix — lanzaboote
+      # replaces systemd-boot rather than layering on it (secure-boot.nix
+      # itself force-disables boot.loader.systemd-boot.enable); mimir
+      # wants Secure Boot per system-plan.md §2/§4.
+    ../modules/nixos/base.nix
+    ../modules/nixos/desktop-apps.nix
+    ../modules/nixos/hyprland.nix
+    ../modules/nixos/greetd.nix
+    ../modules/nixos/nix-settings.nix
+    ../modules/nixos/dev-databases.nix
+    ../modules/nixos/podman.nix
+    ../modules/nixos/agent-sandbox.nix
+    ../modules/nixos/home-manager.nix
+    ../modules/nixos/nix-ld.nix
+    ../modules/nixos/notebooklm-tooling.nix
+  ];
+
+  # Only present after bin/mimir-install has run on the machine. Without it
+  # the host still evaluates (so `nix flake check` works before install),
+  # but the initrd would lack the real storage drivers -- hence the warning,
+  # and bin/mimir-install refuses to continue if the report wasn't produced.
+  hardware.facter.reportPath = lib.mkIf (builtins.pathExists hostFacter) hostFacter;
+  warnings = lib.optional (!builtins.pathExists hostFacter)
+    "hosts/${config.networking.hostName}/facter.json is missing: run bin/install-host on that machine (it writes the hardware report).";
+
+  # SPICE guest agent daemon, only when the facter report says this is a
+  # QEMU/KVM guest (the VM rehearsal, docs/vm-check.md) — never on the
+  # real laptop. Gives host<->VM clipboard and display hints. Limitation:
+  # the upstream agent only speaks the X11 clipboard; under Hyprland that
+  # means copying host→VM works, VM→host often doesn't (needs a Wayland
+  # fork of spice-vdagent, not in nixpkgs). The per-session spice-vdagent
+  # client is already installed (pulled in by virt-manager) and starts via
+  # its XDG autostart entry.
+  services.spice-vdagentd.enable = config.hardware.facter.detected.virtualisation.qemu.enable;
+
+  # RubyMine can't be fetched before the Throne proxy is configured (HTTP
+  # 451 from download.jetbrains.com, see desktop-apps.nix). After the first
+  # boot and Throne setup: flip to true, `nixos-rebuild switch`.
+  desktopApps.rubymine.enable = false;
+
+  time.timeZone = "Europe/Moscow";
+  i18n.defaultLocale = "ru_RU.UTF-8";
+
+  # Required because desktop-apps.nix pulls in unfree packages (RubyMine,
+  # Chrome, VSCode, Postman) and flake.nix's allowUnfree = true only
+  # applies to its own loose `pkgs` instance (packages.${system}), not to
+  # any nixosSystem call — see system-plan.md §2.
+  nixpkgs.config.allowUnfree = true;
+
+  # Gap mimir-vm-full's rehearsal found live: modules/home/shell.nix's
+  # programs.zsh.enable (home-manager level) configures zsh but doesn't
+  # register it in /etc/shells, which users.users.<name>.shell needs --
+  # harmless to set now even before a real user exists, and one less
+  # thing to remember at real-install time.
+  programs.zsh.enable = true;
+
+  # No password here on purpose (see header): bin/mimir-install runs
+  # `passwd max` inside the freshly installed system. mutableUsers stays at
+  # its default (true), so that password survives later rebuilds. Root has
+  # no password at all -- nixos-install --no-root-passwd -- admin is via
+  # sudo from wheel.
+  users.users.max = {
+    isNormalUser = true;
+    # networkmanager: manage Wi-Fi without sudo (base.nix);
+    # libvirtd: virt-manager without sudo (desktop-apps.nix §5.9);
+    # input: DMS's Caps Lock OSD reads input devices. `dms setup` otherwise
+    # runs `sudo usermod -aG input` itself (DMS core/cmd/dms/commands_setup.go,
+    # ensureInputGroup) -- found live in the VM rehearsal as a seemingly hung
+    # setup waiting for a sudo password, and an imperative usermod would be
+    # undone by the next rebuild anyway.
+    extraGroups = [ "wheel" "networkmanager" "libvirtd" "input" ];
+    shell = pkgs.zsh;
+  };
+
+  home-manager.users.max = {
+    imports = [
+      ../modules/home/hyprland.nix
+      ../modules/home/neovim.nix
+      ../modules/home/shell.nix
+      ../modules/home/zellij.nix
+      ../modules/home/ghostty.nix
+      ../modules/home/direnv.nix
+      ../modules/home/mise.nix
+      ../modules/home/calendar.nix
+    ];
+    home.stateVersion = "24.05";
+  };
+
+  system.stateVersion = "24.05"; # matches every other host in this repo
+}

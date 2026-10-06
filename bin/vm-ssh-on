@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Temporarily let the coding agent into the mimir VM rehearsal over SSH,
+# Temporarily let the coding agent into a VM rehearsal over SSH,
 # with one short command typed in the VM (docs/vm-check.md):
 #
 #   cd ~/code/nixos && git pull && bin/vm-ssh-on
@@ -14,7 +14,8 @@
 set -euo pipefail
 
 KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDMaTtpdI8VBKMt5RfqSTt5oa9yh/dM6Ks6trpc17jwb claude-vm-check'
-CONF=hosts/mimir/configuration.nix
+HOST="$(hostname)"
+CONF=hosts/$HOST/configuration.nix
 
 case "$(systemd-detect-virt 2>/dev/null || true)" in
   kvm|qemu) ;;
@@ -24,9 +25,9 @@ esac
 
 cp "$CONF" "$CONF.vm-ssh-backup"
 trap 'mv -f "$CONF.vm-ssh-backup" "$CONF"' EXIT
-sed -i "s|^  system.stateVersion|  services.openssh.enable = true;\n  services.openssh.settings.PasswordAuthentication = false;\n  users.users.max.openssh.authorizedKeys.keys = [ \"$KEY\" ];\n  system.stateVersion|" "$CONF"
+sed -i "s|^  networking.hostName|  services.openssh.enable = true;\n  services.openssh.settings.PasswordAuthentication = false;\n  users.users.max.openssh.authorizedKeys.keys = [ \"$KEY\" ];\n  networking.hostName|" "$CONF"
 
-sudo nixos-rebuild test --flake .#mimir
+sudo nixos-rebuild test --flake ".#$HOST"
 echo
 echo "SSH is on until the next reboot. VM address(es):"
 ip -4 -brief addr show scope global | awk '{print "  " $3}'
