@@ -171,6 +171,7 @@ shift
 #   mount_ro = ~/code/shared-lib        extra dir, read-only, same path inside (repeatable)
 #   publish  = 3080:3080                like --publish, 127.0.0.1 only (repeatable)
 #   env      = RAILS_ENV=development    literal variable (repeatable; NOT for secrets)
+#   autostart = kandev start --backend-port 38429   command started in the background by `up` (repeatable)
 #
 # Why outside the project and not a dotfile in it: the project dir is
 # mounted read-write, so an agent could edit such a file and grant itself
@@ -185,6 +186,7 @@ cfg_name=""
 cfg_mounts=()
 cfg_mounts_ro=()
 cfg_env=()
+cfg_autostart=()
 
 cfg_path() { # expand a leading ~ and resolve to a physical dir, or die
   local p="$1"
@@ -241,6 +243,7 @@ case "$project_dir" in
           # attach/exec/down reuse what `up` set (see the mode checks above).
           case "$mode" in run | up) publish+=("$val") ;; esac
           ;;
+        autostart) cfg_autostart+=("$val") ;;
         env)
           case "$val" in
             [A-Za-z_]*=*) cfg_env+=("$val") ;;
@@ -593,13 +596,27 @@ args+=(
   -w /workspace
   --rootfs "$rootfs:O"
 )
+# Host language runtimes, read-only, at the same path (binstubs and
+# shebangs hold absolute paths): mise finds them via
+# MISE_SHARED_INSTALL_DIRS and never writes there, so nothing is
+# downloaded twice and an agent can't alter what later runs on the host.
+host_mise="${MISE_DATA_DIR:-$HOME/.local/share/mise}/installs"
+if [ -d "$host_mise" ]; then
+  host_mise="$(cd "$host_mise" && pwd -P)"
+  args+=(-v "$host_mise:$host_mise:ro" -e "MISE_SHARED_INSTALL_DIRS=$host_mise")
+fi
 if [ "$mode" = up ]; then
   # The container's own command just keeps it alive; everything useful
   # runs through `attach`/`exec`. It still goes through the entrypoint,
   # so `mise install` for the project happens once here at `up` time.
   args+=(/agent-entrypoint sleep infinity)
-else
-  args+=(/agent-entrypoint "$@")
+  "${args[@]}"
+  # autostart (config): boards/services in the same container, detached;
+  # output in ~/.local-state/autostart.log inside the sandbox.
+  for cmd in ${cfg_autostart[@]+"${cfg_autostart[@]}"}; do
+    podman exec -d "$container_name" /agent-entrypoint sh -c "$cmd >> /home/agent/.local-state/autostart.log 2>&1"
+  done
+  exit 0
 fi
-
+args+=(/agent-entrypoint "$@")
 exec "${args[@]}"

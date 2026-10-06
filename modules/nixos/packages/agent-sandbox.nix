@@ -77,6 +77,8 @@ let
     extraOutputsToInstall = [ "dev" ];
     ignoreCollisions = true;
     paths = with pkgs; [
+      # kandev board (modules/nixos/packages/kandev.nix): one sandbox, boards inside it
+      (callPackage ./kandev.nix { })
         bashInteractive
         coreutils
         gitMinimal
