@@ -1,0 +1,136 @@
+# Проверка в VM перед установкой на mimir
+
+Цель — прогнать **ровно то, что будет на железе**: `bin/mimir-install` и
+`.#mimir`, только на виртуальном диске. Если здесь всё зелёное, на
+устройстве остаются только вещи, которые VM проверить не может (реальная
+прошивка, Wi-Fi, видеокарта) — они в конце.
+
+## Что нужно на хосте, где запускается VM
+
+- KVM (`ls /dev/kvm`), 8 ГБ RAM и 4 ядра под VM.
+- **~50 ГБ свободного места**: вся система с десктопом — это 30–40 ГБ в
+  `/nix/store` гостя (диск VM растёт по факту записи, но вырастет до этого).
+  На машине разработки столько нет — нужен другой хост.
+- `qemu` и OVMF. Ubuntu: `sudo apt install qemu-system-x86 qemu-utils ovmf`.
+  NixOS: `nix shell nixpkgs#qemu nixpkgs#OVMFFull.fd` (пути к OVMF ниже —
+  тогда из `$(nix build --print-out-paths nixpkgs#OVMFFull.fd)/FV/`).
+
+## 1. Поднять VM
+
+```bash
+mkdir -p ~/vm/mimir && cd ~/vm/mimir
+curl -L -o nixos.iso https://channels.nixos.org/nixos-unstable/latest-nixos-minimal-x86_64-linux.iso
+qemu-img create -f qcow2 disk.qcow2 100G     # sparse: 100G — это потолок, не расход
+cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd   # ПУСТЫЕ переменные = Secure Boot в Setup Mode
+
+qemu-system-x86_64 -enable-kvm -machine q35,smm=on -cpu host -smp 4 -m 8G \
+  -global driver=cfi.pflash01,property=secure,value=on \
+  -drive if=pflash,format=raw,unit=0,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd \
+  -drive if=pflash,format=raw,unit=1,file=vars.fd \
+  -drive file=disk.qcow2,if=virtio,format=qcow2 \
+  -cdrom nixos.iso \
+  -nic user,model=virtio-net-pci \
+  -device virtio-vga-gl -display gtk,gl=on
+```
+
+- Прошивка с поддержкой Secure Boot, но переменные пустые: так же, как на
+  железе после «Reset to Setup Mode» — система грузится без проверки
+  подписи, пока не сделан `enroll-keys`.
+- `virtio-vga-gl` + `gl=on` — 3D для Hyprland. Если QEMU ругается на GL —
+  `-vga virtio -display gtk` (система поставится, но Hyprland может не
+  подняться; это проблема VM, не конфига).
+- Повторный запуск после установки — та же команда **без** `-cdrom nixos.iso`.
+
+## 2. Установка (внутри VM, загрузились с ISO)
+
+```bash
+# ISO сам входит пользователем nixos (sudo без пароля)
+nix-shell -p git --run 'git clone https://github.com/TregubovMY/nixos'
+cd nixos
+lsblk -d -o NAME,SIZE,MODEL               # диск VM — /dev/vda
+bin/mimir-install /dev/vda
+```
+
+Скрипт попросит: ещё раз ввести путь диска, пароль LUKS (дважды), пароль
+пользователя `max`. Первая попытка `nixos-install` может упасть на шаге
+загрузчика — это ожидаемо (создаются ключи Secure Boot, вторая попытка).
+
+**Не пушить из VM** `hosts/mimir/facter.json`: это отчёт о железе
+виртуалки, а не mimir.
+
+Если установка упала — пришлите последние ~50 строк вывода. Вероятные
+места: скачивание Android Studio (как RubyMine — не из кэша, а с серверов
+Google), сеть.
+
+## 3. Первая загрузка — базовая проверка
+
+Перезапустить VM без ISO. Отмечайте по порядку:
+
+- [ ] Пароль LUKS спрашивается **один раз** (swap и root открываются им же).
+- [ ] Экран входа (tuigreet) → вход `max` → Hyprland с панелью DMS.
+- [ ] `systemctl --failed` и `systemctl --user --failed` — пусто.
+- [ ] `journalctl -b -p err` — нет ничего страшного (присылайте, если сомневаетесь).
+- [ ] Сеть: `nmcli general status` → connected, `ping -c1 nixos.org`.
+- [ ] Пользователь: `echo $SHELL` → zsh; `id` → группы `wheel networkmanager libvirtd`.
+- [ ] `sudo true` работает (root без пароля, админ — через sudo).
+- [ ] Репозиторий скопирован: `ls ~/code/nixos/hosts/mimir/facter.json`.
+
+## 4. Secure Boot
+
+```bash
+sudo sbctl status                          # Setup Mode: Enabled
+# Только в VM: флаг ниже нужен, т.к. у VM нет TPM-журнала Option ROM.
+# На железе — БЕЗ него (см. README, «Установка на реальную машину»).
+sudo sbctl enroll-keys --microsoft --yes-this-might-brick-my-machine
+sudo reboot
+```
+
+- [ ] После перезагрузки `bootctl status` → `Secure Boot: enabled (user)`.
+- [ ] `sudo sbctl verify` — файлы на ESP подписаны.
+
+## 5. Гибернация
+
+- [ ] `systemctl hibernate` → VM выключилась → запустить снова → пароль
+      LUKS → вернулась сессия с открытыми окнами.
+
+## 6. Песочницы агентов (по желанию, ещё ~5–10 ГБ)
+
+Образ песочницы собирается локально (в нём chromium — долго):
+
+```bash
+cd ~/code/nixos
+nix build .#agent-sandbox-image && podman load -i result && rm result
+mkdir -p ~/code/test && cd ~/code/test && git init -q && echo 'node 22' > .tool-versions
+```
+
+agent-sandbox:
+
+- [ ] `~/code/nixos/bin/agent-sandbox up ~/code/test` →
+      `bin/agent-sandbox attach ~/code/test` → внутри `touch /workspace/x; echo 'hi' > ~/keep; node -v`.
+- [ ] На хосте `ls -l ~/code/test/x` — владелец `max`.
+- [ ] `bin/agent-sandbox down ~/code/test`, снова `up` + `attach` → `cat ~/keep` → `hi`
+      (домашний каталог песочницы сохранился).
+- [ ] `which openspec lefthook gitleaks` внутри — всё находится.
+
+kandev:
+
+- [ ] `mise use -g node@22` на хосте (чтобы было что «расшарить»).
+- [ ] `~/code/nixos/bin/kandev-sandbox up ~/code/test` → открыть
+      http://127.0.0.1:38429 в браузере VM.
+- [ ] `podman exec -w ~/code/test kandev sh -c 'id; node -v; touch y; which openspec lefthook gitleaks'`
+      → `uid=1000(kandev)`, версия node с хоста, все три утилиты найдены.
+- [ ] `ls -l ~/code/test/y` — владелец `max`.
+- [ ] `podman exec kandev touch ~/.local/share/mise/installs/z` → **Read-only file system**.
+- [ ] Ruby (самое рискованное): `mise use ruby@3.3` в `~/code/test` на хосте
+      (собирается из исходников, ~5 мин), затем
+      `podman exec -w ~/code/test kandev ruby -v` → работает. Если не
+      собирается уже на хосте (NixOS без заголовков openssl/libyaml) —
+      пришлите ошибку: это отдельная задача, не про kandev.
+
+## Что VM проверить не может — смотреть на самом устройстве
+
+- Wi-Fi и bluetooth (в VM их нет; facter на железе включит прошивки).
+- Видеокарта / яркость / звук / тачпад / сон по крышке.
+- `sbctl enroll-keys --microsoft` **без** `--yes-this-might-brick-my-machine` —
+  если sbctl откажется, не форсировать, а прислать вывод.
+- Throne (VLESS из Bitwarden), затем `desktopApps.rubymine.enable = true`.
