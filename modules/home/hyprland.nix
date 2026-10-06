@@ -113,6 +113,8 @@
   # Recording page), so no custom derivation needed, just wire up binds
   # below the same way as the rest of this file's activation script.
   #
+  # Hotkey translation (system-plan.md §5.11) -- now Dialect, see
+  # translate-selection below; history of the Crow Translate version:
   # crow-translate: regression found live while rewriting README (2026-08-18)
   # -- system-plan.md §5.11's hotkey-translate feature (repo root
   # `hypr/quick-translate.lua`, `require("quick-translate")`) was written
@@ -147,37 +149,39 @@
   # (SIGINT makes wf-recorder finalize the file), notifications go through
   # DMS's notification daemon. No audio on purpose (silent screencasts for
   # tickets/bug reports); add `--audio` to the wf-recorder line if needed.
+  # Dialect's default translation service: Yandex. Google's endpoint gave
+  # no answer from this network in the VM, Yandex did. Forced on every
+  # activation via dconf (key from Dialect 2.6.1's gschema:
+  # /app/drey/Dialect/translators/active); switching provider in Dialect's
+  # own settings works until the next rebuild.
+  dconf.settings."app/drey/Dialect/translators".active = "yandex";
+
   home.packages = [
     pkgs.bibata-cursors
     pkgs.grimblast
-    pkgs.crow-translate
+    pkgs.dialect
     pkgs.glib
     pkgs.swappy
-    # translate-selection: selected text (primary selection, falls back to
-    # the clipboard) -> Crow Translate CLI -> notification. Rewritten
-    # 2026-10-06: Crow 4.x dropped the D-Bus API the old bind called and
-    # renamed its binary to `crow`. Engine yandex: Google's endpoint gave
-    # no answer from this network in the VM test, Yandex did. Cyrillic
-    # text goes to English, anything else to Russian. --tts none keeps it
-    # from trying to load the Piper voice (it popped an error dialog).
-    # Output is HTML-ish ("перевод<br>/translit/..."), only the first part
-    # is the translation.
+    # translate-selection: opens Dialect's window with the selected text
+    # already in it and translated (asked for 2026-10-06: "окно переводчика
+    # с вставленным текстом", not a notification). Dialect (GNOME, in
+    # nixpkgs) takes --text/--dest on its command line and hands them to an
+    # already running window. Text comes from the primary selection (falls
+    # back to the clipboard) via wl-paste, not Dialect's own --selection,
+    # which reads the selection through GTK and gets nothing on Wayland
+    # unless Dialect itself has focus. Cyrillic -> English, else -> Russian.
+    # Replaced Crow Translate 4.x: it lost its D-Bus API and opens its
+    # window only empty; its CLI mode also printed Qt warnings into the
+    # result (seen live in the VM).
     (pkgs.writeShellApplication {
       name = "translate-selection";
-      runtimeInputs = with pkgs; [ wl-clipboard crow-translate libnotify gnused gnugrep coreutils ];
+      runtimeInputs = with pkgs; [ wl-clipboard dialect gnugrep ];
       text = ''
         text="$(wl-paste --primary --no-newline 2>/dev/null || true)"
         [ -n "$text" ] || text="$(wl-paste --no-newline 2>/dev/null || true)"
-        if [ -z "$text" ]; then
-          notify-send -a "Перевод" "Нет выделенного текста"
-          exit 0
-        fi
-        if printf '%s' "$text" | grep -q '[А-Яа-яЁё]'; then to=en; else to=ru; fi
-        if ! out="$(printf '%s' "$text" | timeout 20 crow -i -b -e yandex -t "$to" --tts none 2>&1)"; then
-          notify-send -u critical -a "Перевод" "Ошибка перевода" "$out"
-          exit 1
-        fi
-        notify-send -a "Перевод" "$(printf '%s' "$out" | sed 's/<br>.*//')"
+        [ -n "$text" ] || exec dialect
+        if printf '%s' "$text" | grep -q '[А-Яа-яЁё]'; then dest=en; else dest=ru; fi
+        exec dialect --text "$text" --dest "$dest"
       '';
     })
     (pkgs.writeShellApplication {

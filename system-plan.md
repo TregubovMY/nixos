@@ -403,6 +403,13 @@ playerctl               # медиаклавиши через Waybar/Hyprland-б
 
 ### 5.11 Утилита перевода по хоткею (Crow Translate)
 
+**Обновление (2026-10-06):** теперь **Dialect**, не Crow Translate. Crow 4.x
+переименовал бинарник в `crow`, убрал D-Bus API, на котором держался хоткей,
+а окно открывает только пустым. SUPER+ALT+T (`translate-selection`,
+`modules/home/hyprland.nix`) открывает окно Dialect с выделенным текстом и
+переводом; переводчик по умолчанию — Яндекс (Google из сети в VM не
+отвечал). Текст ниже — история варианта с Crow.
+
 Готовое, поддерживаемое приложение вместо самописного скрипта —
 [Crow Translate](https://github.com/crow-translate/crow-translate)
 (`crow-translate` в nixpkgs, несколько бэкендов: Google/Yandex/Bing/
