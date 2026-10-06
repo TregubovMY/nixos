@@ -84,13 +84,15 @@
       };
     in
     {
+      # The sandbox root directory (no container image any more, see
+      # modules/nixos/packages/agent-sandbox.nix). On the host it arrives
+      # through modules/nixos/agent-sandbox.nix; this output is for building
+      # / testing it without a rebuild: `nix build .#agent-sandbox-rootfs`
+      # and AGENT_SANDBOX_ROOTFS=./result agent-sandbox ...
       packages.${system} = rec {
-        agent-sandbox-image =
-          import ./modules/nixos/packages/agent-sandbox.nix { inherit pkgs; };
-        # Bare `nix build` (no attribute) resolves to `.default` —
-        # without this it fails outright since there's only one package
-        # and its name isn't `default` (final review, M8).
-        default = agent-sandbox-image;
+        agent-sandbox-rootfs =
+          (import ./modules/nixos/packages/agent-sandbox.nix { inherit pkgs; }).rootfs;
+        default = agent-sandbox-rootfs;
       };
 
       # The real machine. Installed

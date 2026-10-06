@@ -132,10 +132,25 @@ esac
 # back to the README's prerequisites section. Fail fast with an
 # actionable message instead.
 command -v podman >/dev/null 2>&1 || {
-  echo "agent-sandbox: podman not found on PATH — install podman, then see" \
-       "README.md for the 'nix build .#agent-sandbox-image && podman load'" \
-       "steps to get the image itself in place." >&2
+  echo "agent-sandbox: podman not found on PATH (modules/nixos/podman.nix)" >&2
   exit 1
+}
+
+# The sandbox root (since 2026-10-06 a directory in /nix/store, not an
+# image -- modules/nixos/packages/agent-sandbox.nix). The host module
+# links it at /etc/agent-sandbox/rootfs; AGENT_SANDBOX_ROOTFS overrides it
+# for testing a build without switching (`nix build .#agent-sandbox-rootfs`).
+# Resolved to the real store path because podman --rootfs needs a
+# directory, and so a later switch can't change it under a running
+# container. Only needed by run/up; attach/exec/down/status don't use it.
+resolve_rootfs() {
+  local link="${AGENT_SANDBOX_ROOTFS:-/etc/agent-sandbox/rootfs}"
+  rootfs="$(readlink -f "$link" 2>/dev/null || true)"
+  if [ -z "$rootfs" ] || [ ! -e "$rootfs/agent-entrypoint" ]; then
+    echo "agent-sandbox: no sandbox rootfs at $link -- enable modules/nixos/agent-sandbox.nix" \
+         "(nixos-rebuild switch) or point AGENT_SANDBOX_ROOTFS at a build" >&2
+    exit 1
+  fi
 }
 
 if [ "$mode" = status ] && [ "$#" -eq 0 ]; then
@@ -550,14 +565,34 @@ if [ "$gui" = 1 ]; then
   source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/agent-sandbox-gui.sh"
 fi
 
+# Run from the rootfs directory instead of an image:
+# - --rootfs DIR:O -- DIR is the first positional; ":O" overlays it, so
+#   podman can create its mount points (/etc/hosts, ...) although DIR is
+#   in the read-only store; nothing written there outlives the container;
+# - /nix/store read-only: every tool and every symlink in the rootfs
+#   points into it -- the host's own store, shared, not copied;
+# - /tmp as tmpfs (the rootfs is read-only);
+# - --passwd-entry: podman adds the keep-id user to /etc/passwd itself
+#   (getpwuid() must work for git/ssh/mise); HOME comes from it;
+# - /agent-entrypoint is called explicitly: a rootfs has no image config.
+resolve_rootfs
+# $UID/$GID in --passwd-entry are podman's own template variables, hence
+# single quotes.
+# shellcheck disable=SC2016
+args+=(
+  -v /nix/store:/nix/store:ro
+  --tmpfs /tmp:rw,mode=1777
+  --passwd-entry 'agent:*:$UID:$GID::/home/agent:/bin/bash'
+  -w /workspace
+  --rootfs "$rootfs:O"
+)
 if [ "$mode" = up ]; then
   # The container's own command just keeps it alive; everything useful
-  # runs through `attach`/`exec`. It still goes through the entrypoint
-  # (image Entrypoint), so `mise install` for the project happens once
-  # here at `up` time.
-  args+=(agent-sandbox:latest sleep infinity)
+  # runs through `attach`/`exec`. It still goes through the entrypoint,
+  # so `mise install` for the project happens once here at `up` time.
+  args+=(/agent-entrypoint sleep infinity)
 else
-  args+=(agent-sandbox:latest "$@")
+  args+=(/agent-entrypoint "$@")
 fi
 
 exec "${args[@]}"

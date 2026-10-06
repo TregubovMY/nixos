@@ -44,6 +44,14 @@ ln -s "$tmp/outside" "$project/escape-link"
 project="$(cd "$project" && pwd -P)"
 hash="$(printf '%s' "$project" | sha256sum | cut -c1-12)"
 
+# Stand-in for the Nix-built sandbox rootfs (a directory with
+# /agent-entrypoint); the wrapper resolves it like the real symlink.
+mkdir -p "$tmp/rootfs-real"
+touch "$tmp/rootfs-real/agent-entrypoint"
+ln -s "$tmp/rootfs-real" "$tmp/rootfs-link"
+rootfs="$tmp/rootfs-link"
+rootfs_real="$(cd "$tmp/rootfs-real" && pwd -P)"
+
 pass=0
 fail=0
 current=""
@@ -57,7 +65,7 @@ bad() { fail=$((fail + 1)); echo "FAIL [$current]: $*" >&2; }
 # stdin from /dev/null so the TTY branch is deterministic (never a TTY).
 run() {
   local rc=0
-  env -i PATH="$PATH" HOME="$tmp" FAKE_PODMAN_LOG="$FAKE_PODMAN_LOG" \
+  env -i PATH="$PATH" HOME="$tmp" FAKE_PODMAN_LOG="$FAKE_PODMAN_LOG" AGENT_SANDBOX_ROOTFS="$rootfs" \
     FAKE_PODMAN_EXIT="${FAKE_PODMAN_EXIT:-0}" FAKE_RUNNING="${FAKE_RUNNING:-false}" \
     "$@" </dev/null >"$tmp/out" 2>"$tmp/err" || rc=$?
   echo "$rc"
@@ -85,7 +93,12 @@ expect log_seq -v "$project:/workspace"
 expect log_seq -v "agent-creds-$hash:/home/agent/.sandbox-creds"
 expect log_seq -v "agent-local-bin:/home/agent/.local/bin"
 expect log_seq -v "agent-home-$hash:/home/agent"
-expect log_seq agent-sandbox:latest echo
+expect log_seq --rootfs "$rootfs_real:O"
+expect log_seq "$rootfs_real:O" /agent-entrypoint
+expect log_seq /agent-entrypoint echo
+expect log_seq -v /nix/store:/nix/store:ro
+expect log_seq --tmpfs /tmp:rw,mode=1777
+expect log_has --passwd-entry
 expect log_lacks --
 expect log_has -i
 expect log_lacks -it
@@ -173,7 +186,7 @@ expect log_has --init
 expect log_seq --name "agent-sandbox-$hash"
 expect log_seq --label "agent-sandbox.project=$project"
 expect log_seq -p 127.0.0.1:3080:3080
-expect log_seq agent-sandbox:latest sleep
+expect log_seq /agent-entrypoint sleep
 expect log_has infinity
 
 t "up is a no-op when already running"
@@ -301,6 +314,11 @@ t "config: no dir"
 printf 'env = A=1\n' >"$cfgdir/nodir.conf"
 rc=$(run bash "$script" up @nodir)
 expect_rc "$rc" 1
+
+t "rootfs: missing rootfs fails with a hint, podman not run"
+rc=$(run env AGENT_SANDBOX_ROOTFS="$tmp/nope" bash "$script" "$project" -- true)
+expect_rc "$rc" 1
+expect log_lacks run
 
 echo "agent-sandbox tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

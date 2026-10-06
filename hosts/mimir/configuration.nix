@@ -33,6 +33,7 @@
     ../../modules/nixos/nix-settings.nix
     ../../modules/nixos/dev-databases.nix
     ../../modules/nixos/podman.nix
+    ../../modules/nixos/agent-sandbox.nix
     ../../modules/nixos/home-manager.nix
     ../../modules/nixos/nix-ld.nix
     ../../modules/nixos/notebooklm-tooling.nix

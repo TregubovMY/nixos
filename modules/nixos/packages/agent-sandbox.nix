@@ -1,8 +1,11 @@
-# Podman image for sandboxed AI coding agents (claude-code/opencode).
-# Design: system-plan.md §9. Language runtimes (ruby/node/...) are
-# deliberately NOT baked in here — mise resolves them per-project at
-# container start (see the entrypoint below), so this image stays
-# generic across every project instead of needing a rebuild per stack.
+# Sandbox for AI coding agents (claude-code/opencode/dsh), design:
+# system-plan.md §9. Since 2026-10-06 this is NOT a container image: it
+# returns `tools` (one buildEnv with everything the sandbox offers),
+# `entrypoint`, and `rootfs` (a tiny root directory); bin/agent-sandbox runs
+# podman with `--rootfs` on it and the host's /nix/store mounted read-only.
+# Wired into the host by modules/nixos/agent-sandbox.nix. Language runtimes
+# (ruby/node/...) are still not here -- mise resolves them per project at
+# start (see the entrypoint), into a shared volume.
 { pkgs }:
 
 let
@@ -61,14 +64,199 @@ let
   # approach, made writable via `extraCommands` below, mirrors the
   # well-documented OpenShift "Support Arbitrary User IDs" pattern:
   # https://docs.openshift.com/container-platform/4.16/openshift_images/create-images.html#images-create-guide-openshift_create-images
+  # Every tool the sandbox offers, as one buildEnv in the host's
+  # /nix/store. bin/agent-sandbox mounts /nix/store read-only into the
+  # container, so these are the *same* store paths the host already has
+  # (claude-code, Node, Playwright's browsers, mise...) -- nothing is
+  # copied into podman's image storage any more. That copy was the ~4 GB
+  # cost of the old buildLayeredImage (2026-10-06 redesign).
+  # extraOutputsToInstall "dev": the headers/pkg-config files of the
+  # libraries below (ruby-build needs them, see CPATH in the entrypoint).
+  tools = pkgs.buildEnv {
+    name = "agent-sandbox-tools";
+    extraOutputsToInstall = [ "dev" ];
+    ignoreCollisions = true;
+    paths = with pkgs; [
+        bashInteractive
+        coreutils
+        gitMinimal
+        curl
+        ripgrep
+        mise
+        cacert
+        claude-code
+        opencode
+        chromium
+        # notebooklm-py's own runtime deps -- see the entrypoint's
+        # PLAYWRIGHT_BROWSERS_PATH/UV_TOOL_DIR comment above for why both are
+        # needed (uv installs the PyPI package itself in an isolated venv,
+        # playwright-driver.browsers is the NixOS-compatible Chromium build
+        # Playwright needs instead of its own FHS-assuming download).
+        uv
+        playwright-driver.browsers
+        # DeepSeek Harness's own runtime -- see the entrypoint's
+        # NPM_CONFIG_PREFIX comment above for why this stays an
+        # `npm install -g @deepseek-ai/dsh` done by hand rather than a baked-in
+        # nixpkgs derivation. `nodejs` here is *only* the interpreter/npm CLI;
+        # `dsh` itself is not part of this image's closure.
+        nodejs
+        # `coreutils` does NOT include sed/grep/awk/tar/gzip (those are
+        # separate GNU projects/packages in nixpkgs). mise's ruby-build
+        # backend shells out to all of these when compiling a pinned Ruby
+        # version from source. Found missing during Task 6 end-to-end
+        # testing: ruby-build failed with "sed: command not found" /
+        # "awk: command not found" etc.
+        gnused
+        gnugrep
+        gawk
+        gnutar
+        gzip
+        # `xz`/`unzip`: node's and python's mise backends ship precompiled
+        # `.tar.xz` (and some release assets as `.zip`) — without these the
+        # download can't even be unpacked, before it gets anywhere near the
+        # ELF-interpreter problem (final review, I3) that `nix-ld` below now
+        # fixes.
+        xz
+        unzip
+
+        # See the `nixLdLibraries`/NIX_LD comments above (`let` block) and in
+        # extraCommands below — this package provides the actual loader shim
+        # binary that gets symlinked to /lib64/ld-linux-x86-64.so.2.
+        nix-ld
+
+        # A coding agent's shell needs the same basics any interactive Unix
+        # shell needs, not just what ruby-build happens to shell out to —
+        # this list was tuned exclusively against ruby-build's needs during
+        # Task 6 and nobody had exercised what claude-code/opencode/an agent's
+        # own commands reach for (final review, I5). `find`/`xargs` in
+        # particular are bread-and-butter for a coding agent; `less` is git's
+        # default `core.pager` (git log/diff error out without a pager
+        # binary, not just look worse); `ps` is the standard "what's running"
+        # check an agent reaches for when something hangs.
+        findutils
+        diffutils
+        less
+        procps
+
+        # Agent-development workflow tooling (llm-dev-template/forge, system-
+        # plan.md §9.7). All small, all in nixpkgs, so declared here rather
+        # than installed by hand:
+        # - gitleaks: the `scrub` step (ticket/review text through
+        #   `gitleaks stdin` before an agent sees it) and the lefthook
+        #   pre-commit secret scan both run inside this container;
+        # - jq: JSON glue for those scripts and for stream-json agent logs;
+        # (glab removed 2026-10-06: the GitLab stage hasn't started; add it
+        # back together with `agent-sandbox --gitlab-token` usage.)
+        # - tmux: interactive agent sessions inside the long-lived per-project
+        #   container (`agent-sandbox up`/`attach`) survive a closed terminal.
+        gitleaks
+        jq
+        tmux
+        # Project-template tooling (llm-dev-template): OpenSpec CLI for specs
+        # (`openspec init/validate/archive`) and lefthook, which runs the
+        # template's pre-commit guards (gitleaks, review markers, commitlint).
+        # From nixpkgs instead of `npm install -g` / `npx`: pinned with the
+        # rest of the image and no download on first commit.
+        openspec
+        lefthook
+
+        # Language servers for Claude Code's built-in LSP tool (official
+        # `gopls-lsp` / `typescript-lsp` plugins from claude-plugins-official)
+        # and OpenCode's LSP integration -- each plugin only wraps a server
+        # binary that has to be on PATH. Chosen over Serena/code-graph MCP
+        # servers as the default code-navigation layer: no MCP, no index, no
+        # embeddings, nothing leaves the container. Ruby's `ruby-lsp` is
+        # deliberately NOT here: it must match the project's own Ruby (mise)
+        # and Gemfile, so it comes from the project's bundle instead.
+        gopls
+        typescript-language-server
+        typescript
+
+        # mise/ruby-build's *precompiled* Ruby binaries are ordinary
+        # generic-glibc ELF binaries expecting an FHS layout (dynamic linker
+        # at /lib64/ld-linux-x86-64.so.2, etc) — they can't run unmodified in
+        # this Nix-store-only image (confirmed during Task 6: "cannot
+        # execute: required file not found", the classic missing-ELF-
+        # interpreter symptom). ruby-build specifically stays on its
+        # *default* behavior (`ruby.compile=true`, i.e. actually compile
+        # Ruby from source) rather than switching to nix-ld below (2026-08-13
+        # addition, for node/python/go) -- already working and Task 6
+        # end-to-end verified, no reason to re-risk a proven path just for
+        # consistency with the newer mechanism. This is the standard
+        # ruby-build Linux build dependency list (see
+        # https://github.com/rbenv/ruby-build/wiki#suggested-build-environment),
+        # minus OpenSSL — ruby-build vendors/builds its own OpenSSL from
+        # source rather than linking the system one (observed directly: it
+        # downloads and builds openssl-3.0.18 as part of the Ruby build).
+        gcc
+        gnumake
+        pkg-config
+        autoconf
+        bison
+        patch
+        gnum4
+        zlib
+        readline
+        libyaml
+        libffi
+        gdbm
+        ncurses
+        libxcrypt
+
+        # The plain package names above (zlib, readline, ...) only pull in
+        # each package's default output — the runtime shared library (.so),
+        # no headers. nixpkgs splits headers/pkg-config files into a
+        # separate "dev" output for these (confirmed via `nix eval
+        # .#legacyPackages.x86_64-linux.<pkg>.outputs`: zlib/readline/
+        # libyaml/libffi/gdbm/ncurses all report "... dev ..."), which
+        # `contents` does NOT include automatically. Found missing one layer
+        # deeper still in the same Task 6 pass, after the `perl` fix above
+        # got OpenSSL's `./config` step to run: `make` on OpenSSL then
+        # failed with "crypto/comp/c_zlib.c:36:11: fatal error: zlib.h: No
+        # such file or directory" — OpenSSL is built with zlib support
+        # (`zlib-dynamic` in the ./config invocation) and needs the header
+        # at compile time even though it only *links* the .so at runtime.
+        # Same reasoning applies to Ruby's own ./configure, which links
+        # against readline/libyaml(Psych)/libffi(fiddle)/gdbm/ncurses and
+        # needs their headers too. libxcrypt is deliberately not listed here
+        # — `nix eval` shows it has no separate "dev" output (headers ship
+        # in "out" already).
+        zlib.dev
+        readline.dev
+        libyaml.dev
+        libffi.dev
+        gdbm.dev
+        ncurses.dev
+
+        # ruby-build's vendored OpenSSL build (see comment above — it builds
+        # its own OpenSSL rather than linking a system one) invokes OpenSSL's
+        # `./config`, which is itself a Perl script. Found missing during
+        # this same Task 6 end-to-end pass, one layer deeper than the
+        # gcc/make/etc list above: the build got past `Downloading
+        # openssl-3.0.18.tar.gz` and failed at the `./config` step with
+        # "env: 'perl': No such file or directory" (exit 127). Not in the
+        # ruby-build wiki's suggested-build-environment list because that
+        # list assumes a full-FHS Linux distro where perl is normally
+        # already present; this minimal Nix-store-only image has to name it
+        # explicitly.
+        perl
+    ];
+  };
+
   entrypoint = pkgs.writeShellScript "agent-sandbox-entrypoint" ''
     set -euo pipefail
 
+    # podman itself now adds the passwd entry (bin/agent-sandbox passes
+    # --passwd-entry, the rootfs below is read-only); this append is only a
+    # fallback and must not abort the entrypoint if /etc is not writable.
     if ! getent passwd "$(id -u)" > /dev/null 2>&1; then
-      echo "agent:x:$(id -u):$(id -g)::/home/agent:${pkgs.bashInteractive}/bin/bash" >> /etc/passwd
+      echo "agent:x:$(id -u):$(id -g)::/home/agent:${pkgs.bashInteractive}/bin/bash" >> /etc/passwd 2>/dev/null || true
     fi
 
     export HOME=/home/agent
+    # All sandbox tools live in one buildEnv in the host's /nix/store
+    # (mounted read-only); nothing is on any FHS path inside the rootfs.
+    export PATH="${tools}/bin''${PATH:+:$PATH}"
     export MISE_DATA_DIR=/home/agent/.local/share/mise
     export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
 
@@ -190,9 +378,11 @@ let
     # appending with `''${VAR:+:$VAR}` (empty-safe: no leading `:` when the
     # var is unset) keeps this fix scoped to "also search these dirs"
     # instead of "only ever search these dirs".
-    export CPATH="/include''${CPATH:+:$CPATH}"
-    export LIBRARY_PATH="/lib''${LIBRARY_PATH:+:$LIBRARY_PATH}"
-    export PKG_CONFIG_PATH="/lib/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    # (Paths were /include, /lib in the old buildLayeredImage, which merged
+    # every package into the image root; now they are the tool env's.)
+    export CPATH="${tools}/include''${CPATH:+:$CPATH}"
+    export LIBRARY_PATH="${tools}/lib''${LIBRARY_PATH:+:$LIBRARY_PATH}"
+    export PKG_CONFIG_PATH="${tools}/lib/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
     # mise treats `mise.toml`/`.mise.toml` (but not `.tool-versions`) as
     # potentially code-executing config and refuses to use it until it's
@@ -270,245 +460,40 @@ let
     fi
   '';
 in
-# buildLayeredImage (not buildImage, as an earlier draft of system-plan.md
-# §9.3 said) — buildLayeredImage splits contents into one layer per store
-# path (deduped by nix-store-closure popularity), so rebuilding this image
-# after e.g. bumping just claude-code only pushes/loads the layers that
-# actually changed instead of one monolithic layer for the whole image.
-# Confirmed real for this image: contents pulls in the full chromium
-# closure (largest single dependency here), and layering keeps that as
-# its own cacheable layer independent of the smaller, more frequently
-# bumped packages (claude-code, opencode, mise). system-plan.md §9.3 was
-# updated to match.
-pkgs.dockerTools.buildLayeredImage {
-  name = "agent-sandbox";
-  tag = "latest";
-
-  contents = with pkgs; [
-    bashInteractive
-    coreutils
-    gitMinimal
-    curl
-    ripgrep
-    mise
-    cacert
-    claude-code
-    opencode
-    chromium
-    # notebooklm-py's own runtime deps -- see the entrypoint's
-    # PLAYWRIGHT_BROWSERS_PATH/UV_TOOL_DIR comment above for why both are
-    # needed (uv installs the PyPI package itself in an isolated venv,
-    # playwright-driver.browsers is the NixOS-compatible Chromium build
-    # Playwright needs instead of its own FHS-assuming download).
-    uv
-    playwright-driver.browsers
-    # DeepSeek Harness's own runtime -- see the entrypoint's
-    # NPM_CONFIG_PREFIX comment above for why this stays an
-    # `npm install -g @deepseek-ai/dsh` done by hand rather than a baked-in
-    # nixpkgs derivation. `nodejs` here is *only* the interpreter/npm CLI;
-    # `dsh` itself is not part of this image's closure.
-    nodejs
-    dockerTools.usrBinEnv
-    dockerTools.binSh
-    # `coreutils` does NOT include sed/grep/awk/tar/gzip (those are
-    # separate GNU projects/packages in nixpkgs). mise's ruby-build
-    # backend shells out to all of these when compiling a pinned Ruby
-    # version from source. Found missing during Task 6 end-to-end
-    # testing: ruby-build failed with "sed: command not found" /
-    # "awk: command not found" etc.
-    gnused
-    gnugrep
-    gawk
-    gnutar
-    gzip
-    # `xz`/`unzip`: node's and python's mise backends ship precompiled
-    # `.tar.xz` (and some release assets as `.zip`) — without these the
-    # download can't even be unpacked, before it gets anywhere near the
-    # ELF-interpreter problem (final review, I3) that `nix-ld` below now
-    # fixes.
-    xz
-    unzip
-
-    # See the `nixLdLibraries`/NIX_LD comments above (`let` block) and in
-    # extraCommands below — this package provides the actual loader shim
-    # binary that gets symlinked to /lib64/ld-linux-x86-64.so.2.
-    nix-ld
-
-    # A coding agent's shell needs the same basics any interactive Unix
-    # shell needs, not just what ruby-build happens to shell out to —
-    # this list was tuned exclusively against ruby-build's needs during
-    # Task 6 and nobody had exercised what claude-code/opencode/an agent's
-    # own commands reach for (final review, I5). `find`/`xargs` in
-    # particular are bread-and-butter for a coding agent; `less` is git's
-    # default `core.pager` (git log/diff error out without a pager
-    # binary, not just look worse); `ps` is the standard "what's running"
-    # check an agent reaches for when something hangs.
-    findutils
-    diffutils
-    less
-    procps
-
-    # Agent-development workflow tooling (llm-dev-template/forge, system-
-    # plan.md §9.7). All small, all in nixpkgs, so declared here rather
-    # than installed by hand:
-    # - gitleaks: the `scrub` step (ticket/review text through
-    #   `gitleaks stdin` before an agent sees it) and the lefthook
-    #   pre-commit secret scan both run inside this container;
-    # - jq: JSON glue for those scripts and for stream-json agent logs;
-    # - glab: reserved for the later GitLab stage (a project-scoped token
-    #   is opt-in via `agent-sandbox --gitlab-token`, off by default);
-    # - tmux: interactive agent sessions inside the long-lived per-project
-    #   container (`agent-sandbox up`/`attach`) survive a closed terminal.
-    gitleaks
-    jq
-    glab
-    tmux
-    # Project-template tooling (llm-dev-template): OpenSpec CLI for specs
-    # (`openspec init/validate/archive`) and lefthook, which runs the
-    # template's pre-commit guards (gitleaks, review markers, commitlint).
-    # From nixpkgs instead of `npm install -g` / `npx`: pinned with the
-    # rest of the image and no download on first commit.
-    openspec
-    lefthook
-
-    # Language servers for Claude Code's built-in LSP tool (official
-    # `gopls-lsp` / `typescript-lsp` plugins from claude-plugins-official)
-    # and OpenCode's LSP integration -- each plugin only wraps a server
-    # binary that has to be on PATH. Chosen over Serena/code-graph MCP
-    # servers as the default code-navigation layer: no MCP, no index, no
-    # embeddings, nothing leaves the container. Ruby's `ruby-lsp` is
-    # deliberately NOT here: it must match the project's own Ruby (mise)
-    # and Gemfile, so it comes from the project's bundle instead.
-    gopls
-    typescript-language-server
-    typescript
-
-    # mise/ruby-build's *precompiled* Ruby binaries are ordinary
-    # generic-glibc ELF binaries expecting an FHS layout (dynamic linker
-    # at /lib64/ld-linux-x86-64.so.2, etc) — they can't run unmodified in
-    # this Nix-store-only image (confirmed during Task 6: "cannot
-    # execute: required file not found", the classic missing-ELF-
-    # interpreter symptom). ruby-build specifically stays on its
-    # *default* behavior (`ruby.compile=true`, i.e. actually compile
-    # Ruby from source) rather than switching to nix-ld below (2026-08-13
-    # addition, for node/python/go) -- already working and Task 6
-    # end-to-end verified, no reason to re-risk a proven path just for
-    # consistency with the newer mechanism. This is the standard
-    # ruby-build Linux build dependency list (see
-    # https://github.com/rbenv/ruby-build/wiki#suggested-build-environment),
-    # minus OpenSSL — ruby-build vendors/builds its own OpenSSL from
-    # source rather than linking the system one (observed directly: it
-    # downloads and builds openssl-3.0.18 as part of the Ruby build).
-    gcc
-    gnumake
-    pkg-config
-    autoconf
-    bison
-    patch
-    gnum4
-    zlib
-    readline
-    libyaml
-    libffi
-    gdbm
-    ncurses
-    libxcrypt
-
-    # The plain package names above (zlib, readline, ...) only pull in
-    # each package's default output — the runtime shared library (.so),
-    # no headers. nixpkgs splits headers/pkg-config files into a
-    # separate "dev" output for these (confirmed via `nix eval
-    # .#legacyPackages.x86_64-linux.<pkg>.outputs`: zlib/readline/
-    # libyaml/libffi/gdbm/ncurses all report "... dev ..."), which
-    # `contents` does NOT include automatically. Found missing one layer
-    # deeper still in the same Task 6 pass, after the `perl` fix above
-    # got OpenSSL's `./config` step to run: `make` on OpenSSL then
-    # failed with "crypto/comp/c_zlib.c:36:11: fatal error: zlib.h: No
-    # such file or directory" — OpenSSL is built with zlib support
-    # (`zlib-dynamic` in the ./config invocation) and needs the header
-    # at compile time even though it only *links* the .so at runtime.
-    # Same reasoning applies to Ruby's own ./configure, which links
-    # against readline/libyaml(Psych)/libffi(fiddle)/gdbm/ncurses and
-    # needs their headers too. libxcrypt is deliberately not listed here
-    # — `nix eval` shows it has no separate "dev" output (headers ship
-    # in "out" already).
-    zlib.dev
-    readline.dev
-    libyaml.dev
-    libffi.dev
-    gdbm.dev
-    ncurses.dev
-
-    # ruby-build's vendored OpenSSL build (see comment above — it builds
-    # its own OpenSSL rather than linking a system one) invokes OpenSSL's
-    # `./config`, which is itself a Perl script. Found missing during
-    # this same Task 6 end-to-end pass, one layer deeper than the
-    # gcc/make/etc list above: the build got past `Downloading
-    # openssl-3.0.18.tar.gz` and failed at the `./config` step with
-    # "env: 'perl': No such file or directory" (exit 127). Not in the
-    # ruby-build wiki's suggested-build-environment list because that
-    # list assumes a full-FHS Linux distro where perl is normally
-    # already present; this minimal Nix-store-only image has to name it
-    # explicitly.
-    perl
-  ];
-
-  extraCommands = ''
-    mkdir -p etc home/agent tmp lib64
-    chmod 1777 tmp
-
-    # The actual nix-ld symlink -- same effect as NixOS's own
-    # environment.ldso (nixos/modules/config/ldso.nix, what
-    # programs.nix-ld.enable ultimately sets) writing a systemd-tmpfiles
-    # `L+` rule for this exact path on a real host, done by hand here
-    # since extraCommands is this image's only place to lay down files at
-    # fixed filesystem paths (no systemd/tmpfiles inside the container).
-    ln -s ${pkgs.nix-ld}/libexec/nix-ld lib64/ld-linux-x86-64.so.2
-
-    # Stable path to the entrypoint for `podman exec` (bin/agent-sandbox
-    # attach/exec into the long-lived `up` container): exec does not run
-    # the image Entrypoint, and everything above (passwd entry, HOME,
-    # nix-ld, mise, AGENT_WORKDIR) lives in that script, so exec'd
-    # commands have to go through it explicitly. The store path itself is
-    # not known to bin/agent-sandbox, hence this fixed symlink.
-    ln -s ${entrypoint} agent-entrypoint
-
-    # $HOME needs to be writable by whatever arbitrary host uid
-    # `--userns=keep-id` maps us to (not just the build-time owner).
-    chmod 777 home/agent
-
-    # /etc/passwd must exist *and* be writable by an arbitrary uid for the
-    # entrypoint's `getpwuid()` workaround above to succeed at runtime —
-    # world-writable is fine here: this is a single-purpose sandbox image
-    # with one real user (whichever uid podman maps us to), not a
-    # multi-tenant system where that would be a meaningful privilege
-    # boundary. `touch` first since none of this image's `contents`
-    # happen to ship a /etc/passwd of their own.
-    touch etc/passwd
-    chmod 666 etc/passwd
-
-    # `SSL_CERT_FILE` (exported by the entrypoint above) covers
-    # Nix-aware software (curl, git, mise itself — all built against
-    # openssl configured to honor that env var). It does NOT cover
-    # ruby-build's *vendored* OpenSSL build: its `make install_ssldirs`
-    # step does its own hardcoded scan of conventional FHS cert
-    # locations (/etc/ssl/certs and similar) and hard-fails with
-    # "Could not find OpenSSL certificates on this system" if none
-    # exist — confirmed during this same Task 6 pass, as the very next
-    # error after the zlib.dev fix got OpenSSL to build successfully.
-    # Standard fix for exactly this class of problem in minimal/
-    # Nix-store-only container images: populate the conventional
-    # Debian/Ubuntu path (/etc/ssl/certs/ca-certificates.crt) so
-    # non-Nix-aware software that only knows to look at FHS locations
-    # finds a cert bundle there too, symlinked to the same cacert
-    # store path SSL_CERT_FILE already points at (one bundle, two
-    # discovery mechanisms — not a second copy to keep in sync).
-    mkdir -p etc/ssl/certs
-    ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt etc/ssl/certs/ca-certificates.crt
+# No container image any more. The sandbox root is this tiny directory in
+# /nix/store, used directly by `podman run --rootfs <dir>:O` (O = overlay:
+# podman can create its mount points without touching the store), with the
+# host's /nix/store bind-mounted read-only so every symlink below and every
+# tool in `tools` resolves. Updates are a normal `nixos-rebuild switch`;
+# no `nix build` + `podman load` step, no layers, no duplicate store.
+#
+# What has to be at fixed FHS paths, and why:
+# - lib64/ld-linux-x86-64.so.2 -> nix-ld: precompiled binaries mise
+#   downloads (node/python/go) need an ELF interpreter at the standard
+#   path; same as programs.nix-ld on the host (modules/nixos/nix-ld.nix).
+# - bin/sh, usr/bin/env: scripts' shebangs.
+# - etc/passwd, etc/group: podman appends the user's entry
+#   (--passwd-entry) and getpwuid() needs the files to exist.
+# - etc/ssl/certs/ca-certificates.crt: ruby-build's vendored OpenSSL scans
+#   FHS cert locations and ignores SSL_CERT_FILE (found in the old image's
+#   end-to-end test; same bundle as SSL_CERT_FILE, not a copy).
+# - agent-entrypoint: stable path for `podman exec` (exec doesn't run an
+#   entrypoint, bin/agent-sandbox calls this explicitly).
+# - home/agent, workspace, tmp: mount points (volume, project, tmpfs).
+let
+  rootfs = pkgs.runCommand "agent-sandbox-rootfs" { } ''
+    mkdir -p $out/{bin,usr/bin,lib64,etc/ssl/certs,home/agent,workspace,tmp,nix/store,run,dev,proc,sys}
+    ln -s ${pkgs.nix-ld}/libexec/nix-ld $out/lib64/ld-linux-x86-64.so.2
+    ln -s ${pkgs.bashInteractive}/bin/bash $out/bin/sh
+    ln -s ${pkgs.bashInteractive}/bin/bash $out/bin/bash
+    ln -s ${pkgs.coreutils}/bin/env $out/usr/bin/env
+    ln -s ${entrypoint} $out/agent-entrypoint
+    ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-certificates.crt
+    echo "root:x:0:0:root:/root:/bin/sh" > $out/etc/passwd
+    printf 'root:x:0:\nusers:x:100:\nnogroup:x:65534:\n' > $out/etc/group
+    touch $out/etc/hosts $out/etc/resolv.conf $out/etc/hostname
   '';
-
-  config = {
-    Entrypoint = [ "${entrypoint}" ];
-    WorkingDir = "/workspace";
-  };
+in
+{
+  inherit rootfs tools entrypoint;
 }
