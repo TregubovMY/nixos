@@ -372,7 +372,7 @@
         -e '/-- NIXOS-MANAGED INPUT BLOCK START/,/-- NIXOS-MANAGED INPUT BLOCK END/d' \
         -e '/-- NIXOS-MANAGED AUTOSTART BLOCK START/,/-- NIXOS-MANAGED AUTOSTART BLOCK END/d' \
         -e '/-- NIXOS-MANAGED CURSOR BLOCK START/,/-- NIXOS-MANAGED CURSOR BLOCK END/d' \
-        "$HYPR_CONF" > "$TMP"
+        "$HYPR_CONF" | ${pkgs.gnused}/bin/sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$TMP"
       cat >> "$TMP" <<'HYPRLUA'
 
 -- NIXOS-MANAGED INPUT BLOCK START -- managed by home-manager activation
@@ -455,7 +455,8 @@ HYPRLUA
     BINDS_USER="$HOME/.config/hypr/dms/binds-user.lua"
     if [ -f "$BINDS_USER" ]; then
       TMP="$(mktemp "$BINDS_USER.XXXXXX")"
-      ${pkgs.gnused}/bin/sed '/-- NIXOS-MANAGED BINDS START/,/-- NIXOS-MANAGED BINDS END/d' "$BINDS_USER" > "$TMP"
+      ${pkgs.gnused}/bin/sed '/-- NIXOS-MANAGED BINDS START/,/-- NIXOS-MANAGED BINDS END/d' "$BINDS_USER" \
+        | ${pkgs.gnused}/bin/sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$TMP"
       cat >> "$TMP" <<'HYPRLUA'
 
 -- NIXOS-MANAGED BINDS START -- managed by home-manager activation
