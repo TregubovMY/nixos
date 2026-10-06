@@ -136,12 +136,41 @@
   # needs to be told which editor to launch (default is gimp, confirmed
   # by reading hyprwm/contrib's grimblast script directly: `edit()` calls
   # `$GRIMBLAST_EDITOR "$file"` on the captured region).
+  # screenrec: screen recording, requested live (2026-10-06) next to the
+  # screenshot binds. wf-recorder is Hyprland wiki's recommended recorder
+  # for wlroots-style compositors ("Screenshots & Recording" page) and was
+  # already installed (modules/nixos/hyprland.nix) but bound to nothing.
+  # One toggle script instead of a GUI app: the same key starts and stops
+  # (SIGINT makes wf-recorder finalize the file), notifications go through
+  # DMS's notification daemon. No audio on purpose (silent screencasts for
+  # tickets/bug reports); add `--audio` to the wf-recorder line if needed.
   home.packages = [
     pkgs.bibata-cursors
     pkgs.grimblast
     pkgs.crow-translate
     pkgs.glib
     pkgs.swappy
+    (pkgs.writeShellApplication {
+      name = "screenrec";
+      runtimeInputs = with pkgs; [ wf-recorder slurp libnotify procps coreutils ];
+      text = ''
+        dir="''${XDG_VIDEOS_DIR:-$HOME/Videos}/Recordings"
+        mkdir -p "$dir"
+        if pgrep -x wf-recorder >/dev/null; then
+          pkill -INT -x wf-recorder
+          notify-send -a "Запись экрана" "Запись сохранена" "$dir"
+          exit 0
+        fi
+        args=()
+        if [ "''${1:-area}" = area ]; then
+          geom="$(slurp)" || exit 0   # Esc in slurp = cancel, not an error
+          args=(-g "$geom")
+        fi
+        file="$dir/rec-$(date +%F_%H-%M-%S).mp4"
+        notify-send -a "Запись экрана" "Идёт запись" "Нажмите то же сочетание, чтобы остановить"
+        exec wf-recorder "''${args[@]}" -f "$file"
+      '';
+    })
   ];
 
   # Requested live: ru+en layout with CapsLock as the switcher (real
@@ -293,6 +322,11 @@ hl.bind("SUPER + Print", hl.dsp.exec_cmd("grimblast copysave active"))
 -- globally, so it only affects this one bind and leaves the copysave
 -- binds above (which don't call `edit` at all) unaffected either way.
 hl.bind("SUPER + SHIFT + Print", hl.dsp.exec_cmd("GRIMBLAST_EDITOR=swappy grimblast edit area"))
+-- Screen recording (screenrec, see home.packages): press once to start,
+-- same keys again to stop; files in ~/Videos/Recordings. Region / whole
+-- screen. SUPER+R alone is DMS's togglesplit, these combos are free.
+hl.bind("SUPER + SHIFT + R", hl.dsp.exec_cmd("screenrec area"))
+hl.bind("SUPER + CTRL + R", hl.dsp.exec_cmd("screenrec screen"))
 -- Translate the current text selection via Crow Translate's D-Bus method
 -- (system-plan.md §5.11) -- Wayland has no global-shortcut API of its
 -- own, this D-Bus call is Crow Translate's documented integration point

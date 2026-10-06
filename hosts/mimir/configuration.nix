@@ -18,7 +18,7 @@
 # Rehearsed end to end in a VM with bin/mimir-install (docs/vm-check.md).
 # The earlier rehearsal host hosts/mimir-vm-full/ (removed 2026-10-06,
 # see git history) found the gaps noted inline below.
-{ lib, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 {
   imports = [
     ./disk-config.nix
@@ -45,6 +45,16 @@
   hardware.facter.reportPath = lib.mkIf (builtins.pathExists ./facter.json) ./facter.json;
   warnings = lib.optional (!builtins.pathExists ./facter.json)
     "hosts/mimir/facter.json is missing: run bin/mimir-install on the target machine (it generates the hardware report).";
+
+  # SPICE guest agent daemon, only when the facter report says this is a
+  # QEMU/KVM guest (the VM rehearsal, docs/vm-check.md) — never on the
+  # real laptop. Gives host<->VM clipboard and display hints. Limitation:
+  # the upstream agent only speaks the X11 clipboard; under Hyprland that
+  # means copying host→VM works, VM→host often doesn't (needs a Wayland
+  # fork of spice-vdagent, not in nixpkgs). The per-session spice-vdagent
+  # client is already installed (pulled in by virt-manager) and starts via
+  # its XDG autostart entry.
+  services.spice-vdagentd.enable = config.hardware.facter.detected.virtualisation.qemu.enable;
 
   # RubyMine can't be fetched before the Throne proxy is configured (HTTP
   # 451 from download.jetbrains.com, see desktop-apps.nix). After the first

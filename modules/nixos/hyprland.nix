@@ -54,7 +54,9 @@
     grim
     slurp
     wf-recorder
-    hyprpaper
+    # hyprpaper removed (2026-10-06): DMS draws the wallpaper itself and
+    # nothing here ever started hyprpaper -- same dead-weight story as
+    # cliphist below.
     # cliphist removed (2026-09-11): was dead weight even before this --
     # grepped the actual live modules/ code (not the pre-DMS planning
     # docs under docs/superpowers/plans|specs, which still show it), and

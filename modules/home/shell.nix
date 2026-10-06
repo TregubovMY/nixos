@@ -11,6 +11,18 @@
     autosuggestion.enable = true;
     syntaxHighlighting.enable = true;
     historySubstringSearch.enable = true;
+    # Ctrl+Left/Right = word jumps. Ghostty sends xterm-style
+    # "\e[1;5D"/"\e[1;5C"; zsh's emacs keymap has no binding for them, so
+    # the tail was typed literally (";5C", reported live). forward-word is
+    # also in zsh-autosuggestions' default ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS,
+    # so Ctrl+Right accepts the grey suggestion one word at a time — the
+    # behaviour asked for. "\e[5C"/"\e[5D" cover terminals that omit "1;".
+    initContent = ''
+      bindkey '^[[1;5C' forward-word
+      bindkey '^[[1;5D' backward-word
+      bindkey '^[[5C' forward-word
+      bindkey '^[[5D' backward-word
+    '';
     shellAliases = {
       ".." = "cd ..";
       "..." = "cd ../..";
