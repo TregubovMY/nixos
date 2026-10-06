@@ -22,18 +22,18 @@
       кэша, а с серверов Google) — выключить её так же, как RubyMine.
 - [ ] Проверить hibernate (swap в LUKS, `resumeDevice`).
 
-## kandev (`bin/kandev-sandbox`) — проверить на mimir
+## Одна песочница (kandev, dsh, Claude) — проверить на mimir
 
-Проверено только с docker вместо podman (README, «Доска агентов kandev»).
+Проверено в VM (README, «Одна песочница»): kandev и dsh web в одном
+контейнере через `autostart`, `socat` для dsh, доп. папки, `gh`.
 
-- [ ] `--userns=keep-id:uid=1000,gid=1000` на настоящем rootless podman:
-      файлы, созданные агентом, принадлежат `max`.
-- [ ] `/nix/store` только для чтения + mise хоста: Ruby, собранный mise
-      на NixOS, запускается внутри Debian-контейнера kandev.
-- [ ] Первый запуск по чек-листу README: `claude login`,
-      профиль Claude Code → **CLI passthrough**.
-- [ ] `openspec`/`lefthook`/`gitleaks` хоста видны в kandev через системный
-      профиль в PATH (`/run/current-system/sw` → `/nix/store`).
+- [ ] Конфиги `work`/`study`/`personal` (`~/.config/agent-sandbox/projects/`,
+      пример в README) со своими портами.
+- [ ] Первый запуск каждого: `claude login`, `npm i -g @deepseek-ai/dsh@0.2.0-rc.2`,
+      в kandev профиль Claude Code → **CLI passthrough**.
+- [ ] mise хоста в песочнице: `mise use -g node@22` на хосте → в песочнице
+      `node -v` без скачивания; Ruby, собранный mise на хосте, запускается
+      в песочнице.
 
 ## dsh в agent-sandbox
 

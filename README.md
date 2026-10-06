@@ -73,8 +73,8 @@ Podman-контейнер, в который смонтирована тольк
 
 Ничего отдельно собирать не нужно: `modules/nixos/agent-sandbox.nix`
 (подключён в `hosts/mimir`) кладёт корень песочницы в
-`/etc/agent-sandbox/rootfs` и ставит команды `agent-sandbox` и
-`kandev-sandbox` в PATH. Обновление — обычный `nixos-rebuild switch`.
+`/etc/agent-sandbox/rootfs` и ставит команду `agent-sandbox` в PATH.
+Обновление — обычный `nixos-rebuild switch`.
 
 **Как устроено (с 2026-10-06):** это не образ podman. Корень песочницы —
 крошечный каталог в `/nix/store` (`/etc/passwd`, `/bin/sh`, загрузчик
@@ -317,73 +317,76 @@ dsh                                # headless/CLI-режим — работае�
   Не проверено живьём (в среде разработки нет podman). Для агентного
   цикла без UI по-прежнему подходит headless-профиль (`dsh` без `web`).
 
-## Доска агентов kandev (`bin/kandev-sandbox`)
+## Одна песочница: агенты и доски (kandev, dsh)
 
-[kandev](https://github.com/kdlbs/kandev) — канбан с оркестрацией агентов:
-задачи, workflow с гейтами, plan mode, ревью диффа с комментариями
-(**Fix comments** отправляет их агенту пачкой). Запускается целиком в
-rootless podman-контейнере (официальный образ, версия закреплена в
-скрипте): и сам kandev, и все агенты, которых он запускает, работают
-внутри, на хосте — ничего.
+Все агенты и доски живут в **одной песочнице на конфиг** (`agent-sandbox
+up @имя`): Claude Code, OpenCode, kandev, dsh — просто программы в одном
+контейнере, с общим домашним каталогом (логины Claude/GitHub — одни на
+всех), общими проектами и инструментами. Сменить доску — значит запустить
+в той же песочнице другую программу. Отдельного контейнера для kandev
+больше нет (был `bin/kandev-sandbox` с официальным образом, удалён
+2026-10-06); kandev — пакет в инструментах песочницы
+(`modules/nixos/packages/kandev.nix`, 0.97.0).
+
+Удобно держать по конфигу на сферу — например работа, учёба, свои
+проекты: у каждой свой домашний каталог и логины, проекты одной не видны
+из другой, порты разные, чтобы все могли работать одновременно.
+
+```ini
+# ~/.config/agent-sandbox/projects/work.conf
+dir       = ~/code/work/main
+mount     = ~/code/work/other
+publish   = 38429:38429                                   # kandev
+autostart = kandev start --backend-port 38429
+publish   = 3080:3080                                     # dsh web
+autostart = dsh web --no-open --port 3081 --trusted-host 127.0.0.1:3080
+autostart = socat TCP-LISTEN:3080,fork,reuseaddr TCP:127.0.0.1:3081
+```
+`study.conf` и `personal.conf` — то же со своими папками и портами
+(например 38430/3090 и 38431/3100; во второй и третьей строке `autostart`
+порты меняются так же).
 
 ```bash
-bin/kandev-sandbox up ~/code/proj-a ~/code/proj-b   # (пере)запуск с этими папками
-bin/kandev-sandbox up        # то же, папки из ~/.config/kandev-sandbox/dirs (по одной на строку)
-# → http://127.0.0.1:38429 (только loopback: у API kandev нет авторизации)
-bin/kandev-sandbox shell     # внутри: claude login, gh auth login, npm i -g ...
-bin/kandev-sandbox logs -f | status | down
+agent-sandbox up @work            # контейнер + всё из autostart в фоне
+# kandev: http://127.0.0.1:38429
+agent-sandbox exec @work -- grep -o 'http://[^ ]*token=[^ ]*' /home/agent/.local-state/autostart.log
+#   ссылка dsh с токеном: заменить порт 3081 на 3080 и открыть
+agent-sandbox attach @work -- claude   # или просто терминал внутри
+agent-sandbox down @work
 ```
 
-- **Какие папки видят агенты** — только переданные в `up` (монтируются по
-  тем же путям, что на хосте, — IDE открывает те же пути) и volume
-  `kandev-data` (база, worktree, логины CLI в `/data/home`). `~` целиком и
-  `/` скрипт монтировать отказывается. Другой набор папок — снова `up`
-  (контейнер пересоздаётся, данные в volume сохраняются, идущие сессии
-  агентов прерываются).
-- **Рантаймы языков** — mise хоста, без повторной установки:
-  `~/.local/share/mise/installs` монтируется **только для чтения** по тому
-  же пути и подключается через `MISE_SHARED_INSTALL_DIRS`, плюс
-  `/nix/store` только для чтения (сам mise и собранный на NixOS Ruby
-  ссылаются на него). Версии, которых нет на хосте, mise ставит в volume.
-  Только для чтения — чтобы агент не мог подменить toolchain, который
-  потом выполнится на хосте. Новая версия, поставленная на хосте, видна
-  после следующего `up`.
-- **Что сохраняется**: всё, что хранит kandev — база, worktree, логины
-  claude/gh, `npm i -g`, версии mise — в volume `kandev-data`; `up`/`down`
-  только пересоздают контейнер. После перезагрузки машины — снова
-  `bin/kandev-sandbox up` (rootless-контейнеры сами не стартуют).
-- **Файлы, созданные агентом**, на хосте принадлежат вам: uid 1000 в
-  контейнере сопоставлен вашему пользователю (`--userns=keep-id:uid=1000`).
+- **`autostart`** — любые команды, `up` запускает их в фоне в том же
+  контейнере; вывод — `~/.local-state/autostart.log` внутри песочницы.
+- **dsh web через `socat`**: dsh (0.2.0-rc.2) отказывается слушать не
+  loopback («would expose remote code execution to the network»), а проброс
+  порта podman в loopback контейнера не попадает — dsh слушает
+  `127.0.0.1:3081`, `socat` выставляет его на 3080. Порт на хосте по-прежнему
+  только `127.0.0.1`.
+- **kandev** пишет при старте предупреждение «reachable on non-loopback
+  interfaces WITHOUT authentication» — внутри контейнера он слушает все
+  интерфейсы (иначе проброс не дойдёт), но на хосте порт опубликован только
+  на `127.0.0.1`.
 
-Проверено (2026-10-06, docker вместо podman, uid хоста = 1000): kandev
-0.97.0 стартует, база создаётся в volume; `node` из «хостовой» установки
-mise находится в проекте по `.tool-versions` через shims; запись в
-каталог установок хоста — `Read-only file system`; созданный агентом файл
-на хосте с uid 1000; `/home` внутри пуст; `up` с другим набором папок
-пересоздаёт контейнер с той же базой. **Не проверено на реальном
-podman** — keep-id с `uid=1000` и сам `/nix/store` (на машине разработки
-не NixOS).
+**Первый запуск конфига** (`agent-sandbox attach @work`, внутри):
+1. `claude login` — один раз на конфиг, им пользуются и терминал, и kandev,
+   и dsh.
+2. `npm install -g @deepseek-ai/dsh@0.2.0-rc.2` — dsh (общий volume на все
+   конфиги, ставится один раз); плагины — `.dsh/README.md` шаблона.
+3. `gh auth login` — если нужны PR из kandev.
+4. В kandev: **Settings → Agents** → профиль Claude Code → **CLI
+   passthrough**, не дефолтный `claude-acp` (Agent SDK; подписку через него
+   использовать нельзя, `system-plan.md` §9.7).
 
-### Первый запуск — чек-лист
+**Пакеты не дублируются:** языки mise хоста видны в песочнице только для
+чтения (`MISE_SHARED_INSTALL_DIRS`), зависимости проектов лежат в самих
+проектах (`node_modules`, `.venv`, гемы — `vendor/bundle` через
+`BUNDLE_PATH` и на хосте, и в песочнице).
 
-1. `bin/kandev-sandbox shell`, затем внутри:
-   - `npm i -g @anthropic-ai/claude-code` (если kandev сам не поставил) и
-     `claude login` — логин сохранится в volume;
-   - `openspec`, `lefthook`, `gitleaks` ставить не нужно: на NixOS-хосте
-     они в системном профиле (`desktop-apps.nix`), и `kandev-sandbox`
-     добавляет его `bin/` в конец PATH контейнера (`/nix/store` и так
-     смонтирован только для чтения);
-   - `gh auth login` — если нужны PR из kandev.
-2. В UI: **Settings → Agents** → профиль Claude Code переключить на
-   **CLI passthrough**, не дефолтный `claude-acp`. `claude-acp` работает
-   через Agent SDK, а OAuth подписки Anthropic разрешает только для самого
-   Claude Code (страница Legal and Compliance; см. `system-plan.md` §9.7).
-   Это настройка в базе kandev, из Nix её не задать.
-3. Добавить репозитории — пути из тех папок, что переданы в `up`.
-
-Обновление: поднять `IMAGE` в `bin/kandev-sandbox` после чтения
-[releases](https://github.com/kdlbs/kandev/releases) (проект до 1.0,
-релизы еженедельно), затем `up` с теми же папками.
+Проверено в VM mimir (2026-10-06): kandev через `autostart` (HTTP 200 на
+`127.0.0.1:38429`) и dsh web через `socat` (по ссылке с токеном пускает)
+одновременно в одной песочнице; доп. папка из `mount` видна; `gh`,
+`socat`, `BUNDLE_PATH` на месте. Подключение mise хоста проверено тестами
+обёртки (в VM на хосте mise ещё ничего не ставил).
 
 ## Postgres/Redis для локальной разработки
 

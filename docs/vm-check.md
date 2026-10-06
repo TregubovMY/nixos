@@ -128,38 +128,24 @@ sudo reboot
 - [ ] `systemctl hibernate` → VM выключилась → запустить снова → пароль
       LUKS → вернулась сессия с открытыми окнами.
 
-## 6. Песочницы агентов
+## 6. Песочница агентов
 
 Корень песочницы ставится вместе с системой (`/etc/agent-sandbox/rootfs`),
-команды `agent-sandbox`/`kandev-sandbox` уже в PATH — собирать ничего не нужно:
+команда `agent-sandbox` уже в PATH — собирать ничего не нужно:
 
 ```bash
 mkdir -p ~/code/test && cd ~/code/test && git init -q && echo 'node 22' > .tool-versions
 ```
 
-agent-sandbox:
-
-- [ ] `agent-sandbox up ~/code/test` →
-      `agent-sandbox attach ~/code/test` → внутри `touch /workspace/x; echo 'hi' > ~/keep; node -v`.
+- [ ] `agent-sandbox up ~/code/test` → `agent-sandbox attach ~/code/test` →
+      внутри `touch /workspace/x; echo 'hi' > ~/keep; node -v`.
 - [ ] На хосте `ls -l ~/code/test/x` — владелец `max`.
-- [ ] `agent-sandbox down ~/code/test`, снова `up` + `attach` → `cat ~/keep` → `hi`
-      (домашний каталог песочницы сохранился).
-- [ ] `which openspec lefthook gitleaks` внутри — всё находится.
-
-kandev:
-
-- [ ] `mise use -g node@22` на хосте (чтобы было что «расшарить»).
-- [ ] `kandev-sandbox up ~/code/test` → открыть
-      http://127.0.0.1:38429 в браузере VM.
-- [ ] `podman exec -w ~/code/test kandev sh -c 'id; node -v; touch y; which openspec lefthook gitleaks'`
-      → `uid=1000(kandev)`, версия node с хоста, все три утилиты найдены.
-- [ ] `ls -l ~/code/test/y` — владелец `max`.
-- [ ] `podman exec kandev touch ~/.local/share/mise/installs/z` → **Read-only file system**.
-- [ ] Ruby (самое рискованное): `mise use ruby@3.3` в `~/code/test` на хосте
-      (собирается из исходников, ~5 мин), затем
-      `podman exec -w ~/code/test kandev ruby -v` → работает. Если не
-      собирается уже на хосте (NixOS без заголовков openssl/libyaml) —
-      пришлите ошибку: это отдельная задача, не про kandev.
+- [ ] `agent-sandbox down ~/code/test`, снова `up` + `attach` → `cat ~/keep` → `hi`.
+- [ ] Доски в той же песочнице: конфиг `work.conf` из README («Одна
+      песочница») → `agent-sandbox up @work` → http://127.0.0.1:38429
+      (kandev) и ссылка dsh с токеном (README).
+- [ ] mise хоста: `mise use -g node@22` на хосте → в песочнице `node -v`
+      без скачивания.
 
 ## Что VM проверить не может — смотреть на самом устройстве
 
