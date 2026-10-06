@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Temporarily let the coding agent into the mimir VM rehearsal over SSH,
+# with one short command typed in the VM (docs/vm-check.md):
+#
+#   cd ~/code/nixos && git pull && bin/vm-ssh-on
+#
+# - Refuses to run anywhere but a QEMU/KVM guest: this must never open SSH
+#   on the real laptop.
+# - Key-only login for user max with the throwaway public key below (its
+#   private half exists only in the agent's session scratchpad).
+# - `nixos-rebuild test`, not `switch`: active now, NOT added to the boot
+#   menu, so a reboot removes SSH again. The config edit needed for the
+#   build is reverted right after, the working tree stays clean.
+set -euo pipefail
+
+KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDMaTtpdI8VBKMt5RfqSTt5oa9yh/dM6Ks6trpc17jwb claude-vm-check'
+CONF=hosts/mimir/configuration.nix
+
+case "$(systemd-detect-virt 2>/dev/null || true)" in
+  kvm|qemu) ;;
+  *) echo "vm-ssh-on: not a QEMU/KVM guest -- refusing (never on real hardware)" >&2; exit 1 ;;
+esac
+[ -f "$CONF" ] || { echo "vm-ssh-on: run from the nixos repo root" >&2; exit 1; }
+
+cp "$CONF" "$CONF.vm-ssh-backup"
+trap 'mv -f "$CONF.vm-ssh-backup" "$CONF"' EXIT
+sed -i "s|^  system.stateVersion|  services.openssh.enable = true;\n  services.openssh.settings.PasswordAuthentication = false;\n  users.users.max.openssh.authorizedKeys.keys = [ \"$KEY\" ];\n  system.stateVersion|" "$CONF"
+
+sudo nixos-rebuild test --flake .#mimir
+echo
+echo "SSH is on until the next reboot. VM address(es):"
+ip -4 -brief addr show scope global | awk '{print "  " $3}'
