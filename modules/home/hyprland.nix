@@ -81,10 +81,28 @@
   };
 
   # Requested live: a real cursor theme instead of the default GTK
-  # fallback ("уродски"). Just the package -- selecting it is a DMS
-  # Settings → Cursor action (writes ~/.config/hypr/dms/cursor.lua
-  # itself, not Nix-managed, same boundary as the rest of ~/.config/hypr/
-  # this module already draws).
+  # fallback ("уродски"), and (2026-10-06) applied automatically instead
+  # of via DMS Settings → Cursor. Two halves:
+  # - home.pointerCursor with only dotIcons (its default): writes
+  #   ~/.icons/default/index.theme inheriting Bibata, the XCursor
+  #   fallback every toolkit and XWayland app reads, plus XCURSOR_* in the
+  #   session vars. gtk.enable stays OFF on purpose: it would make
+  #   ~/.config/gtk-3.0/settings.ini a read-only Nix symlink, and DMS
+  #   writes that file itself (quickshell/Services/IconThemeService.qml).
+  #   hyprcursor/sway/x11 parts need modules this repo doesn't use.
+  # - Hyprland's own cursor: the NIXOS-MANAGED CURSOR block appended to
+  #   hyprland.lua below, mirroring what DMS's cursor settings would
+  #   write to dms/cursor.lua (hl.env + `hyprctl setcursor`, DMS
+  #   quickshell/Services/HyprlandService.qml). Appended after DMS's own
+  #   includes, so it wins over a theme picked in DMS Settings.
+  # Bibata ships XCursor themes (no hyprcursor format); Hyprland falls
+  # back to XCursor when HYPRCURSOR_THEME isn't a hyprcursor theme.
+  home.pointerCursor = {
+    package = pkgs.bibata-cursors;
+    name = "Bibata-Modern-Classic";
+    size = 24;
+    gtk.enable = false;
+  };
   # grimblast (hyprwm/contrib, packaged in nixpkgs) -- DMS's own
   # screenshot IPC target (`dms ipc call niri screenshot*`) is niri-only
   # per DMS's own IPC docs, doesn't work under Hyprland. grimblast is
@@ -194,6 +212,7 @@
       ${pkgs.gnused}/bin/sed -i \
         -e '/-- NIXOS-MANAGED INPUT BLOCK START/,/-- NIXOS-MANAGED INPUT BLOCK END/d' \
         -e '/-- NIXOS-MANAGED AUTOSTART BLOCK START/,/-- NIXOS-MANAGED AUTOSTART BLOCK END/d' \
+        -e '/-- NIXOS-MANAGED CURSOR BLOCK START/,/-- NIXOS-MANAGED CURSOR BLOCK END/d' \
         "$HYPR_CONF"
       cat >> "$HYPR_CONF" <<'HYPRLUA'
 
@@ -232,6 +251,20 @@ hl.on("hyprland.start", function()
   hl.exec_cmd("crow-translate")
 end)
 -- NIXOS-MANAGED AUTOSTART BLOCK END
+
+-- NIXOS-MANAGED CURSOR BLOCK START -- managed by home-manager activation
+-- (modules/home/hyprland.nix, see home.pointerCursor there); don't edit
+-- between START/END by hand. Same lines DMS's Settings → Cursor writes
+-- to dms/cursor.lua; env for apps started from Hyprland, setcursor for
+-- Hyprland's own pointer right after start.
+hl.env("XCURSOR_THEME", "${config.home.pointerCursor.name}")
+hl.env("XCURSOR_SIZE", "${toString config.home.pointerCursor.size}")
+hl.env("HYPRCURSOR_THEME", "${config.home.pointerCursor.name}")
+hl.env("HYPRCURSOR_SIZE", "${toString config.home.pointerCursor.size}")
+hl.on("hyprland.start", function()
+  hl.exec_cmd("hyprctl setcursor ${config.home.pointerCursor.name} ${toString config.home.pointerCursor.size}")
+end)
+-- NIXOS-MANAGED CURSOR BLOCK END
 HYPRLUA
     fi
 
