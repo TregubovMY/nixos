@@ -84,6 +84,7 @@ expect log_has --rm
 expect log_seq -v "$project:/workspace"
 expect log_seq -v "agent-creds-$hash:/home/agent/.sandbox-creds"
 expect log_seq -v "agent-local-bin:/home/agent/.local/bin"
+expect log_seq -v "agent-home-$hash:/home/agent"
 expect log_seq agent-sandbox:latest echo
 expect log_lacks --
 expect log_has -i
@@ -247,20 +248,17 @@ dir      = $project
 mount    = $extra_rw     # trailing comment
 mount_ro = $extra_ro
 publish  = 3080:3080
-proxy    = http://10.0.2.2:2080
 env      = RAILS_ENV=development
 EOF
 
-t "config: main dir, extra mounts, proxy, env, publish, name-keyed volumes"
+t "config: main dir, extra mounts, env, publish, name-keyed volumes"
 rc=$(run bash "$script" up @shop)
 expect_rc "$rc" 0
 expect log_seq -v "$project:/workspace"
 expect log_seq -v "$extra_rw:$extra_rw"
 expect log_seq -v "$extra_ro:$extra_ro:ro"
 expect log_seq -e "AGENT_EXTRA_TRUSTED=$extra_rw:$extra_ro"
-expect log_seq -e HTTPS_PROXY=http://10.0.2.2:2080
-expect log_seq -e https_proxy=http://10.0.2.2:2080
-expect log_seq -e NO_PROXY=localhost,127.0.0.1
+expect log_seq -v "agent-home-cfg-shop:/home/agent"
 expect log_seq -e RAILS_ENV=development
 expect log_seq -p 127.0.0.1:3080:3080
 expect log_seq --name agent-sandbox-cfg-shop

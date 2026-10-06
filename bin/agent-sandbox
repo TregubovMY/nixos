@@ -24,7 +24,7 @@ usage_text="Usage:
   agent-sandbox status [<project-dir>]                    list running project containers
 
 <project-dir> can be @name: settings from ~/.config/agent-sandbox/projects/<name>.conf
-(main dir, extra dirs, proxy, env, ports) — see the comment in this script.
+(main dir, extra dirs, env, ports) — see the comment in this script.
 
 Options (one-shot and up):
   --gui                   Wayland + GPU passthrough (see agent-sandbox-gui.sh)
@@ -155,7 +155,6 @@ shift
 #   mount    = ~/code/shop-frontend     extra dir, read-write, same path inside (repeatable)
 #   mount_ro = ~/code/shared-lib        extra dir, read-only, same path inside (repeatable)
 #   publish  = 3080:3080                like --publish, 127.0.0.1 only (repeatable)
-#   proxy    = http://host:port         HTTP(S)_PROXY for everything in the container
 #   env      = RAILS_ENV=development    literal variable (repeatable; NOT for secrets)
 #
 # Why outside the project and not a dotfile in it: the project dir is
@@ -171,7 +170,6 @@ cfg_name=""
 cfg_mounts=()
 cfg_mounts_ro=()
 cfg_env=()
-cfg_proxy=""
 
 cfg_path() { # expand a leading ~ and resolve to a physical dir, or die
   local p="$1"
@@ -228,7 +226,6 @@ case "$project_dir" in
           # attach/exec/down reuse what `up` set (see the mode checks above).
           case "$mode" in run | up) publish+=("$val") ;; esac
           ;;
-        proxy) cfg_proxy="$val" ;;
         env)
           case "$val" in
             [A-Za-z_]*=*) cfg_env+=("$val") ;;
@@ -475,6 +472,17 @@ fi
 args+=(
   --userns=keep-id
   -v "$project_dir:/workspace"
+  # Per-project persistent HOME. Containers are --rm, so without this
+  # everything an agent or you put in ~ outside the volumes below (shell
+  # history, ~/.gitconfig, ~/.dsh with dsh plugins/sessions, tool configs)
+  # was gone after every down/up. The shared volumes below are mounted on
+  # top of it at their subpaths (podman mounts parents first), so they
+  # stay shared between projects as before. Per project, not shared, for
+  # the same blast-radius reason as agent-creds below. The image's own
+  # /home/agent is empty (chmod 777, see agent-sandbox.nix extraCommands),
+  # so the volume never freezes stale image content; the entrypoint
+  # re-creates its symlinks idempotently on every start.
+  -v "agent-home-$project_hash:/home/agent"
   -v "agent-mise:/home/agent/.local/share/mise"
   # Shared across projects, same as agent-mise above and for the same
   # reason (system-plan.md §9.6): `uv tool install "notebooklm-py[browser]"`
@@ -527,16 +535,7 @@ fi
 for e in ${cfg_env[@]+"${cfg_env[@]}"}; do
   args+=(-e "$e")
 done
-# Both spellings: curl/git read the lower-case ones, many Node/Go tools
-# the upper-case ones. NO_PROXY keeps published web UIs and local test
-# servers off the proxy. The URL (and any credentials in it) is visible to
-# the agent — a proxy needing a password is a secret like any other.
-if [ -n "$cfg_proxy" ]; then
-  for v in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy; do
-    args+=(-e "$v=$cfg_proxy")
-  done
-  args+=(-e NO_PROXY=localhost,127.0.0.1 -e no_proxy=localhost,127.0.0.1)
-fi
+
 [ -z "$container_workdir" ] || args+=(-e "AGENT_WORKDIR=$container_workdir")
 
 if [ "$gui" = 1 ]; then

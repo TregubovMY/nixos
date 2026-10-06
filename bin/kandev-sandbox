@@ -5,8 +5,19 @@
 # never on the host (system-plan.md §9.7: no LLM on the host).
 #
 #   kandev-sandbox up ~/code/proj-a ~/code/proj-b   # (re)start with these dirs
+#   kandev-sandbox up                               # ...or with the dirs listed in the config
 #   kandev-sandbox shell                            # claude login, gh auth login, npm i -g ...
 #   kandev-sandbox logs [-f] | status | down
+#
+# Config: ~/.config/kandev-sandbox/dirs -- one project directory per line
+# (`~` allowed, `#` comments). Used by a bare `up`, so the set of projects
+# lives in one file instead of a long command line. Outside every mounted
+# dir on purpose: an agent must not be able to add directories to it.
+#
+# What survives restarts: everything kandev keeps is in the kandev-data
+# volume (DB, worktrees, claude/gh logins, npm -g installs, mise installs);
+# `up`/`down` only recreate the container. After a host reboot run `up`
+# again -- rootless containers don't start by themselves.
 #
 # Why the official image and not a host service (the earlier
 # feature/kandev-module WIP ran the kandev binary as a systemd service): as
@@ -43,7 +54,7 @@ PORT="${KANDEV_PORT:-38429}"
 
 die() { echo "kandev-sandbox: $*" >&2; exit 1; }
 usage() {
-  sed -n '7,10p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '7,11p' "$0" | sed 's/^# \{0,1\}//' >&2
   exit "${1:-1}"
 }
 
@@ -70,7 +81,20 @@ case "$cmd" in
 esac
 
 # ---- up -------------------------------------------------------------------
-[ "$#" -gt 0 ] || die "up needs at least one project directory"
+if [ "$#" -eq 0 ]; then
+  conf="${XDG_CONFIG_HOME:-$HOME/.config}/kandev-sandbox/dirs"
+  [ -f "$conf" ] || die "no directories given and no $conf (one project dir per line)"
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [ -n "$line" ] || continue
+    case "$line" in "~") line="$HOME" ;; "~/"*) line="$HOME/${line#"~/"}" ;; esac
+    set -- "$@" "$line"
+  done <"$conf"
+  [ "$#" -gt 0 ] || die "$conf lists no directories"
+  conf_real="$(cd "$(dirname "$conf")" && pwd -P)/dirs"
+fi
 
 args=(
   podman run -d --name "$NAME"
@@ -99,6 +123,9 @@ for dir in "$@"; do
   fi
   args+=(-v "$real:$real")
   trusted+=("$real")
+  case "${conf_real:-}" in
+    "$real"/*) die "$conf lies inside mounted dir $real -- an agent could rewrite it; move it out" ;;
+  esac
 done
 
 # ---- mise: reuse the host's toolchains instead of installing them twice --
