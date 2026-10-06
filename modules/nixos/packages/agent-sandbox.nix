@@ -253,8 +253,8 @@ let
     # bin/agent-sandbox mounts a passwd/group with this user read-only, so
     # this append is only a fallback (other launchers) and must not abort
     # the entrypoint when /etc is not writable.
-    if ! getent passwd "$(id -u)" > /dev/null 2>&1; then
-      echo "agent:x:$(id -u):$(id -g)::/home/agent:${pkgs.bashInteractive}/bin/bash" >> /etc/passwd 2>/dev/null || true
+    if ! id -un > /dev/null 2>&1; then
+      { echo "agent:x:$(id -u):$(id -g)::/home/agent:${pkgs.bashInteractive}/bin/bash" >> /etc/passwd; } 2>/dev/null || true
     fi
 
     export HOME=/home/agent
