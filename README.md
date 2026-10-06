@@ -455,8 +455,7 @@ nix build .#nixosConfigurations.test-desktop-apps.config.system.build.toplevel -
 - `yt-dlp` — там же, есть в nixpkgs напрямую.
 - `uv` и `playwright-driver.browsers` — отдельный модуль
   `modules/nixos/notebooklm-tooling.nix`, подключён в `hosts/mimir/` и
-  `hosts/mimir-vm-full/`. Модуль выделен отдельно от `desktop-apps.nix`,- `uv` и `playwright-driver.browsers` — отдельный модуль
-
+  `hosts/mimir-vm-full/`. Модуль выделен отдельно от `desktop-apps.nix`,
   потому что это не просто пакеты, а пакет + системные
   `environment.variables`, обвязывающие один конкретный воркэраунд:
   Playwright (тянется `notebooklm-py`) по умолчанию скачивает Chromium
