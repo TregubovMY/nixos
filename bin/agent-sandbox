@@ -583,19 +583,6 @@ fi
 #   Shared by all sandboxes of this user; same content every run;
 # - /agent-entrypoint is called explicitly: a rootfs has no image config.
 resolve_rootfs
-# Pre-create ~/.local/share (and the state dir) in the home volume as the
-# user. The shared volumes mounted below ~/.local (mise, uv, npm-global,
-# bin) make podman create ~/.local and ~/.local/share itself -- not owned
-# by the user -- so every tool that writes ~/.local/share/<name> failed
-# with EACCES (opencode, found in the VM, 2026-10-06). The volume
-# directory is the user's on the host, so creating the directories from
-# here gives them the right owner inside the container too (keep-id).
-home_vol="agent-home-$project_hash"
-podman volume exists "$home_vol" >/dev/null 2>&1 || podman volume create -q "$home_vol" >/dev/null
-home_mp="$(podman volume inspect -f '{{.Mountpoint}}' "$home_vol" 2>/dev/null || true)"
-if [ -n "$home_mp" ] && [ -d "$home_mp" ]; then
-  mkdir -p "$home_mp/.local/share" "$home_mp/.local-state" 2>/dev/null || true
-fi
 ids_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agent-sandbox"
 mkdir -p "$ids_dir"
 printf 'root:x:0:0:root:/root:/bin/sh\nagent:x:%s:%s:agent:/home/agent:/bin/bash\n' \
