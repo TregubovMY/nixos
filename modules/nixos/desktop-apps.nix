@@ -45,6 +45,15 @@
       # separate, see modules/nixos/packages/agent-sandbox.nix and README.md.
       claude-code
       opencode
+      # Project-template tooling (llm-dev-template): OpenSpec CLI, and
+      # lefthook + gitleaks for its pre-commit hooks -- so human commits on
+      # the host pass the same guards as agent commits. bin/kandev-sandbox
+      # also puts this system profile's bin/ at the end of PATH inside the
+      # kandev container (read-only /nix/store), so these same binaries are
+      # what kandev's agents use; no second copy there.
+      openspec
+      lefthook
+      gitleaks
 
       # §5.6 Коммуникация / браузер
       telegram-desktop

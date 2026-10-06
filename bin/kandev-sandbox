@@ -119,8 +119,19 @@ mise_env=()
 if host_mise="$(command -v mise 2>/dev/null)"; then
   host_mise="$(readlink -f "$host_mise")"
   installs="${MISE_DATA_DIR:-$HOME/.local/share/mise}/installs"
+  host_sw_bin=""
   case "$host_mise" in
-    /nix/store/*) args+=(-v /nix/store:/nix/store:ro) ;;
+    /nix/store/*)
+      args+=(-v /nix/store:/nix/store:ro)
+      # NixOS host: its system profile is a store path too, so with the
+      # store mounted its bin/ works as-is inside the container. Appended
+      # LAST in PATH (image tools win): gives kandev's agents the host's
+      # openspec/lefthook/gitleaks (desktop-apps.nix) without installing
+      # them a second time in the container.
+      if [ -d /run/current-system/sw/bin ]; then
+        host_sw_bin=":$(readlink -f /run/current-system/sw)/bin"
+      fi
+      ;;
     *) args+=(-v "$host_mise:/usr/local/bin/mise:ro"); host_mise=/usr/local/bin/mise ;;
   esac
   if [ -d "$installs" ]; then
@@ -139,7 +150,7 @@ if host_mise="$(command -v mise 2>/dev/null)"; then
     -e "MISE_TRUSTED_CONFIG_PATHS=$trusted_paths"
     -e MISE_YES=1
     # Image PATH (upstream Dockerfile) + mise shims first + mise itself.
-    -e "PATH=/data/mise/shims:$(dirname "$host_mise"):/data/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    -e "PATH=/data/mise/shims:$(dirname "$host_mise"):/data/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin$host_sw_bin"
   )
   # Regenerate shims on every start, so versions installed on the host
   # since the last `up` are picked up; then hand over to upstream's

@@ -184,7 +184,7 @@ bin/agent-sandbox down @shop
 
 ```bash
 bin/agent-sandbox attach ~/code/myproject
-npm install -g @fission-ai/openspec    # OpenSpec (volume agent-npm-global)
+# openspec и lefthook уже в образе (nixpkgs), ставить не нужно
 npm install -g @deepseek-ai/dsh        # DeepSeek Harness, см. ниже
 # одиночные бинарники из GitHub releases — в ~/.local/bin
 # (volume agent-local-bin, в PATH).
@@ -356,7 +356,10 @@ podman** — keep-id с `uid=1000` и сам `/nix/store` (на машине р�
 1. `bin/kandev-sandbox shell`, затем внутри:
    - `npm i -g @anthropic-ai/claude-code` (если kandev сам не поставил) и
      `claude login` — логин сохранится в volume;
-   - `npm i -g @fission-ai/openspec` — OpenSpec для спек;
+   - `openspec`, `lefthook`, `gitleaks` ставить не нужно: на NixOS-хосте
+     они в системном профиле (`desktop-apps.nix`), и `kandev-sandbox`
+     добавляет его `bin/` в конец PATH контейнера (`/nix/store` и так
+     смонтирован только для чтения);
    - `gh auth login` — если нужны PR из kandev.
 2. В UI: **Settings → Agents** → профиль Claude Code переключить на
    **CLI passthrough**, не дефолтный `claude-acp`. `claude-acp` работает

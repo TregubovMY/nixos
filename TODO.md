@@ -27,7 +27,9 @@
 - [ ] `/nix/store` только для чтения + mise хоста: Ruby, собранный mise
       на NixOS, запускается внутри Debian-контейнера kandev.
 - [ ] Первый запуск по чек-листу README: `claude login`,
-      `npm i -g @fission-ai/openspec`, профиль Claude Code → **CLI passthrough**.
+      профиль Claude Code → **CLI passthrough**.
+- [ ] `openspec`/`lefthook`/`gitleaks` хоста видны в kandev через системный
+      профиль в PATH (`/run/current-system/sw` → `/nix/store`).
 
 ## dsh в agent-sandbox
 
@@ -35,7 +37,6 @@
       версию; `dsh-file-review` на 0.2.1 уже не работает).
 - [ ] `DSH_HOME` — на per-project volume (`agent-creds-<hash>`), как логины
       Claude: сессии одного проекта не видны из другого.
-- [ ] `openspec` в образ из nixpkgs (1.7.0 есть).
 - [ ] Команда для Web UI: `agent-sandbox up --publish 3080:3080 <dir>` +
       `dsh web --host 0.0.0.0` внутри (порт на хосте — только 127.0.0.1).
 - [ ] Файл со списком плагинов + установка одной командой

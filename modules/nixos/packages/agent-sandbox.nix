@@ -363,6 +363,13 @@ pkgs.dockerTools.buildLayeredImage {
     jq
     glab
     tmux
+    # Project-template tooling (llm-dev-template): OpenSpec CLI for specs
+    # (`openspec init/validate/archive`) and lefthook, which runs the
+    # template's pre-commit guards (gitleaks, review markers, commitlint).
+    # From nixpkgs instead of `npm install -g` / `npx`: pinned with the
+    # rest of the image and no download on first commit.
+    openspec
+    lefthook
 
     # Language servers for Claude Code's built-in LSP tool (official
     # `gopls-lsp` / `typescript-lsp` plugins from claude-plugins-official)
