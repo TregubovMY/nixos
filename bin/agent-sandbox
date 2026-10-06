@@ -572,17 +572,24 @@ fi
 # - /nix/store read-only: every tool and every symlink in the rootfs
 #   points into it -- the host's own store, shared, not copied;
 # - /tmp as tmpfs (the rootfs is read-only);
-# - --passwd-entry: podman adds the keep-id user to /etc/passwd itself
-#   (getpwuid() must work for git/ssh/mise); HOME comes from it;
+# - /etc/passwd and /etc/group generated here and mounted read-only:
+#   getpwuid() must work for git/ssh/mise. Letting podman append the
+#   keep-id user (--passwd-entry) fails: the rootfs files belong to the
+#   host's root, which is unmapped in a rootless user namespace, so even
+#   the overlay copy-up is denied (first run in the VM, 2026-10-06).
+#   Shared by all sandboxes of this user; same content every run;
 # - /agent-entrypoint is called explicitly: a rootfs has no image config.
 resolve_rootfs
-# $UID/$GID in --passwd-entry are podman's own template variables, hence
-# single quotes.
-# shellcheck disable=SC2016
+ids_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agent-sandbox"
+mkdir -p "$ids_dir"
+printf 'root:x:0:0:root:/root:/bin/sh\nagent:x:%s:%s:agent:/home/agent:/bin/bash\n' \
+  "$(id -u)" "$(id -g)" > "$ids_dir/passwd"
+printf 'root:x:0:\nagent:x:%s:\nnogroup:x:65534:\n' "$(id -g)" > "$ids_dir/group"
 args+=(
   -v /nix/store:/nix/store:ro
+  -v "$ids_dir/passwd:/etc/passwd:ro"
+  -v "$ids_dir/group:/etc/group:ro"
   --tmpfs /tmp:rw,mode=1777
-  --passwd-entry 'agent:*:$UID:$GID::/home/agent:/bin/bash'
   -w /workspace
   --rootfs "$rootfs:O"
 )

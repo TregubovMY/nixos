@@ -65,7 +65,7 @@ bad() { fail=$((fail + 1)); echo "FAIL [$current]: $*" >&2; }
 # stdin from /dev/null so the TTY branch is deterministic (never a TTY).
 run() {
   local rc=0
-  env -i PATH="$PATH" HOME="$tmp" FAKE_PODMAN_LOG="$FAKE_PODMAN_LOG" AGENT_SANDBOX_ROOTFS="$rootfs" \
+  env -i PATH="$PATH" HOME="$tmp" TMPDIR="$tmp" FAKE_PODMAN_LOG="$FAKE_PODMAN_LOG" AGENT_SANDBOX_ROOTFS="$rootfs" \
     FAKE_PODMAN_EXIT="${FAKE_PODMAN_EXIT:-0}" FAKE_RUNNING="${FAKE_RUNNING:-false}" \
     "$@" </dev/null >"$tmp/out" 2>"$tmp/err" || rc=$?
   echo "$rc"
@@ -98,7 +98,8 @@ expect log_seq "$rootfs_real:O" /agent-entrypoint
 expect log_seq /agent-entrypoint echo
 expect log_seq -v /nix/store:/nix/store:ro
 expect log_seq --tmpfs /tmp:rw,mode=1777
-expect log_has --passwd-entry
+expect log_seq -v "$tmp/agent-sandbox/passwd:/etc/passwd:ro"
+expect log_seq -v "$tmp/agent-sandbox/group:/etc/group:ro"
 expect log_lacks --
 expect log_has -i
 expect log_lacks -it
