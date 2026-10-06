@@ -310,15 +310,22 @@
     fi
   '';
 
+  # Files are rebuilt next to the original and swapped in with one atomic
+  # `mv`, then any running Hyprland is told to reload. Editing in place
+  # (sed -i, then append) was racy: Hyprland watches its config and once
+  # reloaded in between the two writes, i.e. without the INPUT block, and
+  # missed the second change -- layout/CapsLock switching silently reset to
+  # defaults until the next reload (found live in the VM, 2026-10-06).
   home.activation.dmsHyprlandExtras = lib.hm.dag.entryAfter [ "dmsBootstrap" ] ''
     HYPR_CONF="$HOME/.config/hypr/hyprland.lua"
     if [ -f "$HYPR_CONF" ]; then
-      ${pkgs.gnused}/bin/sed -i \
+      TMP="$(mktemp "$HYPR_CONF.XXXXXX")"
+      ${pkgs.gnused}/bin/sed \
         -e '/-- NIXOS-MANAGED INPUT BLOCK START/,/-- NIXOS-MANAGED INPUT BLOCK END/d' \
         -e '/-- NIXOS-MANAGED AUTOSTART BLOCK START/,/-- NIXOS-MANAGED AUTOSTART BLOCK END/d' \
         -e '/-- NIXOS-MANAGED CURSOR BLOCK START/,/-- NIXOS-MANAGED CURSOR BLOCK END/d' \
-        "$HYPR_CONF"
-      cat >> "$HYPR_CONF" <<'HYPRLUA'
+        "$HYPR_CONF" > "$TMP"
+      cat >> "$TMP" <<'HYPRLUA'
 
 -- NIXOS-MANAGED INPUT BLOCK START -- managed by home-manager activation
 -- (modules/home/hyprland.nix), not hand-edited; re-synced on every
@@ -394,12 +401,14 @@ hl.on("hyprland.start", function()
 end)
 -- NIXOS-MANAGED CURSOR BLOCK END
 HYPRLUA
+      mv -f "$TMP" "$HYPR_CONF"
     fi
 
     BINDS_USER="$HOME/.config/hypr/dms/binds-user.lua"
     if [ -f "$BINDS_USER" ]; then
-      ${pkgs.gnused}/bin/sed -i '/-- NIXOS-MANAGED BINDS START/,/-- NIXOS-MANAGED BINDS END/d' "$BINDS_USER"
-      cat >> "$BINDS_USER" <<'HYPRLUA'
+      TMP="$(mktemp "$BINDS_USER.XXXXXX")"
+      ${pkgs.gnused}/bin/sed '/-- NIXOS-MANAGED BINDS START/,/-- NIXOS-MANAGED BINDS END/d' "$BINDS_USER" > "$TMP"
+      cat >> "$TMP" <<'HYPRLUA'
 
 -- NIXOS-MANAGED BINDS START -- managed by home-manager activation
 -- (modules/home/hyprland.nix), not hand-edited; re-synced on every
@@ -433,6 +442,15 @@ hl.bind("SUPER + CTRL + R", hl.dsp.exec_cmd("screenrec screen"))
 hl.bind("SUPER + ALT + T", hl.dsp.exec_cmd("translate-selection"))
 -- NIXOS-MANAGED BINDS END
 HYPRLUA
+      mv -f "$TMP" "$BINDS_USER"
     fi
+
+    # Explicit reload of every running Hyprland of this user, after both
+    # files are in place (no-op at boot, when none is running yet).
+    for inst in "''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/hypr/*/; do
+      [ -S "$inst.socket.sock" ] || continue
+      HYPRLAND_INSTANCE_SIGNATURE="$(basename "$inst")" \
+        ${pkgs.hyprland}/bin/hyprctl reload >/dev/null 2>&1 || true
+    done
   '';
 }
