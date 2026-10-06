@@ -859,6 +859,38 @@ Dialect 2.6.1 сломан («Failed parsing HTML from yandex.com», Яндек�
 2026-10-06, т.к. Crow 4.x убрал D-Bus API, переименовал бинарник в `crow` и
 открывает окно только пустым — история в `system-plan.md` §5.11 и в git.
 
+## Живые обои (Wallpaper Engine) и видео на экране блокировки
+
+Wallpaper Engine куплен в Steam, но Steam-клиент не ставится: файлы
+скачиваются один раз **SteamCMD** (официальный консольный Steam Valve, без
+интерфейса и фоновых процессов), отрисовывает `linux-wallpaperengine`
+(в системе, `modules/home/hyprland.nix`).
+
+```bash
+NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#steamcmd
+# сама программа -- нужна её папка assets (только в Windows-сборке):
+steamcmd +@sSteamCmdForcePlatformType windows \
+  +force_install_dir ~/.local/share/wallpaper-engine \
+  +login <логин_steam> +app_update 431960 validate +quit
+# обои: ID из ссылки мастерской (…/filedetails/?id=1234567890):
+steamcmd +login <логин_steam> +workshop_download_item 431960 1234567890 +quit
+#   → ~/.local/share/Steam/steamapps/workshop/content/431960/<id>/
+```
+
+- **Рабочий стол** — плагин DMS «Linux Wallpaper Engine» (ставится и
+  настраивается вручную): путь к `assets` —
+  `~/.local/share/wallpaper-engine/assets`, к обоям — папка мастерской выше.
+  Работают обои типов scene и video; web/application — частично или нет.
+  Живые обои постоянно грузят видеокарту — на батарее ставить на паузу.
+- **Экран блокировки** — `lockscreen-videos`: собирает видео-обои
+  Wallpaper Engine (тип video — обычные mp4) жёсткими ссылками в
+  `~/Videos/Lockscreen` (места не занимает; DMS ищет видео через
+  `find -type f`, символические ссылки он пропускает) и включает в DMS
+  видео на экране блокировки из этой папки — каждый раз случайное.
+  Свои видео можно просто положить туда же и запустить команду снова.
+  Проверено в VM на временном каталоге (2026-10-06): берёт только тип
+  video, жёсткая ссылка, настройки DMS обновлены, `find` DMS видео находит.
+
 ## Прокси и рабочий VPN
 
 Схема (решение 2026-10-06): **по умолчанию — напрямую**, через прокси

@@ -187,6 +187,54 @@
         exec dialect --text "$text" --dest "$dest"
       '';
     })
+    # Wallpaper Engine scenes/videos on the desktop (renderer only; the DMS
+    # plugin "Linux Wallpaper Engine" drives it, set up by hand). The
+    # wallpapers and Wallpaper Engine's `assets` come from Steam via
+    # steamcmd, no Steam client installed (docs/REFERENCE.md, «Живые обои»).
+    pkgs.linux-wallpaperengine
+    # lockscreen-videos: video on the lock screen. DMS plays a random video
+    # from a folder when lockScreenVideoPath is a directory (DMS
+    # quickshell/Modules/Lock/VideoScreensaver.qml). This collects
+    # Wallpaper Engine wallpapers of type "video" (plain mp4s, project.json
+    # `type`/`file`) into ~/Videos/Lockscreen as HARD links -- no extra
+    # space, and DMS's `find -type f` skips symlinks -- then points DMS at
+    # the folder and turns the lock video on (DMS watches settings.json, no
+    # restart). Any own videos dropped into the folder count too.
+    (pkgs.writeShellApplication {
+      name = "lockscreen-videos";
+      runtimeInputs = with pkgs; [ jq findutils coreutils ];
+      text = ''
+        dir="$HOME/Videos/Lockscreen"
+        we="''${1:-$HOME/.local/share/Steam/steamapps/workshop/content/431960}"
+        settings="''${XDG_CONFIG_HOME:-$HOME/.config}/DankMaterialShell/settings.json"
+        mkdir -p "$dir"
+        if [ -d "$we" ]; then
+          for proj in "$we"/*/project.json; do
+            [ -f "$proj" ] || continue
+            [ "$(jq -r '(.type // "") | ascii_downcase' "$proj")" = video ] || continue
+            file="$(jq -r '.file // empty' "$proj")"
+            src="$(dirname "$proj")/$file"
+            [ -n "$file" ] && [ -f "$src" ] || continue
+            dst="$dir/we-$(basename "$(dirname "$proj")")-$(basename "$file")"
+            ln -f "$src" "$dst" 2>/dev/null || cp -f "$src" "$dst"
+          done
+        fi
+        count="$(find "$dir" -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.webm' -o -iname '*.mov' \) | wc -l)"
+        echo "lockscreen-videos: $count video(s) in $dir"
+        if [ "$count" -eq 0 ]; then
+          echo "Put videos there or download Wallpaper Engine video wallpapers (steamcmd), then run again." >&2
+          exit 1
+        fi
+        if [ ! -f "$settings" ]; then
+          echo "No $settings yet -- log into the desktop once (DMS creates it), then run again." >&2
+          exit 1
+        fi
+        tmp="$(mktemp "$settings.XXXXXX")"
+        jq --arg d "$dir" '.lockScreenVideoEnabled = true | .lockScreenVideoPath = $d' "$settings" > "$tmp"
+        mv -f "$tmp" "$settings"
+        echo "lockscreen-videos: DMS lock screen now plays a random video from $dir"
+      '';
+    })
     (pkgs.writeShellApplication {
       name = "screenrec";
       runtimeInputs = with pkgs; [ wf-recorder slurp libnotify procps coreutils ];
