@@ -745,6 +745,14 @@ podman run --rm -it \
   только внутри контейнера. На хосте — детерминированные скрипты без LLM
   (`bin/agent-sandbox`, в следующих этапах — скрипты соседей с секретами).
   Порты UI публикуются только на loopback.
+- **kandev — свой контейнер, не agent-sandbox** (`bin/kandev-sandbox`,
+  README «Доска агентов kandev»): официальный образ kandev в rootless
+  podman, его локальный executor запускает агентов внутри того же
+  контейнера. Видны только папки, переданные при запуске (по тем же
+  путям, что на хосте), и volume с данными kandev; toolchain'ы mise хоста —
+  только для чтения (`MISE_SHARED_INSTALL_DIRS`). Ранний вариант — kandev
+  как systemd-сервис на хосте — отброшен: тогда агенты были бы процессами
+  хоста.
 - **Долгоживущий контейнер на проект**: `agent-sandbox up <dir>` поднимает
   именованный контейнер `agent-sandbox-<hash>` (тот же `project_hash`, что
   у volume'ов) с `sleep infinity` под `--init`, а `attach`/`exec` выполняют

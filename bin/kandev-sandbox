@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# kandev (https://github.com/kdlbs/kandev) -- agent kanban board -- in a
+# rootless podman container, so that kandev itself AND every agent it
+# starts (its default "local process" executor) run inside the container,
+# never on the host (system-plan.md §9.7: no LLM on the host).
+#
+#   kandev-sandbox up ~/code/proj-a ~/code/proj-b   # (re)start with these dirs
+#   kandev-sandbox shell                            # claude login, gh auth login, npm i -g ...
+#   kandev-sandbox logs [-f] | status | down
+#
+# Why the official image and not a host service (the earlier
+# feature/kandev-module WIP ran the kandev binary as a systemd service): as
+# a host service its local executor runs agents as host processes, and
+# kandev's Docker executor wants a Docker daemon. Running the whole thing
+# in one container gives the filesystem boundary for free: agents see the
+# kandev data volume and exactly the dirs passed to `up`, nothing else.
+# Image layout (Debian bookworm, user kandev uid 1000, HOME=/data/home,
+# NPM_CONFIG_PREFIX=/data/.npm-global) is from upstream's Dockerfile and
+# docs/docker.md.
+#
+# Filesystem:
+# - project dirs are mounted read-write at the SAME absolute path as on
+#   the host, so paths in kandev (worktrees, file links) are the paths
+#   RubyMine/VSCode on the host see;
+# - kandev-data volume -> /data: SQLite DB, worktrees of repos kandev
+#   clones itself, agent CLI logins (claude, gh) under /data/home;
+# - host mise toolchains, READ-ONLY (see the mise block below).
+#
+# Claude: in kandev's Settings > Agents use the Claude Code profile with
+# **CLI passthrough**, not the default `claude-acp` (Agent SDK). Anthropic's
+# Legal and Compliance page reserves subscription OAuth for Claude Code
+# itself; products built on the Agent SDK should use API keys. Same rule as
+# system-plan.md §9.7. This lives in kandev's DB, so it can't be enforced
+# from here -- it's a README checklist item.
+set -euo pipefail
+
+# Pinned: kandev ships weekly and is pre-1.0. Bump deliberately, after
+# reading https://github.com/kdlbs/kandev/releases.
+IMAGE="${KANDEV_IMAGE:-ghcr.io/kdlbs/kandev:0.97.0}"
+NAME="kandev"
+VOLUME="kandev-data"
+PORT="${KANDEV_PORT:-38429}"
+
+die() { echo "kandev-sandbox: $*" >&2; exit 1; }
+usage() {
+  sed -n '7,10p' "$0" | sed 's/^# \{0,1\}//' >&2
+  exit "${1:-1}"
+}
+
+command -v podman >/dev/null 2>&1 || die "podman not found on PATH"
+
+cmd="${1:-}"
+[ -n "$cmd" ] || usage
+shift
+
+running() { [ "$(podman container inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = "true" ]; }
+
+case "$cmd" in
+  -h|--help) usage 0 ;;
+  down)   podman rm -f "$NAME" >/dev/null 2>&1 || true; exit 0 ;;
+  status) podman ps -a --filter "name=^${NAME}\$" --format '{{.Names}}  {{.Status}}  {{.Ports}}'; exit 0 ;;
+  logs)   exec podman logs "$@" "$NAME" ;;
+  shell)
+    running || die "not running -- start it with: kandev-sandbox up <dir>..."
+    # -w /data/home: a sane cwd for `claude login` / `gh auth login`.
+    exec podman exec -it -w /data/home "$NAME" bash
+    ;;
+  up) ;;
+  *) usage ;;
+esac
+
+# ---- up -------------------------------------------------------------------
+[ "$#" -gt 0 ] || die "up needs at least one project directory"
+
+args=(
+  podman run -d --name "$NAME"
+  # Container uid 1000 (image's `kandev` user) == the host user, so files
+  # agents create in project dirs are owned by you on the host, not by a
+  # subuid. Plain --userns=keep-id would map you to your host uid, which
+  # is only the same thing when that uid happens to be 1000.
+  --userns=keep-id:uid=1000,gid=1000
+  # Loopback only: kandev's API has no auth by default (upstream
+  # docs/configuration.md), it must not be reachable from the LAN.
+  -p "127.0.0.1:${PORT}:38429"
+  -v "${VOLUME}:/data"
+  --restart=unless-stopped
+)
+
+trusted=()
+for dir in "$@"; do
+  case "$dir" in *:*) die "path must not contain ':' (breaks -v): $dir" ;; esac
+  # Physical absolute path, same reasoning as bin/agent-sandbox: a symlink
+  # and its target must be the same mount.
+  real="$(cd "$dir" 2>/dev/null && pwd -P)" || die "not a directory: $dir"
+  # Mounting / or all of $HOME would hand agents SSH keys, Bitwarden
+  # caches, browser profiles -- exactly what the sandbox exists to hide.
+  if [ "$real" = "/" ] || [ "$real" = "$(cd "$HOME" && pwd -P)" ]; then
+    die "refusing to mount $real -- pass project directories, not the whole home"
+  fi
+  args+=(-v "$real:$real")
+  trusted+=("$real")
+done
+
+# ---- mise: reuse the host's toolchains instead of installing them twice --
+# MISE_SHARED_INSTALL_DIRS (https://mise.jdx.dev/configuration/settings.html):
+# extra install dirs mise searches after its own and never writes to.
+# - Host installs are mounted READ-ONLY and at the SAME path: binstubs and
+#   gem/npm shebangs contain absolute paths; read-only because an agent
+#   able to write there could plant code that later runs on the host.
+# - /nix/store read-only: the mise binary itself is a Nix build, and Ruby
+#   compiled by mise on NixOS links against store libraries. Nothing
+#   secret lives in the store in this repo (secrets are in Bitwarden).
+# - Versions the host doesn't have are installed into the container's own
+#   MISE_DATA_DIR on the kandev-data volume.
+# - Shims (not `mise activate`): kandev runs agents and their shell tools
+#   non-interactively; shims resolve the version from the cwd's
+#   .tool-versions/mise.toml on every call.
+mise_env=()
+if host_mise="$(command -v mise 2>/dev/null)"; then
+  host_mise="$(readlink -f "$host_mise")"
+  installs="${MISE_DATA_DIR:-$HOME/.local/share/mise}/installs"
+  case "$host_mise" in
+    /nix/store/*) args+=(-v /nix/store:/nix/store:ro) ;;
+    *) args+=(-v "$host_mise:/usr/local/bin/mise:ro"); host_mise=/usr/local/bin/mise ;;
+  esac
+  if [ -d "$installs" ]; then
+    installs="$(cd "$installs" && pwd -P)"
+    args+=(-v "$installs:$installs:ro")
+    mise_env+=(-e "MISE_SHARED_INSTALL_DIRS=$installs")
+  fi
+  # Plus kandev's own task dirs: worktrees it creates live under /data
+  # (upstream docs/docker.md, "What lives on the volume"), and they carry
+  # their own copy of the project's mise.toml.
+  trusted_paths="$(IFS=:; echo "${trusted[*]}"):/data/worktrees:/data/tasks"
+  mise_env+=(
+    -e MISE_DATA_DIR=/data/mise
+    # Project mise.toml files would otherwise stop every command with a
+    # trust prompt nobody can answer.
+    -e "MISE_TRUSTED_CONFIG_PATHS=$trusted_paths"
+    -e MISE_YES=1
+    # Image PATH (upstream Dockerfile) + mise shims first + mise itself.
+    -e "PATH=/data/mise/shims:$(dirname "$host_mise"):/data/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  )
+  # Regenerate shims on every start, so versions installed on the host
+  # since the last `up` are picked up; then hand over to upstream's
+  # entrypoint/CMD unchanged.
+  entry=(--entrypoint tini "$IMAGE" -- sh -c
+    'mise reshim || echo "kandev-sandbox: mise reshim failed" >&2; exec docker-entrypoint.sh "$@"'
+    sh kandev start --backend-port 38429 --verbose)
+else
+  echo "kandev-sandbox: mise not found on the host -- starting without shared toolchains" >&2
+  entry=("$IMAGE")
+fi
+
+if running; then
+  echo "==> Restarting kandev with the new set of directories (running agent sessions are interrupted; data stays in the $VOLUME volume)"
+fi
+podman rm -f "$NAME" >/dev/null 2>&1 || true
+
+"${args[@]}" "${mise_env[@]}" "${entry[@]}" >/dev/null
+echo "==> kandev: http://127.0.0.1:${PORT}"
+printf '    mounted: %s\n' "${trusted[@]}"
