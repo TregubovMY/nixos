@@ -268,6 +268,11 @@ let
     # the home volume's root instead, which belongs to the user.
     export XDG_STATE_HOME=/home/agent/.local-state
     export MISE_STATE_DIR=/home/agent/.local-state/mise
+    # Project gems in the project (vendor/bundle, relative to the Gemfile),
+    # same setting as on the host (modules/home/mise.nix): the host's Ruby
+    # is mounted read-only here, and in the project dir the gems are shared
+    # by host and sandbox -- installed once, usable from both.
+    export BUNDLE_PATH="''${BUNDLE_PATH:-vendor/bundle}"
     export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
 
     # nix-ld env vars (see the `nixLdLibraries`/loader-symlink comments

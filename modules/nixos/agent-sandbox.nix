@@ -8,8 +8,9 @@
 # `podman load`, and the system profile keeps the rootfs (and through it
 # every sandbox tool) alive against garbage collection.
 #
-# The launchers are the repo's bin/ scripts, copied as-is into one package
-# so `agent-sandbox` / `kandev-sandbox` work from any directory;
+# The launcher is the repo's bin/ script, copied as-is into a package so
+# `agent-sandbox` works from any directory (boards like kandev and dsh run
+# inside the sandbox, there is no separate launcher for them any more);
 # agent-sandbox-gui.sh sits next to agent-sandbox because agent-sandbox
 # sources it from its own directory.
 { pkgs, ... }:
@@ -19,7 +20,6 @@ let
     mkdir -p $out/bin
     install -m755 ${../../bin/agent-sandbox} $out/bin/agent-sandbox
     install -m644 ${../../bin/agent-sandbox-gui.sh} $out/bin/agent-sandbox-gui.sh
-    install -m755 ${../../bin/kandev-sandbox} $out/bin/kandev-sandbox
     patchShebangs $out/bin
   '';
 in

@@ -47,10 +47,8 @@
       opencode
       # Project-template tooling (llm-dev-template): OpenSpec CLI, and
       # lefthook + gitleaks for its pre-commit hooks -- so human commits on
-      # the host pass the same guards as agent commits. bin/kandev-sandbox
-      # also puts this system profile's bin/ at the end of PATH inside the
-      # kandev container (read-only /nix/store), so these same binaries are
-      # what kandev's agents use; no second copy there.
+      # the host pass the same guards as agent commits. (The sandbox has
+      # the same three tools in its own tool env, same store paths.)
       openspec
       lefthook
       gitleaks

@@ -316,6 +316,23 @@ printf 'env = A=1\n' >"$cfgdir/nodir.conf"
 rc=$(run bash "$script" up @nodir)
 expect_rc "$rc" 1
 
+t "host mise installs mounted read-only at the same path"
+mkdir -p "$tmp/.local/share/mise/installs"
+mise_inst="$(cd "$tmp/.local/share/mise/installs" && pwd -P)"
+rc=$(run bash "$script" "$project" -- true)
+expect_rc "$rc" 0
+expect log_seq -v "$mise_inst:$mise_inst:ro"
+expect log_seq -e "MISE_SHARED_INSTALL_DIRS=$mise_inst"
+
+t "config autostart: commands start detached in the up container"
+printf 'dir = %s\nautostart = kandev start --backend-port 38429\n' "$project" >"$cfgdir/board.conf"
+rc=$(run bash "$script" up @board)
+expect_rc "$rc" 0
+# the fake podman keeps only its last call: the autostart exec
+expect log_seq exec -d
+expect log_seq -d agent-sandbox-cfg-board
+expect log_has "kandev start --backend-port 38429 >> /home/agent/.local-state/autostart.log 2>&1"
+
 t "rootfs: missing rootfs fails with a hint, podman not run"
 rc=$(run env AGENT_SANDBOX_ROOTFS="$tmp/nope" bash "$script" "$project" -- true)
 expect_rc "$rc" 1
