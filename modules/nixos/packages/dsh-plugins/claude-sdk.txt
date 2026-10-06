@@ -1,0 +1,21 @@
+# GRAY ZONE -- off by default: `dsh-setup claude-sdk` asks for confirmation.
+#
+# The official Claude Code subagent for dsh. It is built on the Claude Agent
+# SDK, which runs Claude Code's own binary (the SDK ships per-platform
+# packages) and signs in through it -- but it is a third-party tool driving
+# YOUR subscription. Anthropic's Legal and Compliance page says developers
+# building products on the Agent SDK "should use API key authentication"
+# and that they may not "route requests through Free, Pro, or Max plan
+# credentials on behalf of their users"; limits are described as assuming
+# "ordinary, individual usage of Claude Code and the Agent SDK". Personal
+# use on your own machine is not excluded in so many words, but it is not
+# the blessed path either (the blessed one is the unmodified `claude`
+# binary: the `conductor` skill and kandev's CLI-passthrough profile).
+# Decision recorded 2026-10-06: allowed as an opt-in experiment, no API key.
+# `claude -p` and the SDK are one category for Anthropic's (currently paused)
+# separate-credit plan, so this gains nothing on that front.
+#
+# npm dist-tag `latest` of this package is stale (0.0.1-rc.1); `next` =
+# 0.2.0-rc.2 matches our dsh.
+
+@deepseek-ai/dsh-subagent-claude-code@0.2.0-rc.2

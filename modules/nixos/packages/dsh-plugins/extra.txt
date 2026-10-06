@@ -1,0 +1,10 @@
+# Optional dsh plugins: `dsh-setup extra`. Same pinning rules as core.txt.
+# Peer ranges checked against dsh 0.2.0-rc.2 on 2026-10-06.
+
+@nanmicoder/dsh-agent-teams@0.1.22    # teams of agents: plan -> execute -> review (~56k npm downloads/month)
+dsh-auto-review@0.12.15               # a second model reviews the agent's approval requests (read-only)
+@michengai/dsh-skills-manager@1.1.10  # load and manage Agent Skills from the UI (~144k downloads/month)
+dsh-plugin-model-proxy@0.1.6          # per-model proxy routing (http/https/socks5) -- e.g. DeepSeek via a proxy, the rest direct
+
+# NOT listed: dsh-maze (execution timeline) -- its peer range is
+# ">=0.1.2-alpha.1 <0.2.0", which excludes 0.2.0-rc.2.

@@ -1,0 +1,13 @@
+# dsh plugins installed by `dsh-setup` (default list).
+# One npm spec per line: <package>@<version>. PINNED on purpose: dsh is a
+# developer preview and "plugin configuration can change between release
+# candidates" (DeepInfra review of dsh 0.1.1-rc.2); the versions below were
+# checked against dsh 0.2.0-rc.2 by their peerDependencies on 2026-10-06.
+# Update: bump the version here, run `dsh-setup` again in a sandbox.
+# Chosen from the shortlist in TODO.md; "why" next to each line.
+
+@shengsheng/dsh-taskboard@0.1.7   # kanban; agents may move a task to in_review, only a human sets done
+dsh-file-review@0.8.8             # diff of files the agent changed, line comments sent back to the agent (peer range: exactly 0.2.0-rc.x)
+dsh-better-sidebar@0.24.1         # right sidebar (files, git, terminal, subagents); file-review plugs into it
+dsh-context@0.64.0                # what is in the context, tokens per request
+dsh-cost-meter@1.8.12             # cost per session/model, budgets
