@@ -153,6 +153,33 @@
     pkgs.crow-translate
     pkgs.glib
     pkgs.swappy
+    # translate-selection: selected text (primary selection, falls back to
+    # the clipboard) -> Crow Translate CLI -> notification. Rewritten
+    # 2026-10-06: Crow 4.x dropped the D-Bus API the old bind called and
+    # renamed its binary to `crow`. Engine yandex: Google's endpoint gave
+    # no answer from this network in the VM test, Yandex did. Cyrillic
+    # text goes to English, anything else to Russian. --tts none keeps it
+    # from trying to load the Piper voice (it popped an error dialog).
+    # Output is HTML-ish ("перевод<br>/translit/..."), only the first part
+    # is the translation.
+    (pkgs.writeShellApplication {
+      name = "translate-selection";
+      runtimeInputs = with pkgs; [ wl-clipboard crow-translate libnotify gnused gnugrep coreutils ];
+      text = ''
+        text="$(wl-paste --primary --no-newline 2>/dev/null || true)"
+        [ -n "$text" ] || text="$(wl-paste --no-newline 2>/dev/null || true)"
+        if [ -z "$text" ]; then
+          notify-send -a "Перевод" "Нет выделенного текста"
+          exit 0
+        fi
+        if printf '%s' "$text" | grep -q '[А-Яа-яЁё]'; then to=en; else to=ru; fi
+        if ! out="$(printf '%s' "$text" | timeout 20 crow -i -b -e yandex -t "$to" --tts none 2>&1)"; then
+          notify-send -u critical -a "Перевод" "Ошибка перевода" "$out"
+          exit 1
+        fi
+        notify-send -a "Перевод" "$(printf '%s' "$out" | sed 's/<br>.*//')"
+      '';
+    })
     (pkgs.writeShellApplication {
       name = "screenrec";
       runtimeInputs = with pkgs; [ wf-recorder slurp libnotify procps coreutils ];
@@ -312,13 +339,17 @@ hl.config({
 -- NIXOS-MANAGED AUTOSTART BLOCK START -- managed by home-manager activation
 -- (modules/home/hyprland.nix), not hand-edited; re-synced on every
 -- `nixos-rebuild switch`, don't edit between START/END by hand.
--- Crow Translate needs to be running for its D-Bus service to answer the
--- hotkey below -- launched at session start rather than requiring a
--- manual launch first. NOTE: "start minimized to tray" is a setting on
--- Crow Translate's own General tab, not a CLI flag -- expect a visible
--- window at first login until that's turned on by hand.
+-- SPICE clipboard agent for the session, only where its system daemon
+-- runs (the VM rehearsal; services.spice-vdagentd in hosts/mimir is gated
+-- on facter detecting QEMU/KVM). Started here because this Hyprland
+-- session doesn't run XDG autostart, which is the only thing that would
+-- otherwise launch it (found live in the VM, 2026-10-06). On the laptop the
+-- socket doesn't exist and this does nothing.
+-- (Was: autostart of Crow Translate for its D-Bus hotkey. Crow 4.x has no
+-- D-Bus API and its binary is `crow`; the translate bind below now calls
+-- the CLI on demand instead, so nothing needs to run in the background.)
 hl.on("hyprland.start", function()
-  hl.exec_cmd("crow-translate")
+  hl.exec_cmd("sh -c '[ -S /run/spice-vdagentd/spice-vdagent-sock ] && exec spice-vdagent'")
 end)
 -- NIXOS-MANAGED AUTOSTART BLOCK END
 
@@ -368,31 +399,11 @@ hl.bind("SUPER + SHIFT + Print", hl.dsp.exec_cmd("GRIMBLAST_EDITOR=swappy grimbl
 -- screen. SUPER+R alone is DMS's togglesplit, these combos are free.
 hl.bind("SUPER + SHIFT + R", hl.dsp.exec_cmd("screenrec area"))
 hl.bind("SUPER + CTRL + R", hl.dsp.exec_cmd("screenrec screen"))
--- Translate the current text selection via Crow Translate's D-Bus method
--- (system-plan.md §5.11) -- Wayland has no global-shortcut API of its
--- own, this D-Bus call is Crow Translate's documented integration point
--- for compositors like Hyprland that bind arbitrary shell commands to
--- keys. SUPER+T, NOT the "obvious" choice -- confirmed live against DMS's
--- own embedded default (core/internal/config/embedded/hypr-binds-user.lua
--- in AvengeMedia/DankMaterialShell at this flake's pinned rev): `dms
--- setup` seeds dms/binds-user.lua itself with `SUPER + T` already bound to
--- launching the terminal, so reusing it here would have silently
--- shadowed/collided with that default the moment this activation script's
--- append landed after DMS's own seed content in the same file. SUPER+ALT+T
--- checked against that same embedded file -- not used by any default
--- bind. MANUAL VERIFICATION REQUIRED (agent cannot check this -- no
--- visual/runtime access to a running Hyprland session, per CLAUDE.md):
--- confirm the hotkey fires, the popup appears, and the D-Bus service has
--- registered by the time this fires (it may not have in the first couple
--- seconds right after login).
-hl.bind(
-  "SUPER + ALT + T",
-  hl.dsp.exec_cmd(
-    "gdbus call --session --dest io.crow_translate.CrowTranslate "
-      .. "--object-path /io/crow_translate/CrowTranslate/MainWindow "
-      .. "--method io.crow_translate.CrowTranslate.MainWindow.translateSelection"
-  )
-)
+-- Translate the current selection (system-plan.md §5.11): SUPER+ALT+T runs
+-- translate-selection (home.packages) -- selected text -> Crow's CLI ->
+-- DMS notification. SUPER+T is taken by DMS's terminal bind (seeded into
+-- dms/binds-user.lua by `dms setup`), SUPER+ALT+T is free there.
+hl.bind("SUPER + ALT + T", hl.dsp.exec_cmd("translate-selection"))
 -- NIXOS-MANAGED BINDS END
 HYPRLUA
     fi
