@@ -10,7 +10,7 @@
 # - long-lived per project: `up` starts one named container per project
 #   and keeps it running; `attach`/`exec` run commands inside it; `down`
 #   stops it. Needed by anything that has to outlive one command: the
-#   Multica daemon that dispatches agents, tmux sessions, a web UI.
+#   the dsh Web UI, tmux sessions.
 set -euo pipefail
 
 usage_text="Usage:
@@ -377,8 +377,8 @@ args+=(
   # agent-sandbox.nix) points NPM_CONFIG_PREFIX at this one mounted path.
   -v "agent-npm-global:/home/agent/.local/share/npm-global"
   # Shared across projects, same reasoning again, for single prebuilt
-  # binaries installed by hand from GitHub releases (the Multica CLI/
-  # daemon) — the entrypoint puts ~/.local/bin on PATH.
+  # binaries installed by hand from GitHub releases — the entrypoint
+  # puts ~/.local/bin on PATH.
   -v "agent-local-bin:/home/agent/.local/bin"
   -v "agent-cache-$project_hash:/home/agent/.cache"
   # Per-project (not shared) credentials volume, keyed by the same

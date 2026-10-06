@@ -129,10 +129,10 @@ let
     # Same "manual install, persisted in a shared volume" pattern as
     # npm-global/uv-tools above, for the one remaining category those two
     # don't cover: single prebuilt binaries shipped only as GitHub release
-    # assets (first user: the Multica CLI/daemon, `multica`, installed per
-    # its CLI_INSTALL.md "Option B: Download from GitHub Releases" -- not in
-    # nixpkgs, and a fast-moving project where a pinned Nix derivation
-    # would go stale the same way dsh's would). bin/agent-sandbox mounts
+    # assets (fast-moving tools that aren't in nixpkgs, where a pinned Nix
+    # derivation would go stale the same way dsh's would; originally added
+    # for the Multica daemon, dropped 2026-10-05 in favour of kandev/dsh,
+    # the mechanism stays generic). bin/agent-sandbox mounts
     # the shared `agent-local-bin` volume here. Prebuilt glibc binaries run
     # via the nix-ld shim configured above.
     export PATH="/home/agent/.local/bin:$PATH"

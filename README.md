@@ -92,8 +92,8 @@ bin/agent-sandbox --gui ~/code/myproject     # + видимое окно бра�
 
 ### Долгоживущий контейнер на проект (`up`/`attach`/`exec`/`down`)
 
-Для всего, что должно жить дольше одной команды (daemon доски Multica,
-раздающий задачи агентам, tmux-сессии, web UI) — один именованный
+Для всего, что должно жить дольше одной команды (Web UI dsh,
+tmux-сессии) — один именованный
 контейнер на проект (`agent-sandbox-<hash пути>`), те же volume'ы, что и
 в одноразовом режиме. Зачем и как устроено — `system-plan.md` §9.7.
 
@@ -143,8 +143,8 @@ bin/agent-sandbox down ~/code/myproject                    # остановит�
 bin/agent-sandbox attach ~/code/myproject
 npm install -g @fission-ai/openspec    # OpenSpec (volume agent-npm-global)
 npm install -g @deepseek-ai/dsh        # DeepSeek Harness, см. ниже
-# Multica CLI/daemon — бинарник из GitHub releases (по CLI_INSTALL.md
-# Multica, "Option B") в ~/.local/bin — volume agent-local-bin, в PATH.
+# одиночные бинарники из GitHub releases — в ~/.local/bin
+# (volume agent-local-bin, в PATH).
 ```
 
 Версии ruby/node/etc берутся из `.tool-versions`/`mise.toml` самого
