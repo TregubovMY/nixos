@@ -1,11 +1,11 @@
 {
-  # Scoped to what actually exists so far: the agent-sandbox package, a
-  # throwaway test-vm host for the dev-databases module, the disko/boot
-  # modules for the disk foundation design plus their own throwaway
-  # verification host, the Secure Boot foundation, the declarative desktop
-  # package list (desktop-apps.nix), and home-manager infrastructure
-  # (NixOS-module-integrated, no dotfile content yet). Not yet the full
-  # host flake (hosts/mimir's real user) — see system-plan.md §3.
+  # One real host (nixosConfigurations.mimir), the agent-sandbox image, and
+  # VM checks for the disk layout, Secure Boot signing and the sandbox CLI.
+  # The per-module throwaway hosts (test-*, mimir-vm-*) were removed on
+  # 2026-10-06: .#mimir composes every module, so `nix flake check
+  # --no-build` evaluating it covers what they did; the real install
+  # rehearsal is now bin/mimir-install against .#mimir in a VM
+  # (docs/vm-check.md). Their history is in git.
   #
   # sops-nix deliberately NOT an input (was, briefly, for a single GPG-key
   # secret) — system-plan.md §7 resolved that secret to Bitwarden too,
@@ -13,7 +13,7 @@
   # nothing in this repo's actual secret inventory needs to exist before
   # network login/Bitwarden unlock, which was sops-nix's one remaining
   # reason for being here. See system-plan.md §6 for the full writeup.
-  description = "agent-sandbox package + dev-databases test-vm + disk/boot + Secure Boot + desktop packages + home-manager foundations (see system-plan.md)";
+  description = "NixOS for mimir: disko+LUKS, Secure Boot, Hyprland+DMS, home-manager, agent sandboxes (see system-plan.md)";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   inputs.disko = {
@@ -78,82 +78,7 @@
         default = agent-sandbox-image;
       };
 
-      # Throwaway verification host for the dev-databases module (Postgres+
-      # Redis via oci-containers) — see docs/superpowers/plans/
-      # 2026-08-04-postgres-redis.md and hosts/test-vm/configuration.nix's
-      # own header comment for why this isn't a real target machine.
-      nixosConfigurations.test-vm = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [ ./hosts/test-vm/configuration.nix ];
-      };
-
-      # Throwaway verification host for the disk/boot foundation design
-      # (disko-luks-btrfs.nix + boot.nix) — see docs/superpowers/specs/
-      # 2026-08-08-disk-boot-foundation-design.md. NOT the real mimir host.
-      nixosConfigurations.test-disko-luks = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          disko.nixosModules.disko
-          ./hosts/test-disko-luks/configuration.nix
-        ];
-      };
-
-      # Throwaway verification host for the Secure Boot design — see
-      # docs/superpowers/specs/2026-08-10-secure-boot-design.md. Proves module
-      # composition only (Check 2) — NOT a Secure-Boot-verified boot chain, see
-      # hosts/test-secure-boot/configuration.nix's own header comment.
-      nixosConfigurations.test-secure-boot = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          disko.nixosModules.disko
-          lanzaboote.nixosModules.lanzaboote
-          ./hosts/test-secure-boot/configuration.nix
-        ];
-      };
-
-      # Manual-install rehearsal host — see
-      # docs/superpowers/plans/tingly-doodling-phoenix.md and
-      # hosts/mimir-vm-rehearsal/configuration.nix's own header comment.
-      # Unlike test-secure-boot above, this is meant to be installed for
-      # real (disko + nixos-install, by hand, inside a user-launched VM)
-      # rather than auto-built — no qemu-vm.nix, so nothing here overrides
-      # the real LUKS/btrfs layout.
-      nixosConfigurations.mimir-vm-rehearsal = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          disko.nixosModules.disko
-          lanzaboote.nixosModules.lanzaboote
-          ./hosts/mimir-vm-rehearsal/configuration.nix
-        ];
-      };
-
-      # Full-system VM rehearsal (disko+Secure Boot+desktop-apps+
-      # dev-databases+podman+home-manager -- everything but secrets.nix)
-      # -- see docs/superpowers/plans/tingly-doodling-phoenix.md and
-      # hosts/mimir-vm-full/configuration.nix's own header comment.
-      nixosConfigurations.mimir-vm-full = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          disko.nixosModules.disko
-          lanzaboote.nixosModules.lanzaboote
-          home-manager.nixosModules.home-manager
-          dank-material-shell.nixosModules.default
-          # home-manager.sharedModules, not just the nixosModules import
-          # above -- that only wires the system-level pieces (systemd
-          # deps like power-profiles-daemon). programs.dank-material-shell
-          # itself is a per-user home-manager option
-          # (modules/home/hyprland.nix references it), which needs the
-          # homeModules side injected into every home-manager user
-          # explicitly -- confirmed live: without this,
-          # home-manager.users.max.programs.dank-material-shell doesn't
-          # exist at all.
-          { home-manager.sharedModules = [ dank-material-shell.homeModules.default ]; }
-          ./hosts/mimir-vm-full/configuration.nix
-        ];
-      };
-
-      # The real machine. Same module set as mimir-vm-full above (which
-      # rehearsed it in a VM), minus the VM-only workarounds. Installed
+      # The real machine. Installed
       # with bin/mimir-install from the NixOS ISO, which also generates
       # hosts/mimir/facter.json (the hardware report); see README,
       # "Установка на реальную машину".
@@ -164,110 +89,11 @@
           lanzaboote.nixosModules.lanzaboote
           home-manager.nixosModules.home-manager
           dank-material-shell.nixosModules.default
-          # Same reason as in mimir-vm-full: DMS's home-manager options
-          # only exist when homeModules is injected via sharedModules.
+          # DMS's home-manager options (programs.dank-material-shell)
+          # only exist when its homeModules is injected via sharedModules,
+          # not just by importing the nixosModules above (found live).
           { home-manager.sharedModules = [ dank-material-shell.homeModules.default ]; }
           ./hosts/mimir/configuration.nix
-        ];
-      };
-
-      # Throwaway verification host for the desktop package list design —
-      # see docs/superpowers/specs/2026-08-10-desktop-packages-design.md.
-      # NOT the real mimir host; eval + dry-build only (no VM boot), see
-      # hosts/test-desktop-apps/configuration.nix's own header comment.
-      nixosConfigurations.test-desktop-apps = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [ ./hosts/test-desktop-apps/configuration.nix ];
-      };
-
-      # Throwaway verification host for the home-manager infrastructure
-      # design — see docs/superpowers/specs/2026-08-11-home-manager-design.md.
-      # Eval + a real (non-dry-run) build only, no VM boot — see
-      # hosts/test-home-manager/configuration.nix's own header comment.
-      nixosConfigurations.test-home-manager = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          home-manager.nixosModules.home-manager
-          ./hosts/test-home-manager/configuration.nix
-        ];
-      };
-
-      # Throwaway verification host for the Hyprland module + package
-      # list — see docs/superpowers/specs/2026-08-11-hyprland-design.md.
-      # Eval + dry-build only, no VM boot possible or useful (no GPU/
-      # display in this sandbox, and no agent can visually verify a
-      # compositor regardless) — see
-      # hosts/test-hyprland/configuration.nix's own header comment.
-      nixosConfigurations.test-hyprland = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [ ./hosts/test-hyprland/configuration.nix ];
-      };
-
-      # Throwaway verification host for modules/home/shell.nix +
-      # zellij.nix — see docs/superpowers/specs/
-      # 2026-08-11-shell-zellij-design.md. Real build (not dry-run), no
-      # VM boot — see hosts/test-shell/configuration.nix's own header
-      # comment.
-      nixosConfigurations.test-shell = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          home-manager.nixosModules.home-manager
-          ./hosts/test-shell/configuration.nix
-        ];
-      };
-
-      # Throwaway verification host for modules/home/neovim.nix (base
-      # LazyVim) — see docs/superpowers/specs/
-      # 2026-08-11-neovim-base-design.md. Real build (not dry-run), no
-      # VM boot, no live plugin-install check — see
-      # hosts/test-neovim/configuration.nix's own header comment.
-      nixosConfigurations.test-neovim = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          home-manager.nixosModules.home-manager
-          ./hosts/test-neovim/configuration.nix
-        ];
-      };
-
-      # Throwaway verification host for modules/home/ghostty.nix +
-      # direnv.nix — real build (not dry-run), no VM boot — see
-      # hosts/test-terminal/configuration.nix's own header comment.
-      nixosConfigurations.test-terminal = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          home-manager.nixosModules.home-manager
-          ./hosts/test-terminal/configuration.nix
-        ];
-      };
-
-      # Throwaway verification host for modules/nixos/podman.nix +
-      # modules/home/mise.nix — real build (not dry-run), no VM boot —
-      # see hosts/test-podman-mise/configuration.nix's own header
-      # comment.
-      nixosConfigurations.test-podman-mise = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          home-manager.nixosModules.home-manager
-          ./hosts/test-podman-mise/configuration.nix
-        ];
-      };
-
-      # Throwaway verification host for modules/home/hyprland.nix (real
-      # config content) — see docs/superpowers/specs/
-      # 2026-08-12-hyprland-config-design.md. Real build (not dry-run),
-      # no VM boot, no live/visual check — see
-      # hosts/test-hyprland-config/configuration.nix's own header
-      # comment.
-      nixosConfigurations.test-hyprland-config = nixpkgs.lib.nixosSystem {
-        inherit system;
-        modules = [
-          home-manager.nixosModules.home-manager
-          dank-material-shell.nixosModules.default
-          # See nixosConfigurations.mimir-vm-full's own comment on this
-          # same line -- homeModules must be injected via sharedModules
-          # too, not just the nixosModules import above.
-          { home-manager.sharedModules = [ dank-material-shell.homeModules.default ]; }
-          ./hosts/test-hyprland-config/configuration.nix
         ];
       };
 
@@ -380,8 +206,7 @@
         # exercise disko-luks-btrfs.nix or secure-boot.nix — see
         # docs/superpowers/specs/2026-08-10-secure-boot-design.md "Two
         # Checks, Not One Combined Test". Module composition between those
-        # two is covered separately by hosts/test-secure-boot/ (Check 2,
-        # `nix flake check --no-build`).
+        # two is covered by evaluating .#mimir (`nix flake check --no-build`).
         secure-boot-signing = pkgs.testers.runNixOSTest {
           imports = [ ./modules/nixos/secure-boot-test/systemd-initrd.nix ];
           globalTimeout = 5 * 60;

@@ -2,7 +2,7 @@
 # (если есть/нужно завести)") -- kept simple and obviously named, per
 # that section's own instruction. HOST selects which
 # nixosConfigurations.<HOST> a target applies to, e.g.:
-#   make dry HOST=test-hyprland
+#   make dry HOST=mimir
 #
 # dry/vm use nixos-rebuild, which isn't on PATH in the dev sandbox this
 # repo was largely built in (see CLAUDE.md) -- these two targets are for

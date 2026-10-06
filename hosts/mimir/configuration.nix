@@ -15,8 +15,9 @@
 #   sets it interactively with `passwd` inside the installed system, so no
 #   password or hash ever lands in this public repo.
 #
-# Module list mirrors hosts/mimir-vm-full/, which VM-rehearsed it end to
-# end (see that file for the gaps the rehearsal found), plus base.nix.
+# Rehearsed end to end in a VM with bin/mimir-install (docs/vm-check.md).
+# The earlier rehearsal host hosts/mimir-vm-full/ (removed 2026-10-06,
+# see git history) found the gaps noted inline below.
 { lib, pkgs, ... }:
 {
   imports = [
@@ -57,8 +58,7 @@
   # Required because desktop-apps.nix pulls in unfree packages (RubyMine,
   # Chrome, VSCode, Postman) and flake.nix's allowUnfree = true only
   # applies to its own loose `pkgs` instance (packages.${system}), not to
-  # any nixosSystem call — same requirement hosts/test-desktop-apps/
-  # already has, see system-plan.md §2.
+  # any nixosSystem call — see system-plan.md §2.
   nixpkgs.config.allowUnfree = true;
 
   # Gap mimir-vm-full's rehearsal found live: modules/home/shell.nix's

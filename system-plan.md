@@ -36,8 +36,7 @@ config.allowUnfree = true; ... }` — это отдельный, самосто�
 пакетов в списке до этого раунда. Вывод: **каждый `nixosConfigurations.*`
 (включая будущий `hosts/mimir/`) должен объявлять
 `nixpkgs.config.allowUnfree = true;` в своём собственном
-`configuration.nix`** — см. пример в
-`hosts/test-desktop-apps/configuration.nix`. Дублирование по хостам —
+`configuration.nix`** — см. `hosts/mimir/configuration.nix`. Дублирование по хостам —
 осознанный компромисс, а не забытый рефакторинг: единого корневого
 `nixosSystem`-враппера, через который проходили бы все хосты, в этом
 флейке пока нет.
@@ -69,7 +68,7 @@ modules/
     neovim.nix
     apps.nix                  # весь список GUI-софта
     shell.nix                 # zsh/bash, алиасы, git config
-Makefile                      # test-vm, test-disko, dry-build, deploy
+Makefile                      # check, check-full, dry, vm, disko-test, test
 bin/
   agent-sandbox                # обёртка над podman run для песочницы AI-агентов (см. п.9)
 CLAUDE.md                     # инструкции для агента
@@ -101,12 +100,9 @@ skeleton (см. §4). `Makefile` реализован (`check`/`check-full`/`dry
 `modules/nixos/disko-luks-btrfs.nix` (параметризованный disko-модуль,
 `{ device, swapSize ? "34G" }`) + `modules/nixos/boot.nix`
 (systemd-boot + systemd-initrd). `hosts/mimir/` (реальная целевая машина)
-существует как skeleton (`disk-config.nix` + `configuration.nix`, см.
-`docs/superpowers/specs/2026-08-11-mimir-host-skeleton-design.md`) — не
-зарегистрирован в `flake.nix` и не собирается без реального
-`hardware-configuration.nix`; проверка идёт через одноразовый VM-хост
-`hosts/test-disko-luks/`
-(`device = "/dev/vda"`) и `checks.<system>.disko-luks-btrfs` в
+зарегистрирован как `.#mimir` (диск передаётся при установке,
+железо описывает отчёт nixos-facter, §8); разметку проверяет
+`checks.<system>.disko-luks-btrfs` в
 `flake.nix` (disko-тест на настоящем виртуальном диске через
 `disko.lib.testLib.makeDiskoTest`). Полная архитектура и её обоснование —
 `docs/superpowers/specs/2026-08-08-disk-boot-foundation-design.md`.
@@ -191,8 +187,8 @@ skeleton (см. §4). `Makefile` реализован (`check`/`check-full`/`dry
   Boot: enabled (user)" именно с тем `boot.initrd.systemd.enable = true`,
   который уже выбран в `boot.nix` под LUKS-промпт; строится через
   systemd-repart-образ, полностью в обход disko. Чек 2
-  (`nixosConfigurations.test-secure-boot`, `hosts/test-secure-boot/`,
-  `nix flake check --no-build`) — одноразовый хост, эвалящий
+  (был одноразовый хост `test-secure-boot`, с 2026-10-06 — эвал `.#mimir`
+  в `nix flake check --no-build`), эвалящий
   `disko-luks-btrfs.nix` и `secure-boot.nix` вместе, доказывающий только
   отсутствие конфликтов опций между ними, без реальной сборки. Ни один
   из этих двух чеков сам по себе не доказывал, что цепочка подписи Secure
@@ -200,7 +196,7 @@ skeleton (см. §4). `Makefile` реализован (`check`/`check-full`/`dry
   одной загрузке.
 
   **Обновление (2026-08-12): эта комбинация подтверждена реальной
-  загрузкой** — `hosts/mimir-vm-rehearsal/` (disko-luks-btrfs.nix +
+  загрузкой** — хост `mimir-vm-rehearsal` (удалён 2026-10-06; disko-luks-btrfs.nix +
   secure-boot.nix, без qemu-vm.nix, см.
   `docs/superpowers/plans/tingly-doodling-phoenix.md`), установлен и
   загружен вручную в QEMU/OVMF VM (реальный disko-раздел на синтетическом

@@ -10,9 +10,9 @@
 # sidesteps that whole bug class.
 #
 # `device` and `swapSize` are parameters (not hardcoded) so the exact same
-# module is reused by both hosts/test-disko-luks/ (device = "/dev/vda",
-# a small swapSize to fit the throwaway test disk) and, later, the real
-# hosts/mimir/ (device = "/dev/sdb", swapSize = "34G" to match the old
+# module is reused by the disko VM check (disko-luks-btrfs-test.nix,
+# device = "/dev/vda", small swap) and the real hosts/mimir/ (device
+# passed at install time by bin/mimir-install, swapSize = "34G" to match the old
 # .trash/disko.nix's number — adjust if mimir's actual RAM differs, since
 # hibernate needs swap >= RAM).
 { device, swapSize ? "34G" }:

@@ -3,9 +3,9 @@
 # and docs/superpowers/plans/2026-08-08-disk-boot-foundation.md, Task 3, and
 # docs/superpowers/specs/2026-08-08-disk-boot-foundation-design.md).
 #
-# NOT consumed by hosts/test-disko-luks/configuration.nix, which imports
-# the parameterized modules/nixos/disko-luks-btrfs.nix directly with a
-# real interactive LUKS passphrase prompt, matching an actual install.
+# NOT consumed by any host: hosts/mimir imports the parameterized
+# modules/nixos/disko-luks-btrfs.nix directly with a real interactive LUKS
+# passphrase prompt, matching an actual install.
 # This file exists, and differs from that real path, for two contract
 # reasons discovered by reading disko's pinned source
 # (nix-community/disko, rev ff8702b4de27f72b4c78573dfb89ec74e36abdf1 per
@@ -17,9 +17,8 @@
 #    — i.e. it can only supply `lib`, never our module's own required
 #    `device`/`swapSize` args. So this file pins those to the test VM's
 #    values (device = "/dev/vda", the disk QEMU always gives a NixOS VM
-#    test's single-disk "machine" node; swapSize = "2G" to match
-#    hosts/test-disko-luks/configuration.nix, since this is meant to
-#    exercise the exact same layout that host uses) and hands
+#    test's single-disk "machine" node; swapSize = "2G", small enough for
+#    the test disk, same layout otherwise) and hands
 #    makeDiskoTest a `{ lib, ... }: {...}` function it CAN call.
 #
 # 2. makeDiskoTest's automated `machine.succeed(...)` formatting step runs

@@ -1,6 +1,6 @@
 # Secure Boot via lanzaboote — a separate module from boot.nix, NOT
 # imported alongside it: hosts that want Secure Boot import this module
-# INSTEAD OF boot.nix (see hosts/test-secure-boot/), because lanzaboote
+# INSTEAD OF boot.nix (as hosts/mimir does), because lanzaboote
 # REPLACES systemd-boot rather than layering on top of it (its own docs
 # require boot.loader.systemd-boot.enable = lib.mkForce false alongside
 # boot.lanzaboote.enable = true). Hosts that don't need Secure Boot keep

@@ -11,18 +11,13 @@ Hyprland + DankMaterialShell (DMS), home-manager. Полное описание
 перенесло и его в Bitwarden, а вся sops-инфраструктура удалена как
 неиспользуемая.
 
-Реально собираются: `agent-sandbox`, тестовый `test-vm`-хост для
-`dev-databases`, диск/boot-модули (`disko-luks-btrfs.nix`/`boot.nix`/
-`secure-boot.nix`) с VM-подтверждённой disko+LUKS+btrfs+Secure-Boot
-разметкой, десктопный пакетный список (`desktop-apps.nix`), Hyprland +
-DankMaterialShell как реальный десктоп (не только пакеты — с темой,
-раскладкой, скриншотами), home-manager со всеми текущими дотфайлами
-(shell/zellij/ghostty/direnv/mise/neovim). `hosts/mimir/` (реальная целевая
-машина) зарегистрирован как `.#mimir` и ставится одним скриптом
-`bin/mimir-install` (см. «Установка на реальную машину» ниже); на физическое
-железо ещё не ставился. Всё остальное проверено через одноразовые VM-хосты,
-в первую очередь `hosts/mimir-vm-full/` — самую близкую к реальному хосту
-репетицию.
+Один хост — `hosts/mimir/` (`.#mimir`): disko+LUKS+btrfs, Secure Boot,
+Hyprland + DankMaterialShell, home-manager со всеми дотфайлами
+(shell/zellij/ghostty/direnv/mise/neovim), песочницы агентов. Ставится
+одним скриптом `bin/mimir-install` (см. «Установка на реальную машину»),
+перед этим — прогон в VM по `docs/vm-check.md`. Одноразовые хосты для
+проверки модулей по отдельности (`test-*`, `mimir-vm-*`) удалены
+2026-10-06 — `.#mimir` собирает все модули вместе, их история в git.
 
 ## Установка на реальную машину (`.#mimir`)
 
@@ -244,7 +239,7 @@ Wayland-сессии команда сразу завершится с поня�
   валидна), но не полной сборкой/рантаймом — на машине разработки не
   хватало дискового бюджета под тяжёлую сборку (chromium в closure) по
   правилам CLAUDE.md. Тот же `nix-ld` включён и на хосте
-  (`hosts/mimir/`, `hosts/mimir-vm-full/`) — сделано намеренно одним
+  (`hosts/mimir/`) — сделано намеренно одним
   механизмом в обоих местах, чтобы mise resolved одинаково что в
   песочнице, что вне неё.
 - **`up`/`attach`/`exec`/`--publish`/`--init` проверены только тестами
@@ -435,17 +430,8 @@ podman-контейнеры, `modules/nixos/dev-databases.nix`) — подним
   смонтированы), своп активен именно на расшифрованном mapper-устройстве
   (не на сыром разделе), и `resume=/dev/mapper/cryptswap` есть в
   `/proc/cmdline` активированной системы.
-- `nixos-rebuild dry-build --flake .#test-disko-luks` /
-  `nixos-rebuild build-vm --flake .#test-disko-luks` — сборка одноразового
-  VM-хоста `hosts/test-disko-luks/` (`device = "/dev/vda"`), который
-  использует те же модули. `nixos-rebuild` не стоит в PATH в этой
-  песочнице — то, что реально прогонялось здесь:
-  `nix build .#nixosConfigurations.test-disko-luks.config.system.build.vm`.
-  Этот хост подтверждает только то, что модули эвалятся и замыкание
-  собирается — сам layout (LUKS/btrfs/swap) в этой VM не поднимается, его
-  целиком перекрывает `virtualisation.useDefaultFilesystems` из
-  `qemu-vm.nix`. Функциональная проверка — только `checks.disko-luks-btrfs`
-  выше.
+- `nix flake check --no-build` — что модули диска эвалятся в составе
+  `.#mimir`; сама разметка на виртуальном диске — `docs/vm-check.md`.
 
 ### Известные ограничения
 
@@ -455,16 +441,9 @@ podman-контейнеры, `modules/nixos/dev-databases.nix`) — подним
   правильном mapper-устройстве, `resume=` попадает в kernel cmdline. Чего
   он **не** доказывает — что `systemctl hibernate` и последующий resume
   реально проходят целиком.
-- **`hosts/mimir/` (реальный хост) существует только как skeleton.**
-  `disk-config.nix` + `configuration.nix` составляют переиспользуемые,
-  VM-проверенные модули под реальную identity машины (см.
-  `docs/superpowers/specs/2026-08-11-mimir-host-skeleton-design.md`), но
-  не зарегистрированы в `flake.nix` и не собираются — реальная установка
-  (генерация `hardware-configuration.nix`, регистрация в `flake.nix`,
-  `nixos-install`) остаётся отдельным, явно запрашиваемым шагом.
 - **Оба LUKS-контейнера при реальной установке должны получить ОДИНАКОВУЮ
   парольную фразу — иначе загрузка спросит пароль дважды.** Подтверждено
-  на `hosts/mimir-vm-rehearsal/` (см. ниже) реальной ручной установкой:
+  на VM-репетиции (2026-08-12) реальной ручной установкой:
   при одинаковом пароле LUKS действительно спрашивает его только один раз.
 
 ## Secure Boot (lanzaboote)
@@ -484,31 +463,20 @@ true` с `pkiBundle = "/var/lib/sbctl"` (текущий рекомендован
 
 Проверка — двумя раздельными чеками:
 - `nix flake check --no-build` — eval-only, что `disko-luks-btrfs.nix` и
-  `secure-boot.nix` эвалятся вместе без конфликтов опций
-  (`hosts/test-secure-boot/`).
+  `secure-boot.nix` эвалятся вместе без конфликтов опций (в составе
+  `.#mimir`).
 - `nix flake check -L` — реальный VM-boot, `checks.<system>.secure-boot-signing`:
   вендоренная копия upstream-теста lanzaboote, эмпирически подтвердившая,
   что Secure Boot реально работает с `boot.initrd.systemd.enable = true`
   (`bootctl status` внутри VM показал "Secure Boot: enabled (user)").
 
-**Подтверждено реальной загрузкой (`hosts/mimir-vm-rehearsal/`, 2026-08-12).**
-Комбинация disko+LUKS+btrfs+Secure-Boot установлена и загружена вручную в
-QEMU/OVMF VM (реальный disko-раздел на синтетическом диске, не
-auto-built VM-артефакт, установка через `nixos-install` по-настоящему, не
-через `build-vm`). LUKS спросил пароль один раз, `sbctl enroll-keys` и
-`bootctl status` после перезагрузки показали `Secure Boot: enabled`,
-`systemctl --failed` пуст.
-
-Скрипты, которыми эта репетиция реально прогонялась (запускать из корня
-репозитория, изнутри installer-сессии VM) — `bin/mimir-vm-disko`
-(разметка через disko), `bin/mimir-vm-install` (`nixos-install --flake
-.#mimir-vm-rehearsal`), `bin/mimir-vm-sbctl-create-keys` (генерация
-Secure Boot ключей между двумя попытками `mimir-vm-install` — lanzaboote
-подписывает загрузчик уже во время самого `nixos-install`, поэтому ключи
-нужны ДО второй попытки, не после первой) и `bin/mimir-vm-remount`
-(пересмонтировать уже размеченный диск после неудачной первой загрузки,
-не переразмечая заново). Порядок и почему он именно такой — заголовки
-самих скриптов и `docs/superpowers/plans/tingly-doodling-phoenix.md`.
+**Подтверждено реальной загрузкой (VM-репетиция, 2026-08-12).**
+Комбинация disko+LUKS+btrfs+Secure-Boot установлена и загружена в QEMU/OVMF
+VM: LUKS спросил пароль один раз, после `sbctl enroll-keys` `bootctl status`
+показал `Secure Boot: enabled`, `systemctl --failed` пуст. Тогдашние
+хост `mimir-vm-rehearsal` и скрипты `bin/mimir-vm-*` удалены (2026-10-06) —
+их заменил `bin/mimir-install` против настоящего `.#mimir`
+(`docs/vm-check.md`); история в git.
 
 ### Известные ограничения
 
@@ -520,27 +488,11 @@ Secure Boot ключей между двумя попытками `mimir-vm-inst
   might-brick-my-machine` в VM без TPM, реальный `sbctl enroll-keys` в
   прошивке машины (не в OVMF), и hibernate-цикл.
 
-## Полная репетиция десктопа: `hosts/mimir-vm-full`
+## Полная репетиция десктопа (история)
 
-Упрощённая установка — `bin/mimir-full-disko` (разметка через disko) и
-`bin/mimir-full-install` (`nixos-install --flake .#mimir-vm-full`, с
-той же sbctl-keys-между-попытками логикой, что и у `mimir-vm-*`
-скриптов выше, свёрнутой внутрь одного скрипта вместо отдельного
-`mimir-vm-sbctl-create-keys`-шага). Запускать из корня репозитория,
-изнутри installer-сессии VM, `mimir-full-disko` перед
-`mimir-full-install`.
-
-Самый полный из существующих хостов — тянет всё, что этот репозиторий
-реально построил: disko+LUKS+btrfs, Secure Boot, `hyprland.nix`,
-`greetd.nix`, `nix-settings.nix`, `desktop-apps.nix`, `dev-databases.nix`,
-`podman.nix`, `home-manager.nix`, `notebooklm-tooling.nix` на системном
-уровне, плюс реальный
-home-manager-пользователь `max` с `hyprland.nix`/`neovim.nix`/`shell.nix`/
-`zellij.nix`/`ghostty.nix`/`direnv.nix`/`mise.nix`. Единственное, чего у
-него нет по сравнению с гипотетическим `hosts/mimir/` — `secrets.nix`
-(теперь не нужен вообще, см. "Секреты" ниже) и реального
-`hardware-configuration.nix` (виртуальный диск `/dev/vda`, initrd-модули
-virtio прописаны вручную).
+Хост `hosts/mimir-vm-full` и скрипты `bin/mimir-full-*` (удалены
+2026-10-06, теперь — `bin/mimir-install` + `docs/vm-check.md`) прогоняли
+весь десктоп в VM до появления настоящего `.#mimir`.
 
 Живые находки в ходе репетиции (все уже исправлены, оставлены как
 задокументированные баги, а не гипотетические):
@@ -559,14 +511,9 @@ virtio прописаны вручную).
   пересоздаёт именно этот таргет-юнит вручную.
 - `jetbrains.ruby-mine`'s `fetchurl` реально получает HTTP 451 от
   `download.jetbrains.com` (гео/санкционная блокировка — не VM-специфичный
-  глюк, повторится и на реальном `hosts/mimir/`). На этом хосте временно
-  застаблен через `nixpkgs.overlays`, реальный фикс — Throne с настоящим
-  VLESS-конфигом из Bitwarden (`programs.throne` уже включён в
-  `desktop-apps.nix`, конфига пока нет).
-
-`users.users.max.initialPassword = "max"` — репетиционное упрощение, НЕ то,
-как должен быть настроен реальный `hosts/mimir/` (нужно реальное решение
-про аутентификацию, см. `system-plan.md` §7).
+  глюк). На `hosts/mimir/` RubyMine выключен опцией
+  `desktopApps.rubymine.enable = false` до настройки Throne (VLESS-конфиг
+  из Bitwarden), затем включается обратно.
 
 ## Nix: автоочистка стора (`modules/nixos/nix-settings.nix`)
 
@@ -612,14 +559,8 @@ home-manager — сознательная последовательность (
 устаканится, часть этого списка (то, что по смыслу пользовательское, а не
 системное) стоит пересмотреть — см. `system-plan.md` §3.
 
-Проверка — `hosts/test-desktop-apps/` (одноразовый VM-хост, не
-`hosts/mimir/`):
-```bash
-nix flake check --no-build
-nixos-rebuild dry-build --flake .#test-desktop-apps
-# или, если nixos-rebuild не в PATH:
-nix build .#nixosConfigurations.test-desktop-apps.config.system.build.toplevel --dry-run
-```
+Проверка — `nix flake check --no-build` (вычисляет `.#mimir`, куда
+подключены все модули) и прогон в VM по `docs/vm-check.md`.
 
 ### Известные ограничения
 
@@ -635,9 +576,8 @@ nix build .#nixosConfigurations.test-desktop-apps.config.system.build.toplevel -
 - **`nixpkgs.config.allowUnfree = true` из `flake.nix` не пропагирует в
   `nixosConfigurations`** — применяется только к отдельному
   `pkgs`-инстансу для `packages.${system}` (agent-sandbox-образ). Каждый
-  хост с unfree-пакетами (`hosts/mimir/`, `hosts/test-desktop-apps/`,
-  `hosts/mimir-vm-full/`) объявляет `nixpkgs.config.allowUnfree = true;`
-  сам.
+  хост с unfree-пакетами (сейчас это `hosts/mimir/`) объявляет
+  `nixpkgs.config.allowUnfree = true;` сам.
 
 ## Obsidian-вольт + notebooklm-py (modules/nixos/notebooklm-tooling.nix)
 
@@ -651,8 +591,7 @@ nix build .#nixosConfigurations.test-desktop-apps.config.system.build.toplevel -
   добавлены вживую 2026-08-13/2026-08-19).
 - `yt-dlp` — там же, есть в nixpkgs напрямую.
 - `uv` и `playwright-driver.browsers` — отдельный модуль
-  `modules/nixos/notebooklm-tooling.nix`, подключён в `hosts/mimir/` и
-  `hosts/mimir-vm-full/`. Модуль выделен отдельно от `desktop-apps.nix`,
+  `modules/nixos/notebooklm-tooling.nix`, подключён в `hosts/mimir/`. Модуль выделен отдельно от `desktop-apps.nix`,
   потому что это не просто пакеты, а пакет + системные
   `environment.variables`, обвязывающие один конкретный воркэраунд:
   Playwright (тянется `notebooklm-py`) по умолчанию скачивает Chromium
@@ -795,11 +734,9 @@ hypr-binds-user.lua` в самом DMS на закреплённой верси�
 не от того, что более поздняя правка Nix-файла молча перестанет доходить
 до реального конфига, если маркер уже стоит).
 
-Проверка — eval-only (`hosts/test-hyprland/` для системного модуля,
-`hosts/test-hyprland-config/` для `modules/home/hyprland.nix`) +
-`nixos-rebuild dry-build`/`nix build ...toplevel --dry-run`. Функциональная
-проверка (что DMS реально стартует, биндинги реально работают) —
-`hosts/mimir-vm-full/` (см. выше).
+Проверка — `nix flake check --no-build` (вычисляет `.#mimir`, куда
+подключены все модули) и прогон в VM по `docs/vm-check.md`. Что DMS реально
+стартует и биндинги работают — только вживую, в VM или на машине.
 
 ### Известные ограничения
 
@@ -824,11 +761,10 @@ NixOS-module-интегрированную инфраструктуру (`home-
 `disko.nixosModules.disko`/`lanzaboote.nixosModules.lanzaboote`.
 
 `home-manager.users.<имя>` — не часть этого модуля: имя пользователя
-хост-специфично, та же граница, что уже есть у `users.users.*`. У
-`hosts/mimir/` его по-прежнему нет; у `hosts/mimir-vm-full/` — есть, с
-реальным пользователем `max` и полным набором дотфайлов (`shell.nix`,
-`zellij.nix`, `ghostty.nix`, `direnv.nix`, `mise.nix`, `neovim.nix`,
-`hyprland.nix`), см. раздел про `mimir-vm-full` выше.
+хост-специфично, та же граница, что уже есть у `users.users.*`. В
+`hosts/mimir/` — пользователь `max` с полным набором дотфайлов
+(`shell.nix`, `zellij.nix`, `ghostty.nix`, `direnv.nix`, `mise.nix`,
+`neovim.nix`, `hyprland.nix`).
 
 Дотфайлы (`modules/home/*`) сейчас реально существуют — это уже не только
 инфраструктура, см. разделы «Hyprland + DankMaterialShell», «Shell,
@@ -869,12 +805,8 @@ zellij уже владеет табами/сплитами/мультиплек�
 `programs.direnv.nix-direnv.enable` (авто-окружения на проект) +
 zsh-интеграция.
 
-Проверка — реальная сборка (не только eval), т.к. есть настоящий
-activation-контент:
-- `hosts/test-shell/` — `shell.nix` + `zellij.nix`
-  (`nix build .#nixosConfigurations.test-shell.config.system.build.toplevel`).
-- `hosts/test-terminal/` — `ghostty.nix` + `direnv.nix`
-  (`nix build .#nixosConfigurations.test-terminal.config.system.build.toplevel`).
+Проверка — `nix flake check --no-build` (вычисляет `.#mimir`, куда
+подключены все модули) и прогон в VM по `docs/vm-check.md`.
 
 ### Известные ограничения
 
@@ -912,8 +844,8 @@ nixvim.
 (nvim-treesitter компилирует парсеры в рантайме), `lazygit` (дефолтный
 кеймап LazyVim `<leader>gg`), `git`, `ruby-lsp`, `rubocop`.
 
-Проверка — та же глубина, что у `shell.nix`: `hosts/test-neovim/`,
-`nix build .#nixosConfigurations.test-neovim.config.system.build.toplevel`.
+Проверка — `nix flake check --no-build` (вычисляет `.#mimir`, куда
+подключены все модули) и прогон в VM по `docs/vm-check.md`.
 
 ### Известные ограничения
 
@@ -933,8 +865,8 @@ nixvim.
 языков берутся из `.tool-versions` каждого проекта, тот же инструмент,
 что использует agent-sandbox внутри (§9.3).
 
-Проверка — `hosts/test-podman-mise/`,
-`nix build .#nixosConfigurations.test-podman-mise.config.system.build.toplevel`.
+Проверка — `nix flake check --no-build` (вычисляет `.#mimir`, куда
+подключены все модули) и прогон в VM по `docs/vm-check.md`.
 
 ## Перевод по хоткею (Crow Translate)
 
