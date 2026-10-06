@@ -506,6 +506,8 @@ let
     # Same story for podman's /run/.containerenv bind-mount target: it must
     # already exist, podman can't create files in the store directory.
     touch $out/run/.containerenv
+    # ...and for --init (agent-sandbox up): podman mounts catatonit here.
+    touch $out/run/podman-init
   '';
 in
 {
