@@ -46,9 +46,9 @@ DankMaterialShell как реальный десктоп (не только па
    - `passwd max` — пароль пользователя вводите вы, в репозитории его нет;
    - копия репозитория вместе с `facter.json` → `/home/max/code/nixos`.
 4. После перезагрузки:
-   - первый вход: `dms setup` (через Ctrl+Alt+F2 и подмену kitty → ghostty
-     во временном конфиге Hyprland) — шаги в `docs/vm-check.md`,
-     «Первый вход»;
+   - первый вход: `dms setup` выполняется сам при активации
+     home-manager (`modules/home/hyprland.nix`, `dmsBootstrap`); если нет —
+     ручной путь в `docs/vm-check.md`, «Первый вход»;
    - Secure Boot: в прошивке перевести Secure Boot в Setup Mode, затем
      `sudo sbctl enroll-keys --microsoft` (ключи Microsoft нужны для
      Option ROM реального железа — видеокарта и т.п.), перезагрузка,
