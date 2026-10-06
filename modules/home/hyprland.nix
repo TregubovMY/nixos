@@ -149,12 +149,15 @@
   # (SIGINT makes wf-recorder finalize the file), notifications go through
   # DMS's notification daemon. No audio on purpose (silent screencasts for
   # tickets/bug reports); add `--audio` to the wf-recorder line if needed.
-  # Dialect's default translation service: Yandex. Google's endpoint gave
-  # no answer from this network in the VM, Yandex did. Forced on every
-  # activation via dconf (key from Dialect 2.6.1's gschema:
-  # /app/drey/Dialect/translators/active); switching provider in Dialect's
-  # own settings works until the next rebuild.
-  dconf.settings."app/drey/Dialect/translators".active = "yandex";
+  # Dialect's translation service: Google (its web endpoint,
+  # translate.google.com batchexecute). Checked from the VM, 2026-10-06:
+  # that endpoint answers; Dialect 2.6.1's Yandex provider fails with
+  # "Failed parsing HTML from yandex.com" (Yandex changed its page, the
+  # scraper is out of date); Lingva's default instance returns 500.
+  # (translate.googleapis.com, which Crow used, answers 429 -- a different
+  # endpoint.) Set via dconf (key from Dialect's gschema:
+  # /app/drey/Dialect/translators/active), re-applied on every activation.
+  dconf.settings."app/drey/Dialect/translators".active = "google";
 
   home.packages = [
     pkgs.bibata-cursors
@@ -362,6 +365,18 @@ hl.config({
 hl.on("hyprland.start", function()
   hl.exec_cmd("sh -c '[ -S /run/spice-vdagentd/spice-vdagent-sock ] && exec spice-vdagent'")
   hl.exec_cmd("sh -c 'sleep 2; systemctl --user reset-failed xdg-desktop-portal.service xdg-desktop-portal-hyprland.service xdg-desktop-portal-gtk.service; systemctl --user restart xdg-desktop-portal.service'")
+end)
+-- End the session properly on logout. Hyprland runs via start-hyprland, not
+-- a session manager (uwsm would do this), so nothing stopped
+-- graphical-session.target when Hyprland exited: dms, dcal and the portals
+-- (all PartOf it) kept running without a display, crashed and were
+-- restarted in a loop -- a burst of quickshell/portal coredumps at every
+-- logout in the VM journal (2026-10-06). Stopping the targets here stops
+-- them cleanly; at the next login DMS's own start hook starts
+-- hyprland-session.target again with the fresh session environment.
+-- --no-block: Hyprland is exiting, don't wait on the jobs.
+hl.on("hyprland.shutdown", function()
+  hl.exec_cmd("systemctl --user --no-block stop hyprland-session.target graphical-session.target")
 end)
 -- NIXOS-MANAGED AUTOSTART BLOCK END
 

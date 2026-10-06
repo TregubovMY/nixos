@@ -876,9 +876,10 @@ nixvim.
 `translate-selection` в `modules/home/hyprland.nix`: берёт выделение через
 `wl-paste --primary` (если пусто — буфер обмена) и вызывает
 `dialect --text … --dest …`; уже открытое окно просто получает новый текст.
-Переводчик по умолчанию — Яндекс (`dconf`, ключ
-`/app/drey/Dialect/translators/active`): Google из сети в VM не отвечал.
-Сменить можно в настройках Dialect — до следующего `nixos-rebuild`.
+Переводчик — Google (`dconf`, ключ `/app/drey/Dialect/translators/active`):
+проверено из VM — веб-переводчик Google отвечает, а провайдер Яндекса в
+Dialect 2.6.1 сломан («Failed parsing HTML from yandex.com», Яндекс поменял
+страницу). Сменить можно в настройках Dialect — до следующего `nixos-rebuild`.
 
 Раньше был Crow Translate (через D-Bus `translateSelection`); заменён
 2026-10-06, т.к. Crow 4.x убрал D-Bus API, переименовал бинарник в `crow` и

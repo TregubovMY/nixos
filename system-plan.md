@@ -407,8 +407,7 @@ playerctl               # медиаклавиши через Waybar/Hyprland-б
 переименовал бинарник в `crow`, убрал D-Bus API, на котором держался хоткей,
 а окно открывает только пустым. SUPER+ALT+T (`translate-selection`,
 `modules/home/hyprland.nix`) открывает окно Dialect с выделенным текстом и
-переводом; переводчик по умолчанию — Яндекс (Google из сети в VM не
-отвечал). Текст ниже — история варианта с Crow.
+переводом; переводчик — Google (провайдер Яндекса в Dialect 2.6.1 сломан). Текст ниже — история варианта с Crow.
 
 Готовое, поддерживаемое приложение вместо самописного скрипта —
 [Crow Translate](https://github.com/crow-translate/crow-translate)
