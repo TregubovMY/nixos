@@ -105,6 +105,7 @@
       ../../modules/home/ghostty.nix
       ../../modules/home/direnv.nix
       ../../modules/home/mise.nix
+      ../../modules/home/calendar.nix
     ];
     home.stateVersion = "24.05";
   };

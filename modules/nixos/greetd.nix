@@ -31,4 +31,13 @@
     settings.default_session.command =
       "${pkgs.tuigreet}/bin/tuigreet --time --remember --asterisks --cmd start-hyprland";
   };
+
+  # Secret Service (system keyring) for the session, unlocked by the login
+  # password typed into tuigreet (pam_gnome_keyring on the greetd PAM
+  # stack), so nothing asks for a second password. Added 2026-10-06 for
+  # DankCalendar, which keeps Google OAuth tokens in the keyring
+  # (modules/home/calendar.nix); Chrome, VS Code and others use the same
+  # Secret Service when it exists instead of weaker fallbacks.
+  services.gnome.gnome-keyring.enable = true;
+  security.pam.services.greetd.enableGnomeKeyring = true;
 }
