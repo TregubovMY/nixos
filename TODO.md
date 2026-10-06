@@ -70,12 +70,11 @@
 
 ## llm-dev-template (`~/code/my/llm-dev-template`)
 
-- [ ] Удалить `forge/` и `board-lab/`.
-- [ ] Процесс как workflow kandev в YAML (`.kandev/workflow.yml`): спека →
-      ревью спеки → реализация → проверки + ИИ-ревью → ревью кода → отчёт.
-- [ ] `init.sh` вместо `forge init`: копия `template/`, `openspec init
-      --language ru`, `lefthook install`.
-- [ ] ADR 0002: переход с Multica/forge на kandev + dsh.
+Переделан под kandev/dsh (ADR 0002 шаблона): forge и board-lab удалены,
+процесс — `template/.kandev/workflow.yml` (импорт в kandev 0.97.0 проверен),
+`init.sh`, `scripts/checks`, `scripts/scrub`.
+
+- [ ] Прогнать одну настоящую задачу через все шаги workflow на mimir.
 
 ## Отложено
 
