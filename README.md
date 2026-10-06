@@ -46,8 +46,8 @@ autostart = kandev start --backend-port 38429
 publish   = 3080:3080
 autostart = dsh web --no-open --port 3081 --trusted-host 127.0.0.1:3080
 autostart = socat TCP-LISTEN:3080,fork,reuseaddr TCP:127.0.0.1:3081
-publish   = 4096:4096                                     # opencode web — по желанию
-autostart = opencode web --hostname 0.0.0.0 --port 4096
+publish   = 4200:4200                                     # opencode web — по желанию
+autostart = opencode web --hostname 0.0.0.0 --port 4200
 ```
 
 ```bash

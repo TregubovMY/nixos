@@ -355,8 +355,11 @@ agent-sandbox down @work
 проектах (`node_modules`, `.venv`, гемы — `vendor/bundle` через
 `BUNDLE_PATH` и на хосте, и в песочнице).
 
-**`opencode web`** (по желанию, для пробы) запускается так же:
-`publish = 4096:4096` и `autostart = opencode web --hostname 0.0.0.0 --port 4096`
+**`opencode web`** (по желанию, для пробы) запускается так же (порт **не 4096**:
+это порт `opencode serve` по умолчанию, и при одновременном старте с kandev
+`opencode web` на нём падал с «ServeError» — на 4200 в VM работают все три
+доски разом):
+`publish = 4200:4200` и `autostart = opencode web --hostname 0.0.0.0 --port 4200`
 — напрямую, без `socat` (в отличие от dsh он умеет не-loopback). Он пишет
 «OPENCODE_SERVER_PASSWORD is not set; server is unsecured»: порт на хосте
 опубликован только на `127.0.0.1`, но при желании пароль задаётся этой
