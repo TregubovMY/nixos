@@ -235,6 +235,44 @@
     fi
   '';
 
+  # A few wallpapers so DMS's picker (Settings → Wallpaper, which browses a
+  # folder) isn't empty on a fresh install: nixos-artwork from nixpkgs, so
+  # nothing is downloaded from random sites and licenses are known.
+  # Read-only store symlinks are fine here -- DMS only reads them; drop
+  # your own files next to them in ~/Pictures/Wallpapers.
+  home.file = lib.listToAttrs (map (name: {
+    name = "Pictures/Wallpapers/nixos-${name}.png";
+    value.source = pkgs.nixos-artwork.wallpapers.${name}.gnomeFilePath;
+  }) [ "catppuccin-mocha" "catppuccin-macchiato" "nineish-dark-gray" "moonscape" "waterfall" "dracula" ]);
+
+  # DMS first-run defaults it has no Nix option for, written into its own
+  # state file (~/.local/state/DankMaterialShell/session.json, DMS
+  # quickshell/Common/SessionData.qml), only where the value is still DMS's
+  # factory default -- anything changed in DMS Settings later is left alone:
+  # - weather: Rostov-on-Don instead of DMS's "New York, NY" (requested
+  #   2026-10-06). Name + coordinates together make DMS skip geocoding
+  #   (WeatherService.qml) and query open-meteo directly.
+  # - wallpaper: catppuccin-mocha from the set above, when none is set.
+  # DMS keeps session.json in memory and rewrites it on its own changes, so
+  # it is restarted once when something was actually changed here.
+  home.activation.dmsDefaults = lib.hm.dag.entryAfter [ "linkGeneration" "dmsBootstrap" ] ''
+    STATE="$HOME/.local/state/DankMaterialShell/session.json"
+    mkdir -p "$(dirname "$STATE")"
+    [ -s "$STATE" ] || echo '{}' > "$STATE"
+    NEW="$(${pkgs.jq}/bin/jq \
+      --arg wall "$HOME/Pictures/Wallpapers/nixos-catppuccin-mocha.png" '
+        (if ((.weatherLocation // "New York, NY") == "New York, NY") then
+           .weatherLocation = "Ростов-на-Дону" | .weatherCoordinates = "47.2357,39.7015"
+         else . end)
+        | (if ((.wallpaperPath // "") == "") then .wallpaperPath = $wall else . end)
+      ' "$STATE")" || NEW=""
+    if [ -n "$NEW" ] && [ "$NEW" != "$(cat "$STATE")" ]; then
+      printf '%s\n' "$NEW" > "$STATE"
+      echo "dms defaults: weather/wallpaper set in $STATE"
+      ${pkgs.systemd}/bin/systemctl --user try-restart dms.service 2>/dev/null || true
+    fi
+  '';
+
   home.activation.dmsHyprlandExtras = lib.hm.dag.entryAfter [ "dmsBootstrap" ] ''
     HYPR_CONF="$HOME/.config/hypr/hyprland.lua"
     if [ -f "$HYPR_CONF" ]; then
