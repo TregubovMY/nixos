@@ -496,6 +496,9 @@ let
     # root-owned store directory ("creating /etc/mtab symlink: permission
     # denied", first run in the VM) -- so it ships in the rootfs.
     ln -s /proc/mounts $out/etc/mtab
+    # Same story for podman's /run/.containerenv bind-mount target: it must
+    # already exist, podman can't create files in the store directory.
+    touch $out/run/.containerenv
   '';
 in
 {
