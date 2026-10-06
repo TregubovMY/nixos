@@ -4,8 +4,8 @@
   # The per-module throwaway hosts (test-*, mimir-vm-*) were removed on
   # 2026-10-06: .#mimir composes every module, so `nix flake check
   # --no-build` evaluating it covers what they did; the real install
-  # rehearsal is now bin/mimir-install against .#mimir in a VM
-  # (docs/vm-check.md). Their history is in git.
+  # rehearsal is now bin/install-host against .#mimir in a VM
+  # (docs/INSTALL.md). Their history is in git.
   #
   # sops-nix deliberately NOT an input (was, briefly, for a single GPG-key
   # secret) — system-plan.md §7 resolved that secret to Bitwarden too,

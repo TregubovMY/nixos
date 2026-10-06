@@ -584,7 +584,7 @@ Bitwarden — вся инфраструктура выше удалена из �
 git clone <repo> && cd <repo>
 
 # 3. Отчёт о железе + разметка (LUKS + btrfs) + установка + пароль max
-bin/mimir-install /dev/nvme0n1
+bin/install-host mimir /dev/nvme0n1
 
 # 4. Перезагрузка, ввод пароля LUKS, Secure Boot enroll-keys,
 #    коммит hosts/mimir/facter.json — см. README.md,

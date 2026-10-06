@@ -267,7 +267,7 @@
       echo "dms setup: first run, deploying DMS Hyprland/Ghostty config"
       if ! printf '2\n1\n1\ny\n' | ${config.programs.dank-material-shell.package}/bin/dms setup \
            || [ ! -d "$HOME/.config/hypr/dms" ]; then
-        echo "WARNING: automatic 'dms setup' failed; run it by hand (docs/vm-check.md, «Первый вход»)" >&2
+        echo "WARNING: automatic 'dms setup' failed; run it by hand (docs/INSTALL.md)" >&2
       fi
     fi
   '';

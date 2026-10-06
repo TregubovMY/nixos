@@ -5,11 +5,11 @@
 
 ## Установка на mimir
 
-- [ ] Прогон в VM по `docs/vm-check.md` (тот же скрипт и `.#mimir`).
-- [ ] Поставить: `bin/mimir-install /dev/<диск>` с NixOS ISO (README,
-      «Установка на реальную машину»). Скрипт ещё ни разу не запускался —
-      ни в VM, ни на железе (на машине разработки не хватило места и
-      nix-daemon не ходит через прокси).
+- [x] Прогон в VM (`docs/INSTALL.md`) — пройден 2026-10-06.
+- [ ] Поставить: `bin/install-host mimir /dev/<диск>` с NixOS ISO
+      (`docs/INSTALL.md`). В VM прошёл его предшественник `bin/mimir-install`;
+      `install-host` (имя машины, swap = RAM + 2G) отличается только этим и
+      ещё не запускался.
 - [ ] Закоммитить `hosts/mimir/facter.json` после установки.
 - [ ] Secure Boot: Setup Mode в прошивке → `sudo sbctl enroll-keys --microsoft`
       → включить Secure Boot → `bootctl status`.

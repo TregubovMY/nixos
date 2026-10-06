@@ -35,16 +35,16 @@ in
     ../modules/nixos/notebooklm-tooling.nix
   ];
 
-  # Only present after bin/mimir-install has run on the machine. Without it
+  # Only present after bin/install-host has run on the machine. Without it
   # the host still evaluates (so `nix flake check` works before install),
   # but the initrd would lack the real storage drivers -- hence the warning,
-  # and bin/mimir-install refuses to continue if the report wasn't produced.
+  # and bin/install-host refuses to continue if the report wasn't produced.
   hardware.facter.reportPath = lib.mkIf (builtins.pathExists hostFacter) hostFacter;
   warnings = lib.optional (!builtins.pathExists hostFacter)
     "hosts/${config.networking.hostName}/facter.json is missing: run bin/install-host on that machine (it writes the hardware report).";
 
   # SPICE guest agent daemon, only when the facter report says this is a
-  # QEMU/KVM guest (the VM rehearsal, docs/vm-check.md) — never on the
+  # QEMU/KVM guest (the VM rehearsal, docs/INSTALL.md) — never on the
   # real laptop. Gives host<->VM clipboard and display hints. Limitation:
   # the upstream agent only speaks the X11 clipboard; under Hyprland that
   # means copying host→VM works, VM→host often doesn't (needs a Wayland
@@ -74,7 +74,7 @@ in
   # thing to remember at real-install time.
   programs.zsh.enable = true;
 
-  # No password here on purpose (see header): bin/mimir-install runs
+  # No password here on purpose (see header): bin/install-host runs
   # `passwd max` inside the freshly installed system. mutableUsers stays at
   # its default (true), so that password survives later rebuilds. Root has
   # no password at all -- nixos-install --no-root-passwd -- admin is via

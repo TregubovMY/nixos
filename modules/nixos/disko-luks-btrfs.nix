@@ -12,7 +12,7 @@
 # `device` and `swapSize` are parameters (not hardcoded) so the exact same
 # module is reused by the disko VM check (disko-luks-btrfs-test.nix,
 # device = "/dev/vda", small swap) and the real hosts/mimir/ (device
-# passed at install time by bin/mimir-install, swapSize = "34G" to match the old
+# passed at install time by bin/install-host, swapSize = "34G" to match the old
 # .trash/disko.nix's number — adjust if mimir's actual RAM differs, since
 # hibernate needs swap >= RAM).
 { device, swapSize ? "34G" }:
