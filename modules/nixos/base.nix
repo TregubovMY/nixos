@@ -14,6 +14,12 @@
   # NetworkManager over D-Bus. Wi-Fi passwords live in NM profiles
   # (system-plan.md §6 table).
   networking.networkmanager.enable = true;
+  # Work VPN is OpenVPN (2026-10-06): the NM plugin lets an .ovpn file be
+  # imported once (`nmcli connection import type openvpn file work.ovpn`)
+  # and toggled like any connection, from DMS's network menu too. Coexists
+  # with Throne's TUN mode only if Throne's routing sends the work subnets
+  # and *.rnds.pro to "direct" (README, «Прокси и рабочий VPN»).
+  networking.networkmanager.plugins = [ pkgs.networkmanager-openvpn ];
 
   # nixos-facter (hosts/mimir, hardware.facter.reportPath) turns on
   # dhcpcd per detected interface via networking.interfaces.<n>.useDHCP

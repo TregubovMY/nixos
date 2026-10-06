@@ -900,6 +900,32 @@ input-настройки и биндинги скриншотов в `modules/ho
 не успеть зарегистрироваться (повторное нажатие через пару секунд должно
 сработать).
 
+## Прокси и рабочий VPN
+
+Схема (решение 2026-10-06): **по умолчанию — напрямую**, через прокси
+(Throne, VLESS из Bitwarden) — только список доменов, рабочие адреса — через
+рабочий VPN. Throne в TUN-режиме перехватывает трафик всех программ (и
+`nix-daemon`, и контейнеров), а куда отправить каждое соединение, решают его
+правила маршрутизации (ядро sing-box). Правила живут в настройках Throne, не
+в git — как и сам VLESS-конфиг.
+
+В Throne → маршрутизация:
+
+1. Исходящее по умолчанию — **direct**.
+2. → **proxy**: `jetbrains.com` (RubyMine, без прокси HTTP 451),
+   `open-meteo.com` (погода в DMS — заблокирован, проверено в VM),
+   `anthropic.com`, `claude.ai`, `claude.com` (Claude Code), по
+   необходимости `openai.com`, `chatgpt.com`, `deepseek.com`.
+3. → **direct**: `rnds.pro` и подсети рабочего VPN — их несёт OpenVPN;
+   DNS для `rnds.pro` — рабочий DNS из VPN, иначе внутренние имена не
+   резолвятся.
+
+Рабочий VPN — OpenVPN через NetworkManager (плагин в `base.nix`), один раз:
+```bash
+nmcli connection import type openvpn file work.ovpn
+nmcli connection up work        # или переключатель в меню сети DMS
+```
+
 ## Секреты
 
 Все секреты (пароли/TOTP, SSH-ключи, GPG-ключ для подписи git-коммитов,

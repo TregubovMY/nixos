@@ -13,6 +13,9 @@
 - [ ] Закоммитить `hosts/mimir/facter.json` после установки.
 - [ ] Secure Boot: Setup Mode в прошивке → `sudo sbctl enroll-keys --microsoft`
       → включить Secure Boot → `bootctl status`.
+- [ ] Throne: маршрутизация по README «Прокси и рабочий VPN» (по умолчанию
+      direct, список доменов → proxy, rnds.pro и рабочие подсети → direct);
+      импорт рабочего `.ovpn` в NetworkManager.
 - [ ] Throne: импортировать VLESS-конфиг из Bitwarden, затем
       `desktopApps.rubymine.enable = true` и `nixos-rebuild switch`.
 - [ ] Если `nixos-install` упадёт на скачивании Android Studio (тоже не из
