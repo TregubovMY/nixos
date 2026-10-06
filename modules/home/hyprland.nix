@@ -98,6 +98,9 @@
   # Bibata ships XCursor themes (no hyprcursor format); Hyprland falls
   # back to XCursor when HYPRCURSOR_THEME isn't a hyprcursor theme.
   home.pointerCursor = {
+    # Explicit: home-manager deprecated enabling cursor config merely by
+    # setting home.pointerCursor (evaluation warning seen in the VM).
+    enable = true;
     package = pkgs.bibata-cursors;
     name = "Bibata-Modern-Classic";
     size = 24;
