@@ -55,8 +55,23 @@
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
+  # DankCalendar (AvengeMedia/dankcalendar, MIT): standalone calendar with
+  # Google/Microsoft/CalDAV accounts, background sync and native event
+  # reminders, rendered inside the DMS panel (DMS's "dankcal" calendar
+  # backend talks to its socket). Requested 2026-10-06 for Google Calendar
+  # notifications. Merged into nixpkgs on 2026-09-25 (PR #556440), but our
+  # nixpkgs pin is older, so it comes from upstream's own flake instead of
+  # a full nixpkgs bump -- same pattern as dank-material-shell above,
+  # pinned to an explicit commit. Builds with our nixpkgs (needs Go >=
+  # 1.26.4; ours has 1.26.5). Its own dank-qml-common input is NOT made to
+  # follow DMS's: the two may need different revisions of that library.
+  inputs.dank-calendar = {
+    url = "github:AvengeMedia/dankcalendar/7f72bd70d1cd5182b5514fec7562955dcaeaab04";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+
   outputs =
-    { self, nixpkgs, disko, lanzaboote, home-manager, dank-material-shell, ... }:
+    { self, nixpkgs, disko, lanzaboote, home-manager, dank-material-shell, dank-calendar, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
@@ -92,7 +107,12 @@
           # DMS's home-manager options (programs.dank-material-shell)
           # only exist when its homeModules is injected via sharedModules,
           # not just by importing the nixosModules above (found live).
-          { home-manager.sharedModules = [ dank-material-shell.homeModules.default ]; }
+          {
+            home-manager.sharedModules = [
+              dank-material-shell.homeModules.default
+              dank-calendar.homeModules.default
+            ];
+          }
           ./hosts/mimir/configuration.nix
         ];
       };
