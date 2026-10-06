@@ -259,6 +259,13 @@ let
 
     export HOME=/home/agent
     export MISE_DATA_DIR=/home/agent/.local/share/mise
+    # ~/.local itself is created by podman as the parent of the shared
+    # volumes mounted under it (mise/uv/npm/local-bin), owned by the
+    # container's root, so ~/.local/state can't be created there ("mise
+    # WARN ... tracked-configs: Permission denied", VM run). State goes to
+    # the home volume's root instead, which belongs to the user.
+    export XDG_STATE_HOME=/home/agent/.local-state
+    export MISE_STATE_DIR=/home/agent/.local-state/mise
     export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
 
     # nix-ld env vars (see the `nixLdLibraries`/loader-symlink comments
