@@ -271,7 +271,7 @@ let
     fi
 
     export HOME=/home/agent
-    export MISE_DATA_DIR=/home/agent/.local/share/mise
+    export MISE_DATA_DIR=/shared/mise
     # ~/.local itself is created by podman as the parent of the shared
     # volumes mounted under it (mise/uv/npm/local-bin), owned by the
     # container's root, so ~/.local/state can't be created there ("mise
@@ -322,13 +322,13 @@ let
     # unlike the host, this container is `--rm` (fresh rootfs every
     # launch), so without redirecting uv's install/shim dirs onto the
     # persistent agent-mise-style volume bin/agent-sandbox mounts at
-    # /home/agent/.local/share/uv, `uv tool install "notebooklm-py[browser]"`
+    # /shared/uv, `uv tool install "notebooklm-py[browser]"`
     # would have to be repeated on every single container start. Both
     # dirs kept under that one mounted volume (rather than uv's separate
     # default ~/.local/bin for shims) so bin/agent-sandbox only needs one
     # extra -v flag, not two.
-    export UV_TOOL_DIR=/home/agent/.local/share/uv/tools
-    export UV_TOOL_BIN_DIR=/home/agent/.local/share/uv/bin
+    export UV_TOOL_DIR=/shared/uv/tools
+    export UV_TOOL_BIN_DIR=/shared/uv/bin
     export PATH="$UV_TOOL_BIN_DIR:$PATH"
     mkdir -p "$UV_TOOL_DIR" "$UV_TOOL_BIN_DIR"
 
@@ -344,19 +344,15 @@ let
     # path under the persistent agent-npm-global volume (bin/agent-sandbox)
     # so that one-time install survives this container being --rm, same as
     # UV_TOOL_DIR/UV_TOOL_BIN_DIR above survives via agent-uv-tools.
-    export NPM_CONFIG_PREFIX=/home/agent/.local/share/npm-global
+    export NPM_CONFIG_PREFIX=/shared/npm-global
     export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"
     mkdir -p "$NPM_CONFIG_PREFIX"
 
-    # Same "manual install, persisted in a shared volume" pattern as
-    # npm-global/uv-tools above, for the one remaining category those two
-    # don't cover: single prebuilt binaries shipped only as GitHub release
-    # assets (fast-moving tools that aren't in nixpkgs, where a pinned Nix
-    # derivation would go stale the same way dsh's would; originally added
-    # for the Multica daemon, dropped 2026-10-05 in favour of kandev/dsh,
-    # the mechanism stays generic). bin/agent-sandbox mounts
-    # the shared `agent-local-bin` volume here. Prebuilt glibc binaries run
-    # via the nix-ld shim configured above.
+    # ~/.local/bin: where tools put hand-installed binaries (pip --user,
+    # release binaries). It's the per-project home's own directory now (the
+    # shared agent-local-bin volume that used to sit here was dropped
+    # 2026-10-06 with its only user, the Multica daemon). Prebuilt glibc
+    # binaries run via the nix-ld shim configured above.
     export PATH="/home/agent/.local/bin:$PATH"
     mkdir -p /home/agent/.local/bin
 

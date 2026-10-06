@@ -686,9 +686,9 @@ volume `agent-npm-global` (§9.4). Требует `DEEPSEEK_API_KEY`.
 podman run --rm -it \
   --userns=keep-id \
   -v <project-dir>:/workspace \
-  -v agent-mise:/home/agent/.local/share/mise \        # общий кэш версий рантаймов между проектами
-  -v agent-uv-tools:/home/agent/.local/share/uv \       # общий, uv tool install notebooklm-py и т.п.
-  -v agent-npm-global:/home/agent/.local/share/npm-global \  # общий, npm install -g @deepseek-ai/dsh
+  -v agent-mise:/shared/mise \                          # общий кэш версий рантаймов между проектами
+  -v agent-uv-tools:/shared/uv \                        # общий, uv tool install notebooklm-py и т.п.
+  -v agent-npm-global:/shared/npm-global \               # общий, npm install -g @deepseek-ai/dsh
   -v agent-cache-<project-hash>:/home/agent/.cache \    # индекс/история сессии агента, per-project
   --network=bridge \
   [--device /dev/dri -v "$XDG_RUNTIME_DIR/wayland-0":... -e WAYLAND_DISPLAY]  # только с --gui
@@ -815,8 +815,10 @@ podman run --rm -it \
   только если на реальных задачах этого окажется мало.
 - **Ручные установки** (быстро меняющиеся инструменты, пиновать
   деривацией бессмысленно): npm-пакеты (`@fission-ai/openspec`,
-  `@deepseek-ai/dsh`) — в общий volume `agent-npm-global`; одиночные
-  бинарники из GitHub releases — в общий volume
-  `agent-local-bin` (`~/.local/bin`, в `PATH`). Оба — общие на все проекты
-  с тем же принятым риском, что и `agent-mise` (9.6).
+  `@deepseek-ai/dsh`) — в общий volume `agent-npm-global` (смонтирован в
+  `/shared/npm-global`, не внутри `~`: вложенные в `~/.local` точки
+  монтирования podman создаёт от чужого владельца, и инструменты не могли
+  писать в `~/.local/share/…`); одиночные бинарники — в `~/.local/bin`
+  домашнего каталога песочницы. Общие на все проекты — с тем же принятым
+  риском, что и `agent-mise` (9.6).
 

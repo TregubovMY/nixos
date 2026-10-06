@@ -91,7 +91,10 @@ expect log_has run
 expect log_has --rm
 expect log_seq -v "$project:/workspace"
 expect log_seq -v "agent-creds-$hash:/home/agent/.sandbox-creds"
-expect log_seq -v "agent-local-bin:/home/agent/.local/bin"
+expect log_seq -v "agent-mise:/shared/mise"
+expect log_seq -v "agent-uv-tools:/shared/uv"
+expect log_seq -v "agent-npm-global:/shared/npm-global"
+expect log_lacks "agent-local-bin:/home/agent/.local/bin"
 expect log_seq -v "agent-home-$hash:/home/agent"
 expect log_seq --rootfs "$rootfs_real:O"
 expect log_seq "$rootfs_real:O" /agent-entrypoint

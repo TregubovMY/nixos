@@ -163,7 +163,7 @@ bin/agent-sandbox attach ~/code/myproject
 # openspec и lefthook уже в образе (nixpkgs), ставить не нужно
 npm install -g @deepseek-ai/dsh        # DeepSeek Harness, см. ниже
 # одиночные бинарники из GitHub releases — в ~/.local/bin
-# (volume agent-local-bin, в PATH).
+# (домашний каталог песочницы, в PATH).
 ```
 
 Версии ruby/node/etc берутся из `.tool-versions`/`mise.toml` самого

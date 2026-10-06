@@ -501,23 +501,28 @@ args+=(
   # so the volume never freezes stale image content; the entrypoint
   # re-creates its symlinks idempotently on every start.
   -v "agent-home-$project_hash:/home/agent"
-  -v "agent-mise:/home/agent/.local/share/mise"
-  # Shared across projects, same as agent-mise above and for the same
-  # reason (system-plan.md §9.6): `uv tool install "notebooklm-py[browser]"`
-  # is a user-level install, not project data, so re-running it on every
-  # single container restart for every project would be wasteful. Entry
-  # point (modules/nixos/packages/agent-sandbox.nix) points UV_TOOL_DIR/
-  # UV_TOOL_BIN_DIR at this one mounted path.
-  -v "agent-uv-tools:/home/agent/.local/share/uv"
-  # Shared across projects, same reasoning as agent-uv-tools right above:
-  # `npm install -g @deepseek-ai/dsh` (DeepSeek Harness) is a user-level
-  # install, not project data. Entry point (modules/nixos/packages/
-  # agent-sandbox.nix) points NPM_CONFIG_PREFIX at this one mounted path.
-  -v "agent-npm-global:/home/agent/.local/share/npm-global"
-  # Shared across projects, same reasoning again, for single prebuilt
-  # binaries installed by hand from GitHub releases — the entrypoint
-  # puts ~/.local/bin on PATH.
-  -v "agent-local-bin:/home/agent/.local/bin"
+  # The three shared volumes below live under /shared, NOT inside the home
+  # directory. Nested under ~/.local/share/... (as they were until
+  # 2026-10-06) podman had to create ~/.local and ~/.local/share itself as
+  # mount-point parents, owned by the container's root instead of the user,
+  # so every tool writing ~/.local/share/<name> failed with EACCES
+  # (opencode, found in the VM). Direct children of the home volume
+  # (~/.cache, ~/.sandbox-creds) are fine -- only multi-level nesting
+  # creates the foreign parents. Without them ~/.local is created by the
+  # tool itself, as the user, in the per-project home volume.
+  #
+  # Shared across projects (system-plan.md §9.6): language runtimes
+  # installed by mise ...
+  -v "agent-mise:/shared/mise"
+  # ... `uv tool install "notebooklm-py[browser]"` (user-level installs, not
+  # project data, wasteful to repeat per project/restart) ...
+  -v "agent-uv-tools:/shared/uv"
+  # ... and `npm install -g @deepseek-ai/dsh` (DeepSeek Harness). The entry
+  # point (modules/nixos/packages/agent-sandbox.nix) points MISE_DATA_DIR,
+  # UV_TOOL_DIR/UV_TOOL_BIN_DIR and NPM_CONFIG_PREFIX at these paths.
+  -v "agent-npm-global:/shared/npm-global"
+  # (agent-local-bin, ~/.local/bin, was dropped: its only user was the
+  # Multica daemon. ~/.local/bin is now the per-project home's own dir.)
   -v "agent-cache-$project_hash:/home/agent/.cache"
   # Per-project (not shared) credentials volume, keyed by the same
   # project_hash as the cache volume above. A single shared volume was
