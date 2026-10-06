@@ -3,7 +3,7 @@
 Переносимая NixOS-конфигурация: disko + LUKS, systemd-boot/Secure Boot,
 Hyprland + DankMaterialShell (DMS), home-manager. Полное описание
 архитектуры и решений — `system-plan.md`. Инструкции для агента,
-работающего в этом репозитории — `CLAUDE.md`.
+работающего в этом репозитории — `CLAUDE.md`. Открытые задачи — `TODO.md`.
 
 Секреты (пароли, SSH-ключи, GPG-ключ, конфиг прокси) — всё в **Bitwarden**,
 не в git. sops-nix в этом репозитории не используется — было опробовано под
