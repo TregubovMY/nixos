@@ -26,6 +26,15 @@ cat >>"$tmp/bin/podman" <<'EOF'
 # `podman container inspect -f {{.State.Running}} NAME` is the wrapper's
 # liveness probe for the `up` container; answer it from $FAKE_RUNNING
 # without recording it as "the" invocation.
+# Home-volume preparation (volume exists/create/inspect): answered without
+# touching the log; inspect returns a real directory so the mkdir works.
+if [ "${1:-}" = volume ]; then
+  case "${2:-}" in
+    exists) exit 0 ;;
+    create) exit 0 ;;
+    inspect) mkdir -p "$FAKE_VOLUME_DIR"; echo "$FAKE_VOLUME_DIR"; exit 0 ;;
+  esac
+fi
 if [ "${1:-}" = container ] && [ "${2:-}" = inspect ]; then
   if [ "${FAKE_RUNNING:-false}" = true ]; then echo true; exit 0; fi
   exit 125
@@ -37,6 +46,7 @@ chmod +x "$tmp/bin/podman"
 
 export PATH="$tmp/bin:$PATH"
 export FAKE_PODMAN_LOG="$tmp/podman.log"
+export FAKE_VOLUME_DIR="$tmp/fake-volume"
 
 project="$tmp/proj"
 mkdir -p "$project/.worktrees/feature/KEY-1-slug" "$tmp/outside"
@@ -65,7 +75,7 @@ bad() { fail=$((fail + 1)); echo "FAIL [$current]: $*" >&2; }
 # stdin from /dev/null so the TTY branch is deterministic (never a TTY).
 run() {
   local rc=0
-  env -i PATH="$PATH" HOME="$tmp" TMPDIR="$tmp" FAKE_PODMAN_LOG="$FAKE_PODMAN_LOG" AGENT_SANDBOX_ROOTFS="$rootfs" \
+  env -i PATH="$PATH" HOME="$tmp" TMPDIR="$tmp" FAKE_PODMAN_LOG="$FAKE_PODMAN_LOG" FAKE_VOLUME_DIR="$FAKE_VOLUME_DIR" AGENT_SANDBOX_ROOTFS="$rootfs" \
     FAKE_PODMAN_EXIT="${FAKE_PODMAN_EXIT:-0}" FAKE_RUNNING="${FAKE_RUNNING:-false}" \
     "$@" </dev/null >"$tmp/out" 2>"$tmp/err" || rc=$?
   echo "$rc"
@@ -332,6 +342,12 @@ expect_rc "$rc" 0
 expect log_seq exec -d
 expect log_seq -d agent-sandbox-cfg-board
 expect log_has "kandev start --backend-port 38429 >> /home/agent/.local-state/autostart.log 2>&1"
+
+t "home volume: ~/.local/share is pre-created as the user"
+rc=$(run bash "$script" "$project" -- true)
+expect_rc "$rc" 0
+expect test -d "$FAKE_VOLUME_DIR/.local/share"
+expect test -d "$FAKE_VOLUME_DIR/.local-state"
 
 t "rootfs: missing rootfs fails with a hint, podman not run"
 rc=$(run env AGENT_SANDBOX_ROOTFS="$tmp/nope" bash "$script" "$project" -- true)
