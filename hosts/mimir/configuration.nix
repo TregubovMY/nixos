@@ -76,8 +76,13 @@
   users.users.max = {
     isNormalUser = true;
     # networkmanager: manage Wi-Fi without sudo (base.nix);
-    # libvirtd: virt-manager without sudo (desktop-apps.nix §5.9).
-    extraGroups = [ "wheel" "networkmanager" "libvirtd" ];
+    # libvirtd: virt-manager without sudo (desktop-apps.nix §5.9);
+    # input: DMS's Caps Lock OSD reads input devices. `dms setup` otherwise
+    # runs `sudo usermod -aG input` itself (DMS core/cmd/dms/commands_setup.go,
+    # ensureInputGroup) -- found live in the VM rehearsal as a seemingly hung
+    # setup waiting for a sudo password, and an imperative usermod would be
+    # undone by the next rebuild anyway.
+    extraGroups = [ "wheel" "networkmanager" "libvirtd" "input" ];
     shell = pkgs.zsh;
   };
 
