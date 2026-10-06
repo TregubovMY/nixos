@@ -12,6 +12,16 @@
 { pkgs, ... }:
 {
   programs.neovim.enable = true;
+  # Set explicitly to silence home-manager's "default changed" evaluation
+  # warnings (new default is false since home.stateVersion 26.05; we are on
+  # 24.05, which still gets the legacy true). false, i.e. the new default:
+  # LazyVim and its plugins are Lua, nothing here uses Neovim's Ruby or
+  # Python *remote-plugin* providers (ruby-lsp/rubocop below are separate
+  # programs, not providers), and dropping them keeps the neovim gem and a
+  # python env out of the closure. `:checkhealth` will just list the
+  # providers as disabled.
+  programs.neovim.withRuby = false;
+  programs.neovim.withPython3 = false;
 
   # LazyVim's default (non-language-specific) plugin set needs these on
   # PATH at runtime -- not installed by lazy.nvim/mason, so declared here
