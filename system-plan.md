@@ -630,12 +630,20 @@ bin/mimir-install /dev/nvme0n1
   агенты запускаются последовательно (один проект за раз), архитектура
   не меняется — просто пересоздаётся контейнер под текущий проект.
 
-### 9.3 Образ (`modules/nixos/packages/agent-sandbox.nix`)
+### 9.3 Корень песочницы и инструменты (`modules/nixos/packages/agent-sandbox.nix`)
 
-Собирается декларативно через `pkgs.dockerTools.buildLayeredImage` (не
-`buildImage` — послойная сборка даёт более полезное кэширование: смена
-одного часто обновляемого пакета вроде `claude-code` не пересобирает/не
-перезаливает слой с самым тяжёлым зависимым — chromium). Содержит:
+**С 2026-10-06 — не образ.** Раньше `dockerTools.buildLayeredImage`
+копировал все инструменты (~4 ГБ, в основном Chromium и Playwright) в
+хранилище podman, хотя те же пути уже были в `/nix/store` хоста. Теперь
+модуль отдаёт `tools` (один `buildEnv`) и `rootfs` (крошечный каталог:
+`/etc/passwd`, `/bin/sh`, nix-ld, сертификаты, entrypoint, точки
+монтирования podman); `bin/agent-sandbox` запускает
+`podman run --rootfs <rootfs>:O` с `/nix/store` хоста только для чтения,
+`/etc/passwd`/`group` с пользователем генерирует сам и монтирует только
+для чтения. На хост корень попадает через `modules/nixos/agent-sandbox.nix`
+(`/etc/agent-sandbox/rootfs`), обновление — `nixos-rebuild switch`.
+Агент при этом видит весь `/nix/store` хоста (только чтение) — секретов
+там нет (они в Bitwarden). Состав `tools`:
 
 ```
 mise                      # менеджер версий языков — НЕ хардкодим ruby/node в образе
@@ -644,7 +652,7 @@ claude-code, opencode     # сами агенты
 chromium (+ Wayland/Mesa) # для GUI-браузера, см. 9.5
 uv, playwright-driver.browsers # notebooklm-py тулинг, см. modules/nixos/notebooklm-tooling.nix
 nodejs                    # только рантайм для `npm install -g @deepseek-ai/dsh` (DeepSeek Harness), см. ниже
-gitleaks, jq, glab, tmux  # агентный процесс (scrub, pre-commit, долгоживущие сессии), см. 9.7
+gitleaks, jq, tmux        # агентный процесс (glab убран 2026-10-06 до этапа GitLab) (scrub, pre-commit, долгоживущие сессии), см. 9.7
 gopls, typescript-language-server, typescript  # LSP для встроенного LSP-инструмента Claude Code / OpenCode, см. 9.7
 ```
 
@@ -684,7 +692,8 @@ podman run --rm -it \
   -v agent-cache-<project-hash>:/home/agent/.cache \    # индекс/история сессии агента, per-project
   --network=bridge \
   [--device /dev/dri -v "$XDG_RUNTIME_DIR/wayland-0":... -e WAYLAND_DISPLAY]  # только с --gui
-  agent-sandbox:latest
+  -v /nix/store:/nix/store:ro --tmpfs /tmp \
+  --rootfs /etc/agent-sandbox/rootfs:O /agent-entrypoint   # с 2026-10-06, было: образ agent-sandbox:latest
 ```
 
 Персистентные volumes переживают пересоздание контейнера: `agent-mise` и

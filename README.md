@@ -71,17 +71,20 @@ Podman-контейнер, в который смонтирована тольк
 
 ### Установка
 
-Нужен установленный `podman` на хосте. Образ этот флейк не публикует
-никуда автоматически — собрать и загрузить в podman вручную один раз:
+Ничего отдельно собирать не нужно: `modules/nixos/agent-sandbox.nix`
+(подключён в `hosts/mimir`) кладёт корень песочницы в
+`/etc/agent-sandbox/rootfs` и ставит команды `agent-sandbox` и
+`kandev-sandbox` в PATH. Обновление — обычный `nixos-rebuild switch`.
 
-```bash
-nix build .#agent-sandbox-image   # или просто `nix build` — есть packages.default
-podman load -i ./result
-```
-
-`bin/agent-sandbox` ниже предполагает, что `agent-sandbox:latest` уже
-есть в `podman images` — без этого шага первый же запуск упадёт с
-"image not found".
+**Как устроено (с 2026-10-06):** это не образ podman. Корень песочницы —
+крошечный каталог в `/nix/store` (`/etc/passwd`, `/bin/sh`, загрузчик
+nix-ld, сертификаты, entrypoint), а все инструменты — одно окружение
+`buildEnv` в том же `/nix/store`. podman запускается с `--rootfs <корень>:O`,
+`/nix/store` хоста смонтирован только для чтения. Пакеты не копируются в
+хранилище podman: раньше образ занимал ~4 ГБ (в основном Chromium и
+Playwright), которые и так лежали на хосте. Проверить сборку без
+`switch`: `nix build .#agent-sandbox-rootfs -o /tmp/sbx` и
+`AGENT_SANDBOX_ROOTFS=/tmp/sbx agent-sandbox …`.
 
 ### Использование
 
@@ -249,14 +252,14 @@ Wayland-сессии команда сразу завершится с поня�
   --no-tty … -- false; echo $?` (ожидается 1) → `down`. Отдельно
   проверить, что `--init` работает с установленным podman (нужен
   catatonit; на NixOS идёт вместе с `virtualisation.podman`).
-- **Образ с новыми пакетами (gitleaks/jq/glab/tmux/gopls/
-  typescript-language-server) собран в среде разработки только с
-  заглушкой вместо `claude-code`**: `claude-code` — unfree, его нет в
-  бинарном кэше, а скачивание самого бинарника с серверов Anthropic
-  прокси среды разработки не пропускает. Остальной closure, сборка слоёв,
-  симлинк `/agent-entrypoint` и логика `AGENT_WORKDIR` в entrypoint
-  проверены на этом образе. Полная сборка — на целевой машине
-  (`nix build .#agent-sandbox-image`).
+- **Проверено в VM mimir (2026-10-06)** на корне из `/nix/store`:
+  одноразовый запуск и `up`/`exec`/`down`; пользователь `agent` с uid
+  хоста, файлы в проекте — ваши; все инструменты на месте (git, claude,
+  opencode, mise, node, uv, openspec, lefthook, gitleaks, gopls,
+  typescript-language-server, gcc, chromium, rg, tmux, jq); `/nix/store`
+  только для чтения; mise сам ставит Node по `.tool-versions`; домашний
+  каталог переживает `down`/`up`. Не проверены `--gui` и `uv tool install
+  notebooklm-py`.
 - **Данные агента (логин/токены) переживают перезапуск контейнера, но
   только для того же проекта.** `bin/agent-sandbox` монтирует отдельный
   named volume `agent-creds-$project_hash` (тот же хэш пути проекта, что

@@ -128,29 +128,28 @@ sudo reboot
 - [ ] `systemctl hibernate` → VM выключилась → запустить снова → пароль
       LUKS → вернулась сессия с открытыми окнами.
 
-## 6. Песочницы агентов (по желанию, ещё ~5–10 ГБ)
+## 6. Песочницы агентов
 
-Образ песочницы собирается локально (в нём chromium — долго):
+Корень песочницы ставится вместе с системой (`/etc/agent-sandbox/rootfs`),
+команды `agent-sandbox`/`kandev-sandbox` уже в PATH — собирать ничего не нужно:
 
 ```bash
-cd ~/code/nixos
-nix build .#agent-sandbox-image && podman load -i result && rm result
 mkdir -p ~/code/test && cd ~/code/test && git init -q && echo 'node 22' > .tool-versions
 ```
 
 agent-sandbox:
 
-- [ ] `~/code/nixos/bin/agent-sandbox up ~/code/test` →
-      `bin/agent-sandbox attach ~/code/test` → внутри `touch /workspace/x; echo 'hi' > ~/keep; node -v`.
+- [ ] `agent-sandbox up ~/code/test` →
+      `agent-sandbox attach ~/code/test` → внутри `touch /workspace/x; echo 'hi' > ~/keep; node -v`.
 - [ ] На хосте `ls -l ~/code/test/x` — владелец `max`.
-- [ ] `bin/agent-sandbox down ~/code/test`, снова `up` + `attach` → `cat ~/keep` → `hi`
+- [ ] `agent-sandbox down ~/code/test`, снова `up` + `attach` → `cat ~/keep` → `hi`
       (домашний каталог песочницы сохранился).
 - [ ] `which openspec lefthook gitleaks` внутри — всё находится.
 
 kandev:
 
 - [ ] `mise use -g node@22` на хосте (чтобы было что «расшарить»).
-- [ ] `~/code/nixos/bin/kandev-sandbox up ~/code/test` → открыть
+- [ ] `kandev-sandbox up ~/code/test` → открыть
       http://127.0.0.1:38429 в браузере VM.
 - [ ] `podman exec -w ~/code/test kandev sh -c 'id; node -v; touch y; which openspec lefthook gitleaks'`
       → `uid=1000(kandev)`, версия node с хоста, все три утилиты найдены.
