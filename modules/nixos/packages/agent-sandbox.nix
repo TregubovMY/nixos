@@ -245,18 +245,19 @@ let
 
   entrypoint = pkgs.writeShellScript "agent-sandbox-entrypoint" ''
     set -euo pipefail
+    # All sandbox tools live in one buildEnv in the host's /nix/store
+    # (mounted read-only); nothing is on any FHS path inside the rootfs,
+    # so PATH comes first -- even `id`/`getent` below need it.
+    export PATH="${tools}/bin''${PATH:+:$PATH}"
 
-    # podman itself now adds the passwd entry (bin/agent-sandbox passes
-    # --passwd-entry, the rootfs below is read-only); this append is only a
-    # fallback and must not abort the entrypoint if /etc is not writable.
+    # bin/agent-sandbox mounts a passwd/group with this user read-only, so
+    # this append is only a fallback (other launchers) and must not abort
+    # the entrypoint when /etc is not writable.
     if ! getent passwd "$(id -u)" > /dev/null 2>&1; then
       echo "agent:x:$(id -u):$(id -g)::/home/agent:${pkgs.bashInteractive}/bin/bash" >> /etc/passwd 2>/dev/null || true
     fi
 
     export HOME=/home/agent
-    # All sandbox tools live in one buildEnv in the host's /nix/store
-    # (mounted read-only); nothing is on any FHS path inside the rootfs.
-    export PATH="${tools}/bin''${PATH:+:$PATH}"
     export MISE_DATA_DIR=/home/agent/.local/share/mise
     export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
 
@@ -479,10 +480,16 @@ in
 #   end-to-end test; same bundle as SSL_CERT_FILE, not a copy).
 # - agent-entrypoint: stable path for `podman exec` (exec doesn't run an
 #   entrypoint, bin/agent-sandbox calls this explicitly).
-# - home/agent, workspace, tmp: mount points (volume, project, tmpfs).
+# - workspace, tmp: mount points (project, tmpfs); see below for why
+#   home/agent is NOT one.
 let
   rootfs = pkgs.runCommand "agent-sandbox-rootfs" { } ''
-    mkdir -p $out/{bin,usr/bin,lib64,etc/ssl/certs,home/agent,workspace,tmp,nix/store,run,dev,proc,sys}
+    # No home/agent here on purpose: an existing mount point makes podman
+    # "copy up" its owner and mode (root, read-only in the store) onto the
+    # fresh agent-home volume, which the user then can't write to (seen in
+    # the VM). Absent, podman creates it in the overlay and the volume
+    # stays owned by the keep-id user.
+    mkdir -p $out/{bin,usr/bin,lib64,etc/ssl/certs,workspace,tmp,nix/store,run,dev,proc,sys}
     ln -s ${pkgs.nix-ld}/libexec/nix-ld $out/lib64/ld-linux-x86-64.so.2
     ln -s ${pkgs.bashInteractive}/bin/bash $out/bin/sh
     ln -s ${pkgs.bashInteractive}/bin/bash $out/bin/bash
