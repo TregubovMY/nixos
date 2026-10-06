@@ -51,7 +51,6 @@
   | Канбан | `@shengsheng/dsh-taskboard` | статусы до `in_review`, `done` ставит только человек |
   | Ревью | `dsh-file-review` | комментарии к строкам диффа → агенту пачкой |
   | | `dsh-better-sidebar` | файлы/git/терминал; file-review встраивается сюда |
-  | OpenSpec | `dsh-openspec` | skills OpenSpec + CLI |
   | Токены | `dsh-context` | состав контекста, токены по запросам |
   | | `dsh-cost-meter` | стоимость, бюджеты |
   | Трейс | `dsh-maze` | таймлайн выполнения, сравнение сессий |
