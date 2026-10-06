@@ -348,8 +348,16 @@ hl.config({
 -- (Was: autostart of Crow Translate for its D-Bus hotkey. Crow 4.x has no
 -- D-Bus API and its binary is `crow`; the translate bind below now calls
 -- the CLI on demand instead, so nothing needs to run in the background.)
+-- Portals after a log out / log in (found live in the VM, 2026-10-06): the
+-- user systemd manager outlives the Hyprland session, so on logout the
+-- portals restart without a compositor, hit systemd's start limit and
+-- stay "failed" in the next session (screen sharing, file dialogs and
+-- screenshot portals then don't work until reboot). Clear that and start
+-- them fresh; the sleep lets DMS's own start hook push the session
+-- environment (dbus-update-activation-environment) first.
 hl.on("hyprland.start", function()
   hl.exec_cmd("sh -c '[ -S /run/spice-vdagentd/spice-vdagent-sock ] && exec spice-vdagent'")
+  hl.exec_cmd("sh -c 'sleep 2; systemctl --user reset-failed xdg-desktop-portal.service xdg-desktop-portal-hyprland.service xdg-desktop-portal-gtk.service; systemctl --user restart xdg-desktop-portal.service'")
 end)
 -- NIXOS-MANAGED AUTOSTART BLOCK END
 
