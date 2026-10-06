@@ -338,8 +338,13 @@ agent-sandbox down @work
 **Первый запуск конфига** (`agent-sandbox attach @work`, внутри):
 1. `claude login` — один раз на конфиг, им пользуются и терминал, и kandev,
    и dsh.
-2. `npm install -g @deepseek-ai/dsh@0.2.0-rc.2` — dsh (общий volume на все
-   конфиги, ставится один раз); плагины — `.dsh/README.md` шаблона.
+2. `dsh-setup` — ставит dsh `0.2.0-rc.2` (общий volume на все конфиги,
+   один раз) и плагины из закреплённого списка `core` (канбан, ревью по
+   строкам, токены); `dsh-setup extra` и `dsh-setup claude-sdk` — по
+   желанию (второй — серая зона, спросит подтверждение). Профиль `~/.dsh`
+   лежит в домашнем каталоге **этого** конфига, поэтому запускать внутри
+   нужной песочницы: `agent-sandbox exec @work -- dsh-setup`, потом
+   `down`/`up`. Списки — `modules/nixos/packages/dsh-plugins/`.
 3. `gh auth login` — если нужны PR из kandev.
 4. В kandev: **Settings → Agents** → профиль Claude Code → **CLI
    passthrough**, не дефолтный `claude-acp` (Agent SDK; подписку через него
@@ -349,6 +354,14 @@ agent-sandbox down @work
 чтения (`MISE_SHARED_INSTALL_DIRS`), зависимости проектов лежат в самих
 проектах (`node_modules`, `.venv`, гемы — `vendor/bundle` через
 `BUNDLE_PATH` и на хосте, и в песочнице).
+
+**`opencode web`** (по желанию, для пробы) запускается так же:
+`publish = 4096:4096` и `autostart = opencode web --hostname 0.0.0.0 --port 4096`
+— напрямую, без `socat` (в отличие от dsh он умеет не-loopback). Он пишет
+«OPENCODE_SERVER_PASSWORD is not set; server is unsecured»: порт на хосте
+опубликован только на `127.0.0.1`, но при желании пароль задаётся этой
+переменной. В логе будет безвредная ошибка про `xdg-open` — он пытается
+открыть браузер, а его в песочнице нет.
 
 Проверено в VM mimir (2026-10-06): kandev через `autostart` (HTTP 200 на
 `127.0.0.1:38429`) и dsh web через `socat` (по ссылке с токеном пускает)

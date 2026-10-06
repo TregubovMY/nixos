@@ -46,6 +46,8 @@ autostart = kandev start --backend-port 38429
 publish   = 3080:3080
 autostart = dsh web --no-open --port 3081 --trusted-host 127.0.0.1:3080
 autostart = socat TCP-LISTEN:3080,fork,reuseaddr TCP:127.0.0.1:3081
+publish   = 4096:4096                                     # opencode web — по желанию
+autostart = opencode web --hostname 0.0.0.0 --port 4096
 ```
 
 ```bash
@@ -56,7 +58,7 @@ agent-sandbox ~/code/proj -- claude    # разово, без конфига
 ```
 
 Первый раз в каждой песочнице: `claude login`, `gh auth login`,
-`npm i -g @deepseek-ai/dsh@0.2.0-rc.2`, в kandev профиль Claude Code →
+`dsh-setup` (dsh и плагины), в kandev профиль Claude Code →
 **CLI passthrough**. Языки и гемы с хоста подключаются только для чтения —
 повторно не скачиваются. Подробно — `docs/REFERENCE.md`, разделы про
 песочницу.
