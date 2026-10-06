@@ -235,5 +235,74 @@ expect_rc "$rc" 0
 expect log_has ps
 expect log_seq --filter label=agent-sandbox.project
 
+# --- @name config -----------------------------------------------------------
+# HOME is $tmp inside run(), so configs live in $tmp/.config/....
+cfgdir="$tmp/.config/agent-sandbox/projects"
+mkdir -p "$cfgdir" "$tmp/extra-rw" "$tmp/extra-ro"
+extra_rw="$(cd "$tmp/extra-rw" && pwd -P)"
+extra_ro="$(cd "$tmp/extra-ro" && pwd -P)"
+cat >"$cfgdir/shop.conf" <<EOF
+# comment line
+dir      = $project
+mount    = $extra_rw     # trailing comment
+mount_ro = $extra_ro
+publish  = 3080:3080
+proxy    = http://10.0.2.2:2080
+env      = RAILS_ENV=development
+EOF
+
+t "config: main dir, extra mounts, proxy, env, publish, name-keyed volumes"
+rc=$(run bash "$script" up @shop)
+expect_rc "$rc" 0
+expect log_seq -v "$project:/workspace"
+expect log_seq -v "$extra_rw:$extra_rw"
+expect log_seq -v "$extra_ro:$extra_ro:ro"
+expect log_seq -e "AGENT_EXTRA_TRUSTED=$extra_rw:$extra_ro"
+expect log_seq -e HTTPS_PROXY=http://10.0.2.2:2080
+expect log_seq -e https_proxy=http://10.0.2.2:2080
+expect log_seq -e NO_PROXY=localhost,127.0.0.1
+expect log_seq -e RAILS_ENV=development
+expect log_seq -p 127.0.0.1:3080:3080
+expect log_seq --name agent-sandbox-cfg-shop
+expect log_seq -v "agent-creds-cfg-shop:/home/agent/.sandbox-creds"
+
+t "config: exec targets the name-keyed container, no up-time extras"
+rc=$(FAKE_RUNNING=true run bash "$script" exec @shop -- true)
+expect_rc "$rc" 0
+expect log_seq "agent-sandbox-cfg-shop" /agent-entrypoint
+expect log_lacks -p
+
+t "config: missing file"
+rc=$(run bash "$script" up @nope)
+expect_rc "$rc" 1
+
+t "config: bad name"
+rc=$(run bash "$script" up @../etc)
+expect_rc "$rc" 1
+
+t "config: unknown key rejected"
+printf 'dir = %s\nmounts = /tmp\n' "$project" >"$cfgdir/typo.conf"
+rc=$(run bash "$script" up @typo)
+expect_rc "$rc" 1
+expect log_lacks run
+
+t "config: refuses to mount the whole home"
+printf 'dir = %s\nmount = ~\n' "$project" >"$cfgdir/home.conf"
+rc=$(run bash "$script" up @home)
+expect_rc "$rc" 1
+expect log_lacks run
+
+t "config: refuses a config that lives inside a mounted dir"
+mkdir -p "$project/.cfg/agent-sandbox/projects"
+printf 'dir = %s\n' "$project" >"$project/.cfg/agent-sandbox/projects/inner.conf"
+rc=$(run env XDG_CONFIG_HOME="$project/.cfg" bash "$script" up @inner)
+expect_rc "$rc" 1
+expect log_lacks run
+
+t "config: no dir"
+printf 'env = A=1\n' >"$cfgdir/nodir.conf"
+rc=$(run bash "$script" up @nodir)
+expect_rc "$rc" 1
+
 echo "agent-sandbox tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

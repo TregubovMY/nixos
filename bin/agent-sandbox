@@ -23,6 +23,9 @@ usage_text="Usage:
   agent-sandbox down <project-dir>                        stop (and remove) it
   agent-sandbox status [<project-dir>]                    list running project containers
 
+<project-dir> can be @name: settings from ~/.config/agent-sandbox/projects/<name>.conf
+(main dir, extra dirs, proxy, env, ports) — see the comment in this script.
+
 Options (one-shot and up):
   --gui                   Wayland + GPU passthrough (see agent-sandbox-gui.sh)
   --workdir <path>        start in a subdirectory of the project, e.g. .worktrees/feature/KEY-slug
@@ -144,6 +147,111 @@ project_dir="${1:-}"
 [ -n "$project_dir" ] || usage
 shift
 
+# ---------------------------------------------------------------------------
+# Per-project config: `@name` instead of <project-dir>
+# ---------------------------------------------------------------------------
+# ~/.config/agent-sandbox/projects/<name>.conf, `key = value` per line:
+#   dir      = ~/code/shop-api          main project -> /workspace (required, once)
+#   mount    = ~/code/shop-frontend     extra dir, read-write, same path inside (repeatable)
+#   mount_ro = ~/code/shared-lib        extra dir, read-only, same path inside (repeatable)
+#   publish  = 3080:3080                like --publish, 127.0.0.1 only (repeatable)
+#   proxy    = http://host:port         HTTP(S)_PROXY for everything in the container
+#   env      = RAILS_ENV=development    literal variable (repeatable; NOT for secrets)
+#
+# Why outside the project and not a dotfile in it: the project dir is
+# mounted read-write, so an agent could edit such a file and grant itself
+# more directories on the next start. The config is read here, on the
+# host, and the script refuses one that lives inside any directory it
+# mounts. Parsed line by line, never `source`d: it is data, and a
+# sourced file would be a second way to run arbitrary code on the host.
+# Extra dirs keep their host path inside the container (same rule as
+# bin/kandev-sandbox), so paths an agent mentions are paths the host IDE
+# can open; only the main dir is /workspace, as before.
+cfg_name=""
+cfg_mounts=()
+cfg_mounts_ro=()
+cfg_env=()
+cfg_proxy=""
+
+cfg_path() { # expand a leading ~ and resolve to a physical dir, or die
+  local p="$1"
+  case "$p" in "~") p="$HOME" ;; "~/"*) p="$HOME/${p#"~/"}" ;; esac
+  case "$p" in
+    *:*) echo "agent-sandbox: path in $cfg_file must not contain ':': $p" >&2; exit 1 ;;
+  esac
+  [ -d "$p" ] || { echo "agent-sandbox: not a directory (in $cfg_file): $p" >&2; exit 1; }
+  p="$(cd "$p" && pwd -P)"
+  # Mounting / or the whole home would hand the agent SSH keys, browser
+  # profiles, other projects — what the sandbox exists to hide.
+  if [ "$p" = / ] || [ "$p" = "$(cd "$HOME" && pwd -P)" ]; then
+    echo "agent-sandbox: refusing to mount $p (from $cfg_file) — list project directories" >&2
+    exit 1
+  fi
+  printf '%s' "$p"
+}
+
+case "$project_dir" in
+  @*)
+    cfg_name="${project_dir#@}"
+    case "$cfg_name" in
+      "" | *[!a-z0-9_-]* | [_-]*)
+        echo "agent-sandbox: config name must be [a-z0-9_-]: @$cfg_name" >&2
+        exit 1
+        ;;
+    esac
+    cfg_file="${XDG_CONFIG_HOME:-$HOME/.config}/agent-sandbox/projects/$cfg_name.conf"
+    [ -f "$cfg_file" ] || { echo "agent-sandbox: no config $cfg_file" >&2; exit 1; }
+    project_dir=""
+    lineno=0
+    while IFS= read -r line || [ -n "$line" ]; do
+      lineno=$((lineno + 1))
+      line="${line%%#*}"
+      # trim surrounding whitespace
+      line="${line#"${line%%[![:space:]]*}"}"
+      line="${line%"${line##*[![:space:]]}"}"
+      [ -n "$line" ] || continue
+      case "$line" in
+        *=*) ;;
+        *) echo "agent-sandbox: $cfg_file:$lineno: expected 'key = value'" >&2; exit 1 ;;
+      esac
+      key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
+      val="${line#*=}"; val="${val#"${val%%[![:space:]]*}"}"
+      case "$key" in
+        dir)
+          [ -z "$project_dir" ] || { echo "agent-sandbox: $cfg_file:$lineno: 'dir' given twice" >&2; exit 1; }
+          project_dir="$(cfg_path "$val")"
+          ;;
+        mount) cfg_mounts+=("$(cfg_path "$val")") ;;
+        mount_ro) cfg_mounts_ro+=("$(cfg_path "$val")") ;;
+        publish)
+          # Only from the config when the container is actually created;
+          # attach/exec/down reuse what `up` set (see the mode checks above).
+          case "$mode" in run | up) publish+=("$val") ;; esac
+          ;;
+        proxy) cfg_proxy="$val" ;;
+        env)
+          case "$val" in
+            [A-Za-z_]*=*) cfg_env+=("$val") ;;
+            *) echo "agent-sandbox: $cfg_file:$lineno: env expects NAME=value" >&2; exit 1 ;;
+          esac
+          ;;
+        *) echo "agent-sandbox: $cfg_file:$lineno: unknown key '$key'" >&2; exit 1 ;;
+      esac
+    done <"$cfg_file"
+    [ -n "$project_dir" ] || { echo "agent-sandbox: $cfg_file has no 'dir = ...'" >&2; exit 1; }
+    # The config must not be reachable (writable) from inside the container.
+    cfg_real="$(cd "$(dirname "$cfg_file")" && pwd -P)/$(basename "$cfg_file")"
+    for d in "$project_dir" ${cfg_mounts[@]+"${cfg_mounts[@]}"}; do
+      case "$cfg_real" in
+        "$d"/*)
+          echo "agent-sandbox: $cfg_file lies inside mounted dir $d — an agent could rewrite it; move it out" >&2
+          exit 1
+          ;;
+      esac
+    done
+    ;;
+esac
+
 # A project path containing ':' would silently corrupt the `-v
 # host:container` volume spec built below (podman splits on ':') —
 # reject it up front with a clear error instead of a confusing bind-mount
@@ -168,6 +276,10 @@ project_dir="$(cd "$project_dir" && pwd -P)"
 # session/index caches never collide or leak into each other. Also names
 # the long-lived `up` container, so one project maps to exactly one.
 project_hash="$(printf '%s' "$project_dir" | sha256sum | cut -c1-12)"
+# A config project is keyed by its name instead: moving the directory and
+# editing `dir =` keeps the same claude/opencode logins and caches. The
+# "cfg-" prefix keeps the namespace apart from the hex path hashes.
+[ -z "$cfg_name" ] || project_hash="cfg-$cfg_name"
 container_name="agent-sandbox-$project_hash"
 
 # Strip a single leading "--" from the remaining args before forwarding
@@ -398,6 +510,33 @@ args+=(
   --network=bridge
 )
 args+=(${env_args[@]+"${env_args[@]}"} ${publish_args[@]+"${publish_args[@]}"})
+
+# Config extras (see the `@name` block above). Extra dirs are also
+# exported as AGENT_EXTRA_TRUSTED so the entrypoint lets mise read their
+# mise.toml without a trust prompt, like it does for /workspace.
+extra_trusted=()
+for d in ${cfg_mounts[@]+"${cfg_mounts[@]}"}; do
+  args+=(-v "$d:$d"); extra_trusted+=("$d")
+done
+for d in ${cfg_mounts_ro[@]+"${cfg_mounts_ro[@]}"}; do
+  args+=(-v "$d:$d:ro"); extra_trusted+=("$d")
+done
+if [ "${#extra_trusted[@]}" -gt 0 ]; then
+  args+=(-e "AGENT_EXTRA_TRUSTED=$(IFS=:; echo "${extra_trusted[*]}")")
+fi
+for e in ${cfg_env[@]+"${cfg_env[@]}"}; do
+  args+=(-e "$e")
+done
+# Both spellings: curl/git read the lower-case ones, many Node/Go tools
+# the upper-case ones. NO_PROXY keeps published web UIs and local test
+# servers off the proxy. The URL (and any credentials in it) is visible to
+# the agent — a proxy needing a password is a secret like any other.
+if [ -n "$cfg_proxy" ]; then
+  for v in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy; do
+    args+=(-e "$v=$cfg_proxy")
+  done
+  args+=(-e NO_PROXY=localhost,127.0.0.1 -e no_proxy=localhost,127.0.0.1)
+fi
 [ -z "$container_workdir" ] || args+=(-e "AGENT_WORKDIR=$container_workdir")
 
 if [ "$gui" = 1 ]; then

@@ -206,7 +206,9 @@ let
     # what the user chose to mount), so pre-trusting it is safe and
     # harmless for `.tool-versions` projects, which don't consult trust
     # at all.
-    export MISE_TRUSTED_CONFIG_PATHS=/workspace
+    # Extra dirs from a bin/agent-sandbox @name config (AGENT_EXTRA_TRUSTED,
+    # ':'-separated host paths mounted at the same path) get the same trust.
+    export MISE_TRUSTED_CONFIG_PATHS="/workspace''${AGENT_EXTRA_TRUSTED:+:$AGENT_EXTRA_TRUSTED}"
 
     # AGENT_WORKDIR (set by `bin/agent-sandbox --workdir`) starts the
     # command in a subdirectory of the mounted project instead of its root
