@@ -492,6 +492,10 @@ let
     echo "root:x:0:0:root:/root:/bin/sh" > $out/etc/passwd
     printf 'root:x:0:\nusers:x:100:\nnogroup:x:65534:\n' > $out/etc/group
     touch $out/etc/hosts $out/etc/resolv.conf $out/etc/hostname
+    # podman creates this symlink itself if missing, which fails on a
+    # root-owned store directory ("creating /etc/mtab symlink: permission
+    # denied", first run in the VM) -- so it ships in the rootfs.
+    ln -s /proc/mounts $out/etc/mtab
   '';
 in
 {
