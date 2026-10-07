@@ -71,6 +71,8 @@ agent-sandbox ~/code/proj -- claude    # разово, без конфига
 | Клавиши | Действие |
 |---|---|
 | SUPER+/ | шпаргалка всех клавиш DMS |
+| Win (короткое нажатие) | поиск приложений (лаунчер DMS); запасной — SUPER+Space |
+| SUPER+E | файловый менеджер (Nautilus) |
 | SUPER+T | терминал (ghostty) |
 | SUPER+X | меню питания (выход, перезагрузка) |
 | CapsLock | переключить раскладку en/ru |
@@ -78,3 +80,16 @@ agent-sandbox ~/code/proj -- claude    # разово, без конфига
 | SUPER+SHIFT+Print | скриншот области с рисованием (swappy) |
 | SUPER+SHIFT+R / SUPER+CTRL+R | запись области / экрана (повтор — стоп) |
 | SUPER+ALT+T | перевести выделенный текст (Dialect) |
+
+### Где менять сочетания
+
+1. **Быстро, мышью:** SUPER+запятая → раздел Keybinds в настройках DMS — там
+   поиск по всем сочетаниям и переопределение существующих.
+2. **Навсегда и на всех машинах:** блок `NIXOS-MANAGED BINDS` в
+   `modules/home/hyprland.nix` (там же сочетания из таблицы выше) — один
+   `nixos-rebuild switch`, и они на месте. Формат:
+   `hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))`. Править прямо файл
+   `~/.config/hypr/dms/binds-user.lua` между строками `NIXOS-MANAGED` бесполезно:
+   блок перезаписывается при каждой перестройке.
+3. Файлы DMS (`~/.config/hypr/dms/binds.lua`) — его стандартные сочетания,
+   их пишет сам DMS.

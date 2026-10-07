@@ -484,6 +484,16 @@ hl.bind("SUPER + SHIFT + Print", hl.dsp.exec_cmd("GRIMBLAST_EDITOR=swappy grimbl
 -- screen. SUPER+R alone is DMS's togglesplit, these combos are free.
 hl.bind("SUPER + SHIFT + R", hl.dsp.exec_cmd("screenrec area"))
 hl.bind("SUPER + CTRL + R", hl.dsp.exec_cmd("screenrec screen"))
+-- Windows-style Win key (asked for 2026-10-06):
+-- - a tap of Win alone opens DMS's app launcher/search, like the Start
+--   menu. A lone modifier can only be bound as a *release* bind
+--   (`bindr = SUPER, SUPER_L, ...` in hyprlang, `release = true` here); the
+--   syntax was checked against the running Hyprland 0.56.1 (registered as
+--   bindr, key SUPER_L). SUPER+Space (DMS's default) stays as a fallback in
+--   case the tap also fires after other Win combos on your keyboard.
+-- - Win+E opens the file manager (Nautilus, desktop-apps.nix).
+hl.bind("SUPER + SUPER_L", hl.dsp.exec_cmd("dms ipc call spotlight toggle"), { release = true })
+hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))
 -- Translate the current selection (system-plan.md §5.11): SUPER+ALT+T runs
 -- translate-selection (home.packages) -- selected text -> Crow's CLI ->
 -- DMS notification. SUPER+T is taken by DMS's terminal bind (seeded into

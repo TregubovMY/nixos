@@ -113,6 +113,15 @@
       # прямой просьбе пользователя не трогать firewall-конфиг сейчас.
       # Отправка файлов с этой машины наружу порт не требует.
       localsend
+
+      # File manager (Win+E, asked for 2026-10-06; there was none at all,
+      # and folders opened in VS Code). Nautilus: GTK4/libadwaita, follows
+      # DMS's GTK theme, and DMS's own default Hyprland config already ships
+      # a window rule for it (floating org.gnome.Nautilus, DMS
+      # core/internal/config/embedded/hyprland.lua) -- the pairing its
+      # authors use. Swapping it is: another package here, the command in
+      # the Win+E bind (modules/home/hyprland.nix), the desktop id below.
+      nautilus
     ];
 
     # §5.1.2 Телефон ↔ ПК (решено 2026-08-10) — module auto-provides
@@ -139,5 +148,16 @@
     programs.virt-manager.enable = true;
     # No libvirtd group membership here: users are host-specific, so
     # hosts/mimir/configuration.nix adds its user to "libvirtd".
+
+    # What makes Nautilus a real file manager: GVfs (trash, USB/MTP mounts,
+    # network shares -- without it those parts of the UI are dead), and the
+    # default handler for folders. The default is system-wide
+    # (/etc/xdg/mimeapps.list), not home-manager's xdg.mimeApps: that would
+    # own ~/.config/mimeapps.list as a read-only link and refuse to replace
+    # a file apps already wrote there. A user-level file still wins if it
+    # exists. Before this, `xdg-mime query default inode/directory` said
+    # code.desktop.
+    services.gvfs.enable = true;
+    xdg.mime.defaultApplications."inode/directory" = "org.gnome.Nautilus.desktop";
   };
 }
