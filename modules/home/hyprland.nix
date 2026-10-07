@@ -387,13 +387,30 @@
 -- combo for real Caps Lock -- xkb has no option pairing a persistent
 -- tap-toggle with an alternate real-capslock combo (checked the full
 -- option list), so plain CapsLock no longer does normal capslock at
--- all. resolve_binds_by_sym: keybinds match by symbol, not physical
--- key, so they keep working after switching to the ru layout.
+-- all.
+--
+-- resolve_binds_by_sym: CORRECTED 2026-10-07, previous value here (true)
+-- was backwards and is why SUPER+T (and every other letter bind) stopped
+-- firing once the ru layout was active -- reported live. What the option
+-- actually does (Hyprland wiki, "Keyboard layouts" page; cross-checked
+-- against Hyprland's own default of false):
+--   false (default): a bind's letter ("T" etc.) is resolved to a keycode
+--     ONCE, against the FIRST kb_layout (here "us"), and matched by that
+--     keycode from then on -- i.e. the bind sticks to a physical key
+--     position regardless of which layout is currently active. This is
+--     what "SUPER+T always opens a terminal, even on ru" needs.
+--   true: a bind is matched by comparing the SYMBOL the *currently
+--     active* layout produces at the pressed key against the bind's
+--     letter. Latin "T" has no Cyrillic key that produces it, so under
+--     ru the bind becomes unreachable -- exactly the reported symptom.
+-- The old comment's assumption ("matches by symbol so it keeps working")
+-- had this exactly backwards; grp:caps_toggle (the xkb layout-switch
+-- itself) is unrelated to this option and is unaffected by the fix.
 hl.config({
   input = {
     kb_layout = "us,ru",
     kb_options = "grp:caps_toggle",
-    resolve_binds_by_sym = true,
+    resolve_binds_by_sym = false,
   },
 })
 -- NIXOS-MANAGED INPUT BLOCK END

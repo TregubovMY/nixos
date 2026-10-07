@@ -53,6 +53,14 @@
       lefthook
       gitleaks
 
+      # §6/§7 Секреты — Bitwarden Desktop, не CLI (`bitwarden-cli`): нужен
+      # GUI-клиент с собственным SSH-agent (Settings → SSH agent), который
+      # отдаёт ssh приватные ключи из разблокированного vault'а напрямую,
+      # без passphrase-защищённого файла на диске — см. SSH_AUTH_SOCK в
+      # modules/nixos/hyprland.nix. GPL-3.0, allowUnfree не нужен
+      # (проверено `nix eval nixpkgs#bitwarden-desktop.meta.license`).
+      bitwarden-desktop
+
       # §5.6 Коммуникация / браузер
       telegram-desktop
       google-chrome

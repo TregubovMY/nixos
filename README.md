@@ -8,6 +8,7 @@ Boot, рабочий стол Hyprland + DankMaterialShell, home-manager, и п�
 |---|---|
 | [docs/INSTALL.md](docs/INSTALL.md) | установка — в виртуалку и на машину, что сделать после |
 | [docs/NIX-HOWTO.md](docs/NIX-HOWTO.md) | базовое в Nix: добавить пакет/модуль/машину, обновить, откатить |
+| [docs/AGENT-SANDBOX.md](docs/AGENT-SANDBOX.md) | песочница агентов — команды, конфиг, шпаргалка |
 | [docs/REFERENCE.md](docs/REFERENCE.md) | подробности и история решений по каждому компоненту |
 | [system-plan.md](system-plan.md) | архитектура и почему так |
 | [TODO.md](TODO.md) | что ещё не сделано или не проверено |
@@ -60,8 +61,9 @@ agent-sandbox ~/code/proj -- claude    # разово, без конфига
 Первый раз в каждой песочнице: `claude login`, `gh auth login`,
 `dsh-setup` (dsh и плагины), в kandev профиль Claude Code →
 **CLI passthrough**. Языки и гемы с хоста подключаются только для чтения —
-повторно не скачиваются. Подробно — `docs/REFERENCE.md`, разделы про
-песочницу.
+повторно не скачиваются. Как пользоваться день в день —
+`docs/AGENT-SANDBOX.md`; история решений и все нюансы —
+`docs/REFERENCE.md`.
 
 `claude` и `opencode` есть и прямо на машине — для разовых вопросов; для
 работы с кодом запускайте их через `agent-sandbox`.

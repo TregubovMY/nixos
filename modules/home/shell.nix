@@ -4,7 +4,7 @@
 # findings" for the home-manager option details confirmed here (eza's
 # auto-generated ls aliases, git's non-obsolete `settings` option,
 # starship's auto zsh-integration).
-{ ... }:
+{ lib, ... }:
 {
   programs.zsh = {
     enable = true;
@@ -68,10 +68,53 @@
       };
       init.defaultBranch = "main";
       pull.rebase = true;
+      # Global/default identity -- GitHub and everything else not covered
+      # by the includeIf block below. Previously left unset on purpose
+      # (real personal identity, same boundary as SSH/GPG keys elsewhere
+      # in this repo); reversed 2026-10-07 on explicit request -- name and
+      # email aren't secrets, there's no reason not to commit them like
+      # any other dotfile value.
+      user = {
+        name = "Maxim Tregubov";
+        email = "tregubov-m@inbox.ru";
+      };
     };
-    # Deliberately no settings.user (name/email) -- real personal
-    # identity, same real-install-time boundary as SSH/GPG host keys and
-    # users.users.* elsewhere in this repo. Git already prompts clearly
-    # the first time it's needed without one.
+    # Per-project-folder identity override, requested live 2026-10-07:
+    # "своя идентичность для каждой из папки work" -- one includeIf block
+    # per work subfolder (only ~/code/work/rnds/ exists so far, see
+    # home.activation.codeDirs below; copy this block's shape for the next
+    # employer's folder when one shows up). gitdir patterns without a
+    # trailing "/**" still match the whole subtree -- git-config(1):
+    # a pattern ending in "/" has "**" appended implicitly.
+    # SSH key selection for br.rnds.pro is NOT done here and NOT managed
+    # by Nix at all -- ~/.ssh/config (Host blocks, IdentityFile per host)
+    # is kept out of this repo on purpose: a real per-host config would
+    # expose internal IPs/hostnames not meant to be committed. It's a
+    # secure note in Bitwarden instead, copied to ~/.ssh/config by hand
+    # (same "real infra details live in Bitwarden" boundary as the SSH
+    # keys/Throne proxy config themselves, system-plan.md §6/§7) -- ssh
+    # config is host-based, so it applies regardless of which directory
+    # the repo happens to live in.
+    includes = [
+      {
+        condition = "gitdir:~/code/work/rnds/";
+        contents.user = {
+          name = "Maxim Tregubov";
+          email = "mtregubov@rnds.pro";
+        };
+      }
+    ];
   };
+
+  # ~/code project-folder skeleton, requested live 2026-10-07. Plain
+  # `mkdir -p` via activation, not `home.file."…/.keep".text = ""`: the
+  # latter would leave a Nix-store-symlinked placeholder file sitting in
+  # every one of these folders forever; mkdir -p only needs to run once
+  # per missing directory and leaves the folders themselves as normal,
+  # freely-writable directories, same reasoning as the ghostty.nix
+  # activation block next to this one. Idempotent -- never touches
+  # anything already there.
+  home.activation.codeDirs = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    mkdir -p "$HOME/code/work/rnds" "$HOME/code/sfedu" "$HOME/code/learn"
+  '';
 }

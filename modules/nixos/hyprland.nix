@@ -109,6 +109,19 @@
   # per-user home-manager session vars would apply.
   environment.sessionVariables.QS_ICON_THEME = "Papirus-Dark";
 
+  # Bitwarden Desktop as the SSH agent (system-plan.md §6/§7: SSH keys live
+  # only in Bitwarden, never on disk as passphrase-protected files, never in
+  # sops-nix/git). Enable Settings → SSH agent in the Bitwarden client once
+  # logged in; unlocking the vault then stands in for the per-key
+  # passphrase prompt for the whole session. `~/.bitwarden-ssh-agent.sock`
+  # is the socket path for the plain nixpkgs `bitwarden-desktop` package
+  # (desktop-apps.nix) -- Flatpak/Snap builds use a different path under
+  # ~/.var/app or ~/snap, not applicable here. Confirmed against
+  # bitwarden.com/help/ssh-agent (2026-10-07). $HOME expands because
+  # environment.sessionVariables is sourced as a shell script
+  # (/etc/set-environment), same mechanism QS_ICON_THEME above relies on.
+  environment.sessionVariables.SSH_AUTH_SOCK = "$HOME/.bitwarden-ssh-agent.sock";
+
   # A Nerd Font, system-wide via fonts.packages (a NixOS option, not
   # home-manager -- fontconfig is shared across the whole system anyway).
   # nixpkgs restructured the old monolithic `nerdfonts` attribute (which
