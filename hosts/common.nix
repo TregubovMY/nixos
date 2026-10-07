@@ -99,6 +99,7 @@ in
       ../modules/home/shell.nix
       ../modules/home/zellij.nix
       ../modules/home/ghostty.nix
+      ../modules/home/yazi.nix
       ../modules/home/direnv.nix
       ../modules/home/mise.nix
       ../modules/home/calendar.nix
