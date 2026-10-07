@@ -927,6 +927,36 @@ steamcmd +login <логин_steam> +workshop_download_item 431960 1234567890 +qu
    DNS для `rnds.pro` — рабочий DNS из VPN, иначе внутренние имена не
    резолвятся.
 
+### Прокси для Claude в песочнице: два способа
+
+**Способ 1 (основной): ничего не задавать в песочнице.** Достаточно правил
+Throne выше: домены `anthropic.com`, `claude.ai`, `claude.com` уходят в
+proxy, TUN ловит и трафик контейнера. Прокси не лежит в окружении агента.
+
+**Способ 2: явный прокси** — если TUN не подходит. Claude Code читает
+`HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`; **SOCKS не поддерживает**, нужен
+HTTP-порт (у Throne/sing-box — «mixed» inbound). Из контейнера `127.0.0.1` —
+это сам контейнер, поэтому Throne должен слушать адрес, достижимый из сети
+podman (`host.containers.internal`), и этот порт нужно закрыть от LAN.
+Задать можно в одном из двух мест:
+
+- только для Claude — `~/.claude/settings.json` внутри песочницы:
+  ```json
+  { "env": { "HTTPS_PROXY": "http://host.containers.internal:2080",
+             "NO_PROXY": "localhost,127.0.0.1" } }
+  ```
+- для всей песочницы (kandev, dsh, opencode, git, npm) — строки в
+  `~/.config/agent-sandbox/projects/<имя>.conf`:
+  ```ini
+  env = HTTPS_PROXY=http://host.containers.internal:2080
+  env = HTTP_PROXY=http://host.containers.internal:2080
+  env = NO_PROXY=localhost,127.0.0.1
+  ```
+  Значение видит агент — логин/пароль прокси сюда не писать.
+
+Проверка: в Claude `/status` (строка Proxy) или `claude --debug`
+(лог в `~/.claude/debug/`). Порт 2080 — пример, подставьте свой.
+
 Рабочий VPN — OpenVPN через NetworkManager (плагин в `base.nix`), один раз:
 ```bash
 nmcli connection import type openvpn file work.ovpn
