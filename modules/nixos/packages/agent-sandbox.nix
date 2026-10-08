@@ -331,6 +331,21 @@ let
     # the home volume's root instead, which belongs to the user.
     export XDG_STATE_HOME=/home/agent/.local-state
     export MISE_STATE_DIR=/home/agent/.local-state/mise
+    # Found live 2026-10-07: on a project with no .tool-versions/mise.toml,
+    # `mise install` below is skipped entirely and `mise exec --` is a bare
+    # passthrough that never touches MISE_STATE_DIR either -- nothing ever
+    # created this directory. bin/agent-sandbox's `autostart` (kandev/dsh/
+    # socat for board configs) redirects into
+    # /home/agent/.local-state/autostart.log via a backgrounded `podman exec
+    # -d ... /agent-entrypoint sh -c "$cmd >> .../autostart.log"` -- with the
+    # parent directory missing, that redirect fails with "No such file or
+    # directory" before $cmd ever runs, `sh -c` exits non-zero, and because
+    # it's backgrounded (`-d`), nothing surfaces the failure anywhere: no
+    # log file, no running service, no error visible from the host. Symptom
+    # was exactly that -- kandev/dsh ports never came up, autostart.log
+    # didn't exist at all. mkdir unconditionally, independent of whether
+    # mise ever runs for this project.
+    mkdir -p "$XDG_STATE_HOME"
     # Gems: reuse everything installed on the host, install only what's
     # missing. The host's mise Rubies (and the gems installed into them)
     # are mounted read-only (bin/agent-sandbox, MISE_SHARED_INSTALL_DIRS),

@@ -47,6 +47,62 @@ agent-sandbox down @work               # остановить (volume'ы с да
 откажется работать иначе) — иначе агент теоретически мог бы дописать себе
 доступ к другим директориям.
 
+## Поднять kandev + dsh в конфиге
+
+Оба — обычные `autostart`-команды в том же конфиге, стартуют в фоне внутри
+контейнера при `up` (ключ `autostart`, повторяемый; лог —
+`~/.local-state/autostart.log` внутри песочницы):
+
+```ini
+# ~/.config/agent-sandbox/projects/work.conf
+dir       = ~/code/work/rnds
+
+publish   = 38429:38429
+autostart = kandev start --backend-port 38429
+
+publish   = 3080:3080
+autostart = dsh web --no-open --port 3081 --trusted-host 127.0.0.1:3080
+autostart = socat TCP-LISTEN:3080,fork,reuseaddr TCP:127.0.0.1:3081
+```
+
+Зачем тут `socat`: `dsh web` сам отказывается слушать `0.0.0.0`
+("would expose remote code execution to the network") и слушает только
+`127.0.0.1:3081` **внутри** контейнера — а `publish` пробрасывает наружу
+только порт самого контейнера, не его loopback. `socat` внутри контейнера
+принимает на `3080` (который уже `publish`-нут наружу) и форвардит на
+`127.0.0.1:3081`, где реально висит dsh. kandev так не делает — слушает
+сразу на нужном порту, поэтому у него `socat` не нужен.
+
+```bash
+agent-sandbox up @work
+```
+
+**Куда заходить** (с хоста, в браузере):
+- kandev — http://127.0.0.1:38429
+- dsh web — http://127.0.0.1:3080 (не 3081 — это внутренний порт контейнера)
+
+**Разовая настройка после первого `up`** (см. «Первый раз» ниже для
+`claude login`/`gh auth login`):
+
+```bash
+agent-sandbox attach @work
+dsh-setup            # ставит dsh + core-плагины (один раз на проект)
+```
+
+Плагины `dsh-setup` подхватывает только уже запущенный `dsh web` **при
+следующем старте** — сама команда это печатает в конце
+("Restart dsh web... to load the plugins"), так что после первого
+`dsh-setup` перезапустить песочницу:
+
+```bash
+agent-sandbox down @work
+agent-sandbox up @work
+```
+
+Для kandev отдельно, один раз в его собственном UI: Settings → Claude Code
+profile → **CLI passthrough** — без этого kandev не сможет реально вызвать
+claude-code.
+
 ## Первый раз в каждой новой песочнице
 
 Логины живут в отдельном per-project volume, так что это разово на
@@ -56,11 +112,10 @@ agent-sandbox down @work               # остановить (volume'ы с да
 agent-sandbox attach @work
 claude login       # или: ANTHROPIC_API_KEY на хосте — подхватится сам
 gh auth login       # если нужен gh (PR/issues)
-dsh-setup           # если нужен DeepSeek Harness — ставит dsh + core-плагины
 ```
 
-В kandev (если используете борд) отдельно: Settings → Claude Code profile
-→ **CLI passthrough**.
+`dsh-setup`/kandev-профиль — см. «Поднять kandev + dsh в конфиге» выше,
+там же почему после первого `dsh-setup` нужен `down`+`up`.
 
 ## Шпаргалка команд
 
