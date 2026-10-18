@@ -27,7 +27,12 @@ in
 
   options.lanzabooteTest = {
     keyFixture = lib.mkEnableOption "pkiBundle fixture baked into the image" // {
-      default = config.virtualisation.useSecureBoot;
+      # Used to default to `config.virtualisation.useSecureBoot`, but that
+      # option was removed from nixpkgs between our 2026-08-07 and
+      # 2026-10-15 pins ("The default OVMF now always supports Secure
+      # Boot."), i.e. the condition this used to read is now unconditionally
+      # true -- same vendored-vs-upstream-pin gap as ../common/image.nix.
+      default = true;
     };
 
     persistentRoot = lib.mkEnableOption "a persistent root filesystem";

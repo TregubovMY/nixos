@@ -124,6 +124,18 @@ in
   system.build.espFiles = espFiles;
 
   image.repart = {
+    # One deliberate deviation from the vendored upstream (see the header
+    # comment at the top of this file): nixpkgs added `image.repart.enable`
+    # (an `mkEnableOption`, default false) between our 2026-08-07 and
+    # 2026-10-15 nixpkgs pins, as part of multi-image support
+    # (nixos/modules/image/images.nix). Before that change this `config`
+    # block applied unconditionally; now the whole block -- including
+    # `system.build.image = cfg.image;`, which ../common/image-helper.nix
+    # reads via `machine.system.build.image` -- lives behind
+    # `lib.mkIf cfg.enable`. Upstream lanzaboote v1.1.0 (our pin) predates
+    # this and never sets it. Without this line the test fails eval with
+    # "attribute 'image' missing" on `machine.system.build.image`.
+    enable = true;
     name = config.system.name;
     mkfsOptions = {
       # Makes the build significantly faster by slimming down the images.
@@ -181,7 +193,11 @@ in
 
     useEFIBoot = true;
 
-    useSecureBoot = true;
+    # `useSecureBoot` removed between our 2026-08-07 and 2026-10-15 nixpkgs
+    # pins ("no longer has any effect; please remove it. The default OVMF
+    # now always supports Secure Boot.") -- same vendored-vs-upstream-pin
+    # gap as `image.repart.enable` above. OVMFFull.fd below already is the
+    # Secure-Boot-capable firmware this option used to select.
     efi.OVMF = pkgs.OVMFFull.fd;
   };
 }
