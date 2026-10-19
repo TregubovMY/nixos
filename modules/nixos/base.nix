@@ -31,11 +31,19 @@
   hardware.facter.detected.dhcp.enable = false;
 
   # Bluetooth itself is enabled by facter when the report contains a
-  # bluetooth controller (facter/bluetooth.nix); blueman is the GUI for it
-  # (§5.1 explains why blueman and not overskride). Following the
-  # hardware flag instead of forcing it on keeps hosts without bluetooth
-  # (VMs) free of a useless tray applet.
-  services.blueman.enable = config.hardware.bluetooth.enable;
+  # bluetooth controller (facter/bluetooth.nix). blueman used to be the
+  # GUI for it (§5.1 explains why blueman and not overskride) -- removed
+  # 2026-10-19, reported live as a duplicate: blueman.enable also
+  # autostarts blueman-applet (NixOS's services.blueman module installs
+  # an /etc/xdg/autostart entry for it unconditionally), a second
+  # Bluetooth tray icon/menu next to DMS's own, which already has a full
+  # one (Services/BluetoothService.qml, Modals/BluetoothPairingModal.qml,
+  # Modules/ControlCenter/Details/BluetoothDetail.qml -- checked DMS's
+  # actual QML, not assumed) -- same "DMS replaces the standalone GUI"
+  # pattern already applied to waybar/mako/hyprlock/hyprpolkitagent in
+  # modules/nixos/hyprland.nix. bluetoothd itself (hardware.bluetooth,
+  # set by facter) is untouched -- DMS needs the daemon running to talk
+  # to over D-Bus, just not blueman's separate applet/GUI on top of it.
 
   # Battery level and power profiles for the DMS bar (it reads both over
   # D-Bus). power-profiles-daemon rather than TLP: they conflict, and
