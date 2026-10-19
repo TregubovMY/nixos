@@ -70,6 +70,53 @@ home.packages = with pkgs; [ jq ];
 programs.zsh.shellAliases.ll = "eza -la";
 ```
 
+## Старый компилятор для конкретного проекта
+
+Симптом: `mise install ruby@2.5.1` (или любой другой старый язык/гем с
+native extensions) падает на сборке с ошибками вида "incompatible pointer
+types" / "too many arguments to function", хотя тулчейн (gcc/make/headers)
+в системе есть. Причина: код писался под старые версии GCC, где это было
+предупреждением; современный GCC (14+, у нас системный — 15.x) по
+умолчанию делает такие предупреждения ошибками. Патчить старый код
+нецелесообразно — возьми для **этого одного проекта** старый GCC из
+nixpkgs, не трогая системный компилятор остальной системы.
+
+**Важно**: `nix-shell -p gcc13 ...` НЕ работает надёжно — другие пакеты в
+том же списке могут транзitively притащить системный gcc раньше в PATH, и
+`gcc --version` всё равно покажет 15.x (проверено живьём). Правильно —
+переопределить весь `stdenv` целиком через готовый nixpkgs-атрибут
+`pkgs.gcc13Stdenv` (есть `gcc49Stdenv` … `gccNNStdenv` под почти любую
+версию):
+
+Разовая проверка:
+```bash
+nix-shell -E '
+  let pkgs = import <nixpkgs> {};
+  in pkgs.mkShell.override { stdenv = pkgs.gcc13Stdenv; } {
+    packages = with pkgs; [ gnumake autoconf bison patch gnum4 perl
+      zlib.dev readline.dev libyaml.dev libffi.dev gdbm.dev ncurses.dev libxcrypt ];
+  }
+' --run 'mise install ruby@2.5.1'
+```
+
+Постоянно для проекта — `shell.nix` в его корне (direnv уже настроен
+системно, см. `modules/home/direnv.nix`, так что всё активируется само
+при `cd`):
+```nix
+# shell.nix
+let pkgs = import <nixpkgs> {};
+in pkgs.mkShell.override { stdenv = pkgs.gcc13Stdenv; } {
+  packages = with pkgs; [ gnumake autoconf bison patch gnum4 perl
+    zlib.dev readline.dev libyaml.dev libffi.dev gdbm.dev ncurses.dev libxcrypt ];
+}
+```
+```bash
+echo "use nix" > .envrc
+direnv allow
+```
+Дальше просто `cd` в проект — gcc13 и остальной тулчейн на PATH
+автоматически, остальные проекты это не затрагивает.
+
 ## Добавить свой модуль
 
 1. Создать `modules/nixos/<тема>.nix` (системное) или `modules/home/<тема>.nix`
