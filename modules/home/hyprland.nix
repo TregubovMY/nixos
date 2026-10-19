@@ -596,17 +596,41 @@ hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))
 -- (dms ipc call lock lock) -- that one is left alone, this just adds the
 -- plain SUPER + L shortcut alongside it.
 hl.bind("SUPER + L", hl.dsp.exec_cmd("dms ipc call lock lock"))
--- Win+Tab to switch windows (asked for 2026-10-19) was silently not
--- firing at all -- found live via `hyprctl binds`: DMS's own factory
--- dms/binds.lua ships this exact bind as "SUPER + TAB" (all caps), but
--- Hyprland's Lua key names are X11 keysym names ("Tab", not "TAB") --
--- confirmed live with `hyprctl eval 'hl.bind("SUPER + Tab", ...)'`,
--- which DOES register (`hyprctl binds` then shows it), while re-running
--- the exact upstream "TAB" string does not. An upstream DMS bug, not
--- something in this repo's own config -- this just re-adds the same
--- intended bind (open DMS's Overview, click any window to switch to
--- it) with the correct casing.
-hl.bind("SUPER + Tab", hl.dsp.exec_cmd("dms ipc call hypr toggleOverview"))
+-- Win+Tab to switch windows (asked for 2026-10-19). First found and fixed
+-- a real bug on the way here: DMS's own factory dms/binds.lua ships
+-- "SUPER + TAB" (all caps) for this key, but Hyprland's Lua key names are
+-- X11 keysym names ("Tab", not "TAB") -- confirmed live with `hyprctl
+-- eval 'hl.bind("SUPER + Tab", ...)'`, which DOES register
+-- (`hyprctl binds` then shows it), while re-running the exact upstream
+-- "TAB" string does not. That bug made DMS's own bind -- toggleOverview, a
+-- click-to-switch grid -- silently do nothing at all. But a plain fix of
+-- the casing isn't what was actually asked for next: a classic hold-Win,
+-- tap-Tab-repeatedly, release-to-confirm switcher, not a grid you click.
+-- Built from Hyprland's own documented submap pattern (wiki.hypr.land/
+-- configuring/core/binds/submaps/ -- hl.bind(keys, hl.dsp.submap(name))
+-- to enter, hl.define_submap(name, function() ... end) to hold the
+-- in-submap binds, an Escape-to-reset bind the wiki explicitly warns not
+-- to skip) plus this file's own already-working release-bind pattern
+-- (the SUPER + SUPER_L tap-vs-combo bind above) to exit the submap the
+-- moment Super is physically released, not on a second keypress.
+-- hl.dsp.window.cycle_next -- confirmed live via `hyprctl eval
+-- 'hl.dispatch(hl.dsp.window.cycle_next())'` to actually move focus to
+-- the next window -- is Hyprland's own cyclenext dispatcher under its
+-- new Lua dsp namespace (share/hypr/stubs/hl.meta.lua); `{ prev = true }`
+-- for the reverse direction on Shift+Tab, matching cyclenext's classic
+-- hyprlang "prev" argument.
+hl.bind("SUPER + Tab", hl.dsp.submap("windowswitch"))
+hl.define_submap("windowswitch", function()
+  hl.bind("Tab", hl.dsp.window.cycle_next(), { repeating = true })
+  hl.bind("SHIFT + Tab", hl.dsp.window.cycle_next({ prev = true }), { repeating = true })
+  -- Confirms the pick by releasing Super -- same tap/release mechanism as
+  -- "SUPER + SUPER_L" above, just resetting the submap instead of toggling
+  -- spotlight.
+  hl.bind("SUPER + SUPER_L", hl.dsp.submap("reset"), { release = true })
+  -- Wiki's own explicit warning: always keep an escape hatch out of a
+  -- submap in case the release-bind above doesn't fire for some reason.
+  hl.bind("Escape", hl.dsp.submap("reset"))
+end)
 -- Translate the current selection (system-plan.md §5.11): SUPER+ALT+T runs
 -- translate-selection (home.packages) -- selected text -> Crow's CLI ->
 -- DMS notification. SUPER+T is taken by DMS's terminal bind (seeded into
