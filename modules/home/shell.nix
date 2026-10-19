@@ -18,6 +18,17 @@
     # so Ctrl+Right accepts the grey suggestion one word at a time — the
     # behaviour asked for. "\e[5C"/"\e[5D" cover terminals that omit "1;".
     initContent = ''
+      # Ctrl+Left/Right and Ctrl+Backspace jumped/deleted a whole path in
+      # one go instead of stopping at each "/" (reported live 2026-10-19)
+      # -- not a bindkey problem, zsh's default $WORDCHARS
+      # ("*?_-.[]~=/&;!#$%^(){}<>") includes "/" itself, so
+      # forward-word/backward-word/kill-word treat the whole path as one
+      # word. Stripping just "/" out (not hardcoding the rest of the
+      # default, in case zsh changes it upstream) makes each path segment
+      # its own word for all four widgets below, without touching
+      # anything else WORDCHARS covers (dots in filenames, etc).
+      WORDCHARS=''${WORDCHARS//\//}
+
       bindkey '^[[1;5C' forward-word
       bindkey '^[[1;5D' backward-word
       bindkey '^[[5C' forward-word
