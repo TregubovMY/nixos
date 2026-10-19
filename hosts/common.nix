@@ -53,10 +53,13 @@ in
   # its XDG autostart entry.
   services.spice-vdagentd.enable = config.hardware.facter.detected.virtualisation.qemu.enable;
 
-  # RubyMine can't be fetched before the Throne proxy is configured (HTTP
-  # 451 from download.jetbrains.com, see desktop-apps.nix). After the first
-  # boot and Throne setup: flip to true, `nixos-rebuild switch`.
-  desktopApps.rubymine.enable = false;
+  # Throne is up now (confirmed live, system-plan.md §7) -- flipped back
+  # to true, see desktop-apps.nix's own comment for the HTTP 451 reason
+  # this was off. nix-daemon still won't route the fetch through Throne
+  # on its own (it's a separate systemd service with its own env, not
+  # the login session's) -- see docs/NIX-HOWTO.md ("Собрать пакет,
+  # который блокируют без прокси") for the actual per-command mechanism.
+  desktopApps.rubymine.enable = true;
 
   time.timeZone = "Europe/Moscow";
   i18n.defaultLocale = "ru_RU.UTF-8";

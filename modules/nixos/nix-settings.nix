@@ -35,4 +35,18 @@
   # смягчение ENOSPC-риска, описанного в CLAUDE.md.
   nix.settings.min-free = 2 * 1024 * 1024 * 1024; # 2GiB
   nix.settings.max-free = 10 * 1024 * 1024 * 1024; # 10GiB
+
+  # No trusted-users entry here on purpose -- `root` already is one by
+  # Nix's own default (man nix.conf), and every `nixos-rebuild
+  # switch`/`build-vm` in this repo already runs via `sudo`, i.e. already
+  # talks to nix-daemon as a trusted user. That's what makes the
+  # `impure-env` proxy recipe in docs/NIX-HOWTO.md ("Собрать пакет,
+  # который блокируют без прокси") work with zero permanent nix.conf
+  # change -- found live 2026-10-19 chasing RubyMine's fetchurl
+  # (download.jetbrains.com answers HTTP 451 for RU IPs, see
+  # hosts/common.nix's desktopApps.rubymine.enable comment). Adding `max`/
+  # `@wheel` here explicitly would do nothing this doesn't already cover,
+  # while matching man nix.conf's own warning ("equivalent to giving that
+  # user root access") to a wider set of commands than just `sudo
+  # nixos-rebuild`.
 }
