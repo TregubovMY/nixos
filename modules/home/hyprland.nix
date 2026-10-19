@@ -606,26 +606,63 @@ hl.bind("SUPER + L", hl.dsp.exec_cmd("dms ipc call lock lock"))
 -- click-to-switch grid -- silently do nothing at all. But a plain fix of
 -- the casing isn't what was actually asked for next: a classic hold-Win,
 -- tap-Tab-repeatedly, release-to-confirm switcher, not a grid you click.
--- Built from Hyprland's own documented submap pattern (wiki.hypr.land/
--- configuring/core/binds/submaps/ -- hl.bind(keys, hl.dsp.submap(name))
--- to enter, hl.define_submap(name, function() ... end) to hold the
--- in-submap binds, an Escape-to-reset bind the wiki explicitly warns not
--- to skip) plus this file's own already-working release-bind pattern
--- (the SUPER + SUPER_L tap-vs-combo bind above) to exit the submap the
--- moment Super is physically released, not on a second keypress.
--- hl.dsp.window.cycle_next -- confirmed live via `hyprctl eval
--- 'hl.dispatch(hl.dsp.window.cycle_next())'` to actually move focus to
--- the next window -- is Hyprland's own cyclenext dispatcher under its
--- new Lua dsp namespace (share/hypr/stubs/hl.meta.lua); `{ prev = true }`
--- for the reverse direction on Shift+Tab, matching cyclenext's classic
--- hyprlang "prev" argument.
-hl.bind("SUPER + Tab", hl.dsp.submap("windowswitch"))
+--
+-- Second false start, also found live: Hyprland's own `cyclenext`
+-- dispatcher (hl.dsp.window.cycle_next) only cycles windows on the
+-- CURRENT workspace -- confirmed both against upstream (github.com/
+-- hyprwm/Hyprland/issues/6678, a cross-workspace request closed "not
+-- planned") and live here: with most windows on separate workspaces,
+-- repeated cycle_next() calls just sat on the same window, looking like
+-- Win+Tab did nothing at all. DMS's own Overview (the thing this bind
+-- used to open) handles cross-workspace fine but only supports
+-- Left/Right between workspace columns and mouse clicks on a window --
+-- no Tab-to-cycle, no Enter-to-confirm (checked its actual QML,
+-- Modules/WorkspaceOverlays/HyprlandOverview.qml's Keys.onPressed).
+--
+-- So this hand-rolls real cross-workspace cycling from Hyprland's Lua
+-- primitives, each piece confirmed live via `hyprctl eval` before being
+-- written here (hl.get_windows()'s focus_history_id field for ordering;
+-- hl.dsp.focus({ window = "address:" .. addr }) -- note the "address:"
+-- prefix, a bare address alone gives "window not found" -- to actually
+-- jump to a specific window AND switch to its workspace in one call).
+-- altTabWindows/altTabIndex are plain Lua locals: this whole file is one
+-- Lua chunk, so they persist as upvalues across every subsequent
+-- keypress exactly like a closure would in any other language -- verified
+-- live by calling the equivalent of altTabStart/altTabStep from separate
+-- `hyprctl eval` invocations in sequence and seeing the stepping stay
+-- consistent between calls.
+--
+-- Entering the submap (wiki.hypr.land/configuring/core/binds/submaps/
+-- pattern, same as the earlier false start) and exiting it on releasing
+-- Super (this file's own SUPER + SUPER_L release-bind pattern, see
+-- above) are unchanged from that attempt -- only the in-submap action
+-- changed, from the workspace-local cycle_next to this.
+local altTabWindows = {}
+local altTabIndex = 1
+
+local function altTabStep(delta)
+  if #altTabWindows == 0 then
+    return
+  end
+  altTabIndex = ((altTabIndex - 1 + delta) % #altTabWindows) + 1
+  local w = altTabWindows[altTabIndex]
+  if w then
+    hl.dispatch(hl.dsp.focus({ window = "address:" .. w.address }))
+  end
+end
+
+hl.bind("SUPER + Tab", function()
+  altTabWindows = hl.get_windows()
+  table.sort(altTabWindows, function(a, b)
+    return a.focus_history_id < b.focus_history_id
+  end)
+  altTabIndex = 1
+  altTabStep(1)
+  hl.dispatch(hl.dsp.submap("windowswitch"))
+end)
 hl.define_submap("windowswitch", function()
-  hl.bind("Tab", hl.dsp.window.cycle_next(), { repeating = true })
-  hl.bind("SHIFT + Tab", hl.dsp.window.cycle_next({ prev = true }), { repeating = true })
-  -- Confirms the pick by releasing Super -- same tap/release mechanism as
-  -- "SUPER + SUPER_L" above, just resetting the submap instead of toggling
-  -- spotlight.
+  hl.bind("Tab", function() altTabStep(1) end, { repeating = true })
+  hl.bind("SHIFT + Tab", function() altTabStep(-1) end, { repeating = true })
   hl.bind("SUPER + SUPER_L", hl.dsp.submap("reset"), { release = true })
   -- Wiki's own explicit warning: always keep an escape hatch out of a
   -- submap in case the release-bind above doesn't fire for some reason.
