@@ -71,6 +71,69 @@
     systemd.enable = true;
   };
 
+  # Self-healing for a known, still-unfixed upstream crash class (reported
+  # live 2026-10-18, confirmed against github.com/AvengeMedia/
+  # DankMaterialShell/issues/1468 and github.com/hyprwm/Hyprland/issues/8847,
+  # plus the still-open "FALLBACK pseudo-monitor on resume" reports in
+  # omarchy's issue tracker): DMS's Quickshell lock surface can crash when
+  # Hyprland recreates its transient FALLBACK output during monitor
+  # teardown/re-init around suspend/resume, and Hyprland's own lock
+  # protocol then deliberately refuses to silently drop the lock when its
+  # client dies (a real security feature, not a bug) -- showing its
+  # built-in "Oopsie daisy... lockscreen app died" fallback screen until
+  # someone runs `hyprctl eval 'hl.clear_crashed_lockscreen()'` from another
+  # TTY. dms.service already has Restart=on-failure (its own home-manager
+  # module default), so DMS itself comes back up fine; what doesn't recover
+  # on its own is Hyprland's separate, compositor-level "locked, client
+  # died" state, which is why the black screen persists even after DMS
+  # restarts.
+  #
+  # dmsLockCrashRecovery runs on every dms.service failure (OnFailure=,
+  # below) and ONLY acts if loginctl's LockedHint says the session was
+  # actually supposed to be locked at that moment -- an ordinary dms.service
+  # crash/restart while unlocked (e.g. during a `nixos-rebuild switch`) is
+  # left alone, nothing here forces a lock that wasn't already there. When
+  # it does act: clear Hyprland's stuck lock state, wait for dms.service's
+  # own Restart=on-failure to bring a fresh instance up, then immediately
+  # issue a brand new `dms ipc call lock lock`. Net effect: instead of a
+  # dead black screen requiring a TTY detour, you get a normal, working
+  # password prompt again -- this is explicitly NOT an unlock-without-auth
+  # bypass; clear_crashed_lockscreen() only releases Hyprland's broken
+  # internal bookkeeping, and the very next step re-locks before anyone can
+  # interact with the session.
+  systemd.user.services.dms.Unit.OnFailure = [ "dms-lock-crash-recovery.service" ];
+
+  systemd.user.services.dms-lock-crash-recovery = {
+    Unit.Description = "Restore a working DMS lock screen after dms.service crashed while locked";
+    Service = {
+      Type = "oneshot";
+      ExecStart = toString (pkgs.writeShellApplication {
+        name = "dms-lock-crash-recovery";
+        runtimeInputs = [ pkgs.systemd pkgs.hyprland config.programs.dank-material-shell.package ];
+        text = ''
+          sid="$(loginctl list-sessions --no-legend | awk '$4 == "seat0" { print $1; exit }')"
+          [ -n "$sid" ] || exit 0
+          locked="$(loginctl show-session "$sid" -p LockedHint --value 2>/dev/null || echo no)"
+          [ "$locked" = "yes" ] || exit 0
+
+          for inst in "''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/hypr/*/; do
+            [ -S "$inst.socket.sock" ] || continue
+            HYPRLAND_INSTANCE_SIGNATURE="$(basename "$inst")" \
+              hyprctl eval 'hl.clear_crashed_lockscreen()' >/dev/null 2>&1 || true
+          done
+
+          for _ in $(seq 1 50); do
+            systemctl --user is-active --quiet dms.service && break
+            sleep 0.2
+          done
+          systemctl --user is-active --quiet dms.service || exit 0
+
+          dms ipc call lock lock >/dev/null 2>&1 || true
+        '';
+      }) + "/bin/dms-lock-crash-recovery";
+    };
+  };
+
   systemd.user.targets.hyprland-session = {
     Unit = {
       Description = "Hyprland compositor session";
@@ -511,6 +574,11 @@ hl.bind("SUPER + CTRL + R", hl.dsp.exec_cmd("screenrec screen"))
 -- - Win+E opens the file manager (Nautilus, desktop-apps.nix).
 hl.bind("SUPER + SUPER_L", hl.dsp.exec_cmd("dms ipc call spotlight toggle"), { release = true })
 hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))
+-- Win+L locks the screen (Windows convention, asked for 2026-10-18).
+-- DMS's own factory binds.lua already ships "SUPER + ALT + L" for this
+-- (dms ipc call lock lock) -- that one is left alone, this just adds the
+-- plain SUPER + L shortcut alongside it.
+hl.bind("SUPER + L", hl.dsp.exec_cmd("dms ipc call lock lock"))
 -- Translate the current selection (system-plan.md §5.11): SUPER+ALT+T runs
 -- translate-selection (home.packages) -- selected text -> Crow's CLI ->
 -- DMS notification. SUPER+T is taken by DMS's terminal bind (seeded into
