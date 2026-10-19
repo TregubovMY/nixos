@@ -35,14 +35,24 @@
     # this module's own upstream integration (confirmed by reading this
     # repo's pinned nixpkgs rev's nixos/modules/programs/wayland/
     # hyprland.nix directly, not assumed from memory): it flips
-    # programs.uwsm.enable on automatically and makes `start-hyprland` (a
-    # wrapper the Hyprland package itself ships) the real entrypoint --
-    # greetd's --cmd changes to that wrapper below. NOT setting
-    # programs.uwsm.waylandCompositors by hand -- that generates a
-    # separate "Hyprland (UWSM)" *.desktop entry for session-picker
-    # display managers (GDM/SDDM-style); greetd/tuigreet here selects the
-    # session via --cmd directly, so that entry would just be dead
-    # config. NOT relevant here: the wiki's "disable
+    # programs.uwsm.enable on automatically, which generates (among other
+    # things) a "Hyprland (uwsm-managed)" session .desktop entry
+    # (hyprland-uwsm.desktop, Exec=uwsm start -e -D Hyprland
+    # hyprland.desktop) alongside the plain hyprland.desktop one.
+    # Correction, found live 2026-10-18: an earlier version of this
+    # comment assumed `start-hyprland` alone (what greetd used to --cmd
+    # directly) already got UWSM's benefits since withUWSM=true. Live
+    # evidence said otherwise -- no `uwsm` process in the tree,
+    # `xdg-desktop-autostart.target` never loaded, so
+    # ~/.config/autostart/*.desktop entries (Bitwarden/Telegram/Throne)
+    # silently never ran. `start-hyprland` only wraps the compositor
+    # binary itself; actually routing through UWSM (and therefore
+    # `xdg-desktop-autostart.target`, system/boot/systemd/user.nix) needs
+    # the `hyprland-uwsm.desktop` entrypoint specifically. Fixed in
+    # modules/nixos/greetd.nix (dms-greeter + defaultSession =
+    # "hyprland-uwsm" now resolve to that entry), so NOT dead config after
+    # all -- this is the real, used launch path. NOT relevant here: the
+    # wiki's "disable
     # wayland.windowManager.hyprland.systemd.enable" caveat -- this repo
     # never used that home-manager module at all (see modules/home/
     # hyprland.nix's own header comment on why), so there's no conflict
@@ -108,6 +118,22 @@
   # DMS/Hyprland pick up the graphical session's environment before any
   # per-user home-manager session vars would apply.
   environment.sessionVariables.QS_ICON_THEME = "Papirus-Dark";
+
+  # Fixes VS Code (and every other Electron app) rendering with blurry/
+  # pixelated text, reported live 2026-10-18. Root cause, confirmed live:
+  # without this var Electron doesn't opt into its native Wayland backend
+  # and falls back to running under XWayland (`hyprctl clients` showed
+  # `xwayland: 1` for VS Code's window, vs `xwayland: 0` for Firefox, which
+  # already renders natively and looked fine) -- and DP-1's Hyprland scale
+  # here is a fractional 1.07 (`hyprctl monitors`), which XWayland's
+  # integer-scale-then-upscale path renders text blurry at. Standard,
+  # well-documented NixOS/Electron fix: this var makes Electron's own
+  # Ozone platform auto-detection pick native Wayland instead
+  # (--ozone-platform=wayland), matching how Firefox already renders, at
+  # any fractional scale. environment.sessionVariables (not home-manager)
+  # for the same reason as QS_ICON_THEME above -- picked up before any
+  # per-user home-manager session vars would apply.
+  environment.sessionVariables.NIXOS_OZONE_WL = "1";
 
   # Bitwarden Desktop as the SSH agent (system-plan.md §6/§7: SSH keys live
   # only in Bitwarden, never on disk as passphrase-protected files, never in
