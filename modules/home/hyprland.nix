@@ -391,7 +391,24 @@
   home.file = lib.listToAttrs (map (name: {
     name = "Pictures/Wallpapers/nixos-${name}.png";
     value.source = pkgs.nixos-artwork.wallpapers.${name}.gnomeFilePath;
-  }) [ "catppuccin-mocha" "catppuccin-macchiato" "nineish-dark-gray" "moonscape" "waterfall" "dracula" ]);
+  }) [ "catppuccin-mocha" "catppuccin-macchiato" "nineish-dark-gray" "moonscape" "waterfall" "dracula" ])
+  # Bitwarden Desktop's own "browser integration" writes a native-messaging
+  # manifest + proxy socket into each browser's NativeMessagingHosts dir on
+  # every startup (its own code -- the old opt-in toggle was removed
+  # upstream, this is unconditional now, confirmed live in its app.log:
+  # "Migrator RemoveBrowserIntegrationEnabled"). It silently no-ops if that
+  # directory doesn't exist yet -- found live 2026-10-19 on this fresh host:
+  # neither ~/.config/google-chrome nor ~/.mozilla existed (Chrome/Firefox
+  # had never actually been launched), so the manifest was never written,
+  # no error anywhere, and the browser extension just never found the
+  # desktop app. These dirs cost nothing to pre-create -- Chrome/Firefox
+  # don't mind them existing already on first real launch, same reasoning
+  # as the wallpapers above (read-only scaffolding, not state this repo
+  # owns going forward).
+  // {
+    ".config/google-chrome/NativeMessagingHosts/.keep".text = "";
+    ".mozilla/native-messaging-hosts/.keep".text = "";
+  };
 
   # DMS first-run defaults it has no Nix option for, written into its own
   # state file (~/.local/state/DankMaterialShell/session.json, DMS
@@ -579,6 +596,17 @@ hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))
 -- (dms ipc call lock lock) -- that one is left alone, this just adds the
 -- plain SUPER + L shortcut alongside it.
 hl.bind("SUPER + L", hl.dsp.exec_cmd("dms ipc call lock lock"))
+-- Win+Tab to switch windows (asked for 2026-10-19) was silently not
+-- firing at all -- found live via `hyprctl binds`: DMS's own factory
+-- dms/binds.lua ships this exact bind as "SUPER + TAB" (all caps), but
+-- Hyprland's Lua key names are X11 keysym names ("Tab", not "TAB") --
+-- confirmed live with `hyprctl eval 'hl.bind("SUPER + Tab", ...)'`,
+-- which DOES register (`hyprctl binds` then shows it), while re-running
+-- the exact upstream "TAB" string does not. An upstream DMS bug, not
+-- something in this repo's own config -- this just re-adds the same
+-- intended bind (open DMS's Overview, click any window to switch to
+-- it) with the correct casing.
+hl.bind("SUPER + Tab", hl.dsp.exec_cmd("dms ipc call hypr toggleOverview"))
 -- Translate the current selection (system-plan.md §5.11): SUPER+ALT+T runs
 -- translate-selection (home.packages) -- selected text -> Crow's CLI ->
 -- DMS notification. SUPER+T is taken by DMS's terminal bind (seeded into
