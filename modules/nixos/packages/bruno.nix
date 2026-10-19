@@ -20,9 +20,22 @@ let
     url = "https://github.com/usebruno/bruno/releases/download/v${version}/bruno_${version}_x86_64_linux.AppImage";
     hash = "sha256-9rd9wyLdV7lTeBWJpEaIcjzzwGo1E8XDTQd8111kqUE=";
   };
+
+  contents = appimageTools.extract { inherit pname version src; };
 in
 appimageTools.wrapType2 {
   inherit pname version src;
+
+  # wrapType2 installs only bin/bruno; without a .desktop file the launcher
+  # search (app menu) can't find the app. Take the entry and icons from the
+  # extracted AppImage; its Exec (`AppRun --no-sandbox`) is replaced with
+  # the wrapper, which already runs inside bwrap/FHS.
+  extraInstallCommands = ''
+    install -Dm444 ${contents}/bruno.desktop $out/share/applications/bruno.desktop
+    substituteInPlace $out/share/applications/bruno.desktop \
+      --replace-fail 'Exec=AppRun --no-sandbox %U' 'Exec=bruno --no-sandbox %U'
+    cp -r ${contents}/usr/share/icons $out/share/icons
+  '';
 
   meta = {
     description = "API client (latest upstream AppImage)";
