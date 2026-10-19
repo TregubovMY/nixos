@@ -48,4 +48,15 @@
     source = ./neovim;
     recursive = true;
   };
+
+  # Was unset entirely -- yazi (modules/home/yazi.nix) falls back to
+  # whatever `$EDITOR` says for its "open" action on a text file; asked
+  # live 2026-10-19 to tie yazi's browsing and this module's LazyVim
+  # together into one "jump (zoxide) → browse (yazi) → edit (this)" flow.
+  # VISUAL too -- some tools (e.g. `crontab -e`, git's fallback when
+  # core.editor is unset) check that instead of/in addition to EDITOR.
+  home.sessionVariables = {
+    EDITOR = "nvim";
+    VISUAL = "nvim";
+  };
 }
