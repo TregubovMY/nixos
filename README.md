@@ -28,6 +28,24 @@ bin/                   install-host, agent-sandbox, vm-ssh-on
 
 Машины: `mimir` (ноутбук). Новая — `bin/install-host <имя> <диск>`.
 
+## Секреты (Bitwarden)
+
+Пароли, ключи, токены — не в git (sops-nix из плана выведен целиком, см.
+`system-plan.md` §6): всё живёт в Bitwarden как secure note, на новой
+машине копируется руками в нужный файл. Общий принцип один и тот же для
+всего из списка ниже — заводить новый механизм под каждый следующий
+случай не нужно.
+
+| Что | Куда (secure note в Bitwarden) | Что сделать на машине |
+|---|---|---|
+| SSH-ключи и `~/.ssh/config` (Host-блоки, IdentityFile) | текст `~/.ssh/config` целиком + сами ключи | скопировать руками в `~/.ssh/`, `chmod 600` на приватные ключи |
+| Прокси (Throne, VLESS-Reality) | конфиг-строка/QR | импорт в приложении Throne — `docs/INSTALL.md` п.4 |
+| GPG-ключ (подпись коммитов) | экспорт ключа | `gpg --import`, см. `system-plan.md` §6 |
+| Логин в приватный docker-registry | `registry` + `username` + `password/token` | `docker login --compat-auth-file ~/.docker/config.json <registry>` и ввести логин/пароль из Bitwarden (`docker` уже алиас на `podman`, см. `modules/nixos/podman.nix`; `--compat-auth-file` пишет сразу в формате и по пути, которые ждёт `docker-compose`, а не в эфемерный `podman`-овский `auth.json` под `/run/user/…`, который чистится при каждом логауте/перезагрузке) |
+
+Почему именно так, а не через `podman login` без флага — и общее решение
+про sops-nix/Bitwarden — `system-plan.md` §6/§7, `docs/REFERENCE.md`.
+
 ## Песочница агентов
 
 AI-агенты (Claude Code, OpenCode) и доски (kandev, dsh) работают в
