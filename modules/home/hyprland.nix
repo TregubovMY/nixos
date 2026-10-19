@@ -611,6 +611,55 @@ hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))
 --   firing on one keypress ends up locked-with-outputs-off either way.
 hl.bind("SUPER + L", hl.dsp.exec_cmd("dms ipc call lock lock"))
 hl.bind("SUPER + ALT + L", hl.dsp.exec_cmd("dms ipc call lock lockAndOutputsOff"))
+
+-- Win+Tab window switcher, re-added at the user's request after a
+-- round trip: removed once ("works strangely"), the replacement idea
+-- (tray-icon peek) hit a dead end and got dropped too, and the user
+-- then asked for this back specifically. Unchanged from the version
+-- verified live before (see git history, commit e8a3b7c, for the full
+-- two-false-starts story): DMS's factory "SUPER + TAB" has a casing bug
+-- (Hyprland wants the X11 keysym "Tab", not "TAB") that silently no-ops
+-- it, and Hyprland's own cyclenext dispatcher only cycles within the
+-- current workspace (upstream closed the cross-workspace request as
+-- "not planned") -- so this hand-rolls real cross-workspace cycling:
+-- hl.get_windows()'s focus_history_id for recency ordering,
+-- hl.dsp.focus({ window = "address:" .. addr }) (the "address:" prefix
+-- is required -- a bare address errors "window not found") to jump to
+-- a specific window and switch to its workspace in one call, inside a
+-- submap (wiki.hypr.land/configuring/core/binds/submaps/) entered on
+-- SUPER + Tab and exited on releasing Super (this file's own
+-- SUPER + SUPER_L release-bind pattern, above) or Escape.
+local altTabWindows = {}
+local altTabIndex = 1
+
+local function altTabStep(delta)
+  if #altTabWindows == 0 then
+    return
+  end
+  altTabIndex = ((altTabIndex - 1 + delta) % #altTabWindows) + 1
+  local w = altTabWindows[altTabIndex]
+  if w then
+    hl.dispatch(hl.dsp.focus({ window = "address:" .. w.address }))
+  end
+end
+
+hl.bind("SUPER + Tab", function()
+  altTabWindows = hl.get_windows()
+  table.sort(altTabWindows, function(a, b)
+    return a.focus_history_id < b.focus_history_id
+  end)
+  altTabIndex = 1
+  altTabStep(1)
+  hl.dispatch(hl.dsp.submap("windowswitch"))
+end)
+hl.define_submap("windowswitch", function()
+  hl.bind("Tab", function() altTabStep(1) end, { repeating = true })
+  hl.bind("SHIFT + Tab", function() altTabStep(-1) end, { repeating = true })
+  hl.bind("SUPER + SUPER_L", hl.dsp.submap("reset"), { release = true })
+  -- Wiki's own explicit warning: always keep an escape hatch out of a
+  -- submap in case the release-bind above doesn't fire for some reason.
+  hl.bind("Escape", hl.dsp.submap("reset"))
+end)
 -- Translate the current selection (system-plan.md §5.11): SUPER+ALT+T runs
 -- translate-selection (home.packages) -- selected text -> Crow's CLI ->
 -- DMS notification. SUPER+T is taken by DMS's terminal bind (seeded into
