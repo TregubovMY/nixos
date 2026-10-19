@@ -148,6 +148,24 @@
   # (/etc/set-environment), same mechanism QS_ICON_THEME above relies on.
   environment.sessionVariables.SSH_AUTH_SOCK = "$HOME/.bitwarden-ssh-agent.sock";
 
+  # Without this, the above is silently overridden: confirmed live
+  # 2026-10-19, SSH_AUTH_SOCK in the real session was
+  # /run/user/1000/gcr/ssh ("The agent has no identities", breaking `git
+  # push`), not Bitwarden's socket, even though /etc/set-environment
+  # correctly exported ours. Root cause -- gcr-ssh-agent.socket, shipped
+  # by the `gcr` package (pulled in transitively by
+  # services.gnome.gnome-keyring above, modules/nixos/greetd.nix),
+  # registers its own SSH agent and sets SSH_AUTH_SOCK itself via
+  # systemd --user AFTER /etc/set-environment runs at login, so it wins.
+  # A known, common conflict -- same unit, same symptom, reported on
+  # Arch's bug tracker/forum (bbs.archlinux.org/viewtopic.php?id=293602)
+  # with the same fix: mask the unit. We only want gnome-keyring's Secret
+  # Service (passwords/tokens for Chrome/VSCode/DankCalendar, see
+  # greetd.nix) -- its unrelated SSH agent was never wanted, Bitwarden is
+  # the one SSH agent this repo configures (system-plan.md §6/§7).
+  systemd.user.services."gcr-ssh-agent".enable = false;
+  systemd.user.sockets."gcr-ssh-agent".enable = false;
+
   # A Nerd Font, system-wide via fonts.packages (a NixOS option, not
   # home-manager -- fontconfig is shared across the whole system anyway).
   # nixpkgs restructured the old monolithic `nerdfonts` attribute (which
