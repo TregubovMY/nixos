@@ -169,6 +169,40 @@
     size = 24;
     gtk.enable = false;
   };
+
+  # Session environment variables for the UWSM-managed session
+  # (programs.hyprland.withUWSM = true, modules/nixos/hyprland.nix).
+  # Found live 2026-10-19 while chasing "cursor is Hyprland's own
+  # default right after a fresh login, autostart hooks never fired":
+  # this repo had been setting these two different ways --
+  # environment.sessionVariables (NixOS/etc-set-environment layer) and
+  # hl.env(...) inside hyprland.lua (below, now removed from the cursor
+  # block) -- and per Hyprland's own UWSM wiki page, NEITHER is the
+  # right layer for a withUWSM session: "Environment variables
+  # shouldn't go in the Hyprland config file"; theming/XCursor/toolkit
+  # vars belong in ~/.config/uwsm/env, sourced by UWSM itself before
+  # Hyprland ever starts. The wiki's own NixOS section gives the exact
+  # fix: point xdg.configFile."uwsm/env".source at home-manager's
+  # generated hm-session-vars.sh (home.sessionVariablesPackage) instead
+  # of hand-writing it -- confirmed against home-manager's own source
+  # (modules/home-environment.nix) that this option/path is real, not
+  # guessed. XCURSOR_*/HYPRCURSOR_* here match home.pointerCursor
+  # above; QS_ICON_THEME/NIXOS_OZONE_WL/SSH_AUTH_SOCK duplicate (not
+  # replace -- harmless either way) the NixOS-level
+  # environment.sessionVariables of the same names in
+  # modules/nixos/hyprland.nix, now additionally reachable through the
+  # layer UWSM actually reads.
+  home.sessionVariables = {
+    XCURSOR_THEME = config.home.pointerCursor.name;
+    XCURSOR_SIZE = toString config.home.pointerCursor.size;
+    HYPRCURSOR_THEME = config.home.pointerCursor.name;
+    HYPRCURSOR_SIZE = toString config.home.pointerCursor.size;
+    QS_ICON_THEME = "Papirus-Dark";
+    NIXOS_OZONE_WL = "1";
+    SSH_AUTH_SOCK = "$HOME/.bitwarden-ssh-agent.sock";
+  };
+  xdg.configFile."uwsm/env".source =
+    "${config.home.sessionVariablesPackage}/etc/profile.d/hm-session-vars.sh";
   # grimblast (hyprwm/contrib, packaged in nixpkgs) -- DMS's own
   # screenshot IPC target (`dms ipc call niri screenshot*`) is niri-only
   # per DMS's own IPC docs, doesn't work under Hyprland. grimblast is
@@ -534,13 +568,18 @@ end)
 
 -- NIXOS-MANAGED CURSOR BLOCK START -- managed by home-manager activation
 -- (modules/home/hyprland.nix, see home.pointerCursor there); don't edit
--- between START/END by hand. Same lines DMS's Settings → Cursor writes
--- to dms/cursor.lua; env for apps started from Hyprland, setcursor for
--- Hyprland's own pointer right after start.
-hl.env("XCURSOR_THEME", "${config.home.pointerCursor.name}")
-hl.env("XCURSOR_SIZE", "${toString config.home.pointerCursor.size}")
-hl.env("HYPRCURSOR_THEME", "${config.home.pointerCursor.name}")
-hl.env("HYPRCURSOR_SIZE", "${toString config.home.pointerCursor.size}")
+-- between START/END by hand. DMS's Settings → Cursor writes the same
+-- hl.env + setcursor pair to dms/cursor.lua -- but per Hyprland's own
+-- UWSM wiki page ("Notes": "Environment variables shouldn't go in the
+-- Hyprland config file", theming/XCursor vars belong in
+-- ~/.config/uwsm/env instead), hl.env for XCURSOR_*/HYPRCURSOR_* was
+-- the wrong layer for a withUWSM = true session -- moved to
+-- home.sessionVariables + xdg.configFile."uwsm/env" below instead,
+-- found live 2026-10-19 while chasing "cursor is Hyprland's own default
+-- right after a fresh login" (DMS's own cursor.lua has the identical
+-- issue, not something unique to this config). Only the actual
+-- runtime action -- setcursor for Hyprland's own already-running
+-- pointer -- stays here; it isn't an environment variable.
 hl.on("hyprland.start", function()
   hl.exec_cmd("hyprctl setcursor ${config.home.pointerCursor.name} ${toString config.home.pointerCursor.size}")
 end)
