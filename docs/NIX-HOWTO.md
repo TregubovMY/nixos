@@ -184,7 +184,8 @@ direnv allow
 Симптом: `nixos-rebuild`/`nix build` падает на `fetchurl` с HTTP 451 или
 обрывом соединения — сайт пакета блокирует запросы из РФ без VPN/прокси
 (так ведёт себя `download.jetbrains.com` для RubyMine, см. комментарий
-над `desktopApps.rubymine.enable` в `hosts/common.nix`). Запуск
+над `desktopApps.rubymine.enable` в `modules/nixos/desktop-apps.nix` и
+`hosts/common.nix`). Запуск
 `nixos-rebuild` обычным образом не подхватывает прокси автоматически:
 `nix-daemon` — отдельный systemd-сервис со своим окружением, он не видит
 `HTTP_PROXY`/`HTTPS_PROXY` из графической сессии (их выставляет Throne,

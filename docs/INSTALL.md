@@ -70,7 +70,7 @@ sudo systemctl restart nix-daemon
       `bootctl status` → `Secure Boot: enabled (user)`.
 - [ ] Гибернация: `systemctl hibernate` → запуск → пароль LUKS → сессия на месте.
 - [ ] Песочница агентов: `agent-sandbox ~/code/<проект> -- claude --version`
-      (подробно — README, «Песочница агентов»).
+      (подробно — docs/AGENT-SANDBOX.md).
 
 **Пустить агента (Claude) в VM по SSH** для проверки:
 `cd ~/code/nixos && git pull && bin/vm-ssh-on` — только в VM, только по
@@ -112,11 +112,15 @@ lanzaboote (подписан загрузчик-«заглушка», ядро �
    open-meteo, anthropic/claude, …), `rnds.pro` и рабочие подсети — direct
    (подробно — `REFERENCE.md`, «Прокси и рабочий VPN»).
 5. После прокси — RubyMine: `desktopApps.rubymine.enable = true` в
-   `hosts/common.nix`, затем `sudo nixos-rebuild switch --flake .#mimir`.
+   `hosts/<эта-машина>/configuration.nix` (НЕ `common.nix` — это ломает
+   первую установку на любой другой машине, у которой Throne ещё нет),
+   затем `make switch HOST=<эта-машина>` (сам определит, что прокси
+   поднят, и соберёт пакет через него — см. `NIX-HOWTO.md`, «Собрать
+   пакет, который блокируют без прокси»).
 6. **Рабочий VPN**: `nmcli connection import type openvpn file work.ovpn`.
 7. **Календарь**: `dcal account add google`.
 8. **Песочницы агентов**: конфиги `work`/`study`/`personal` и первый вход в
-   каждой — README, «Песочница агентов».
+   каждой — docs/AGENT-SANDBOX.md.
 
 ## Обновление уже установленной системы
 

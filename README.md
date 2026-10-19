@@ -8,7 +8,10 @@ Boot, рабочий стол Hyprland + DankMaterialShell, home-manager, и п�
 |---|---|
 | [docs/INSTALL.md](docs/INSTALL.md) | установка — в виртуалку и на машину, что сделать после |
 | [docs/NIX-HOWTO.md](docs/NIX-HOWTO.md) | базовое в Nix: добавить пакет/модуль/машину, обновить, откатить |
+| [docs/DAILY-WORKFLOW.md](docs/DAILY-WORKFLOW.md) | как пользоваться день в день: редактор, файловый менеджер, горячие клавиши, растущий FAQ |
+| [docs/AI-AGENTS.md](docs/AI-AGENTS.md) | работа с AI-агентами — прямо на машине и в песочнице |
 | [docs/AGENT-SANDBOX.md](docs/AGENT-SANDBOX.md) | песочница агентов — команды, конфиг, шпаргалка |
+| [docs/FEATURES.md](docs/FEATURES.md) | фишки системы — что повторить на другой машине/ОС, чтобы не потерять удобство |
 | [docs/REFERENCE.md](docs/REFERENCE.md) | подробности и история решений по каждому компоненту |
 | [system-plan.md](system-plan.md) | архитектура и почему так |
 | [TODO.md](TODO.md) | что ещё не сделано или не проверено |
@@ -46,77 +49,13 @@ bin/                   install-host, agent-sandbox, vm-ssh-on
 Почему именно так, а не через `podman login` без флага — и общее решение
 про sops-nix/Bitwarden — `system-plan.md` §6/§7, `docs/REFERENCE.md`.
 
-## Песочница агентов
+## AI-агенты и песочница
 
-AI-агенты (Claude Code, OpenCode) и доски (kandev, dsh) работают в
-**rootless-контейнере podman**, а не прямо на машине. Агент видит только
-папки проектов из конфига, свой домашний каталог и `/nix/store` только для
-чтения; ваш `~` (SSH-ключи, браузер, другие проекты) ему не виден. Сеть
-открыта — граница защиты в файлах и секретах.
+Claude Code/OpenCode (и доски kandev/dsh) работают изолированно от
+остальной машины — **`docs/AI-AGENTS.md`** (вход), **`docs/AGENT-SANDBOX.md`**
+(полная шпаргалка: команды, конфиг `@имя`, IDE).
 
-Одна песочница на сферу — по конфигу в `~/.config/agent-sandbox/projects/`:
+## День в день
 
-```ini
-# work.conf  (study.conf, personal.conf — то же со своими папками и портами)
-dir       = ~/code/work/main
-mount     = ~/code/work/other
-publish   = 38429:38429
-autostart = kandev start --backend-port 38429
-publish   = 3080:3080
-autostart = dsh web --no-open --port 3081 --trusted-host 127.0.0.1:3080
-autostart = socat TCP-LISTEN:3080,fork,reuseaddr TCP:127.0.0.1:3081
-publish   = 4200:4200                                     # opencode web — по желанию
-autostart = opencode web --hostname 0.0.0.0 --port 4200
-```
-
-```bash
-agent-sandbox up @work                 # kandev → http://127.0.0.1:38429
-agent-sandbox attach @work -- claude   # Claude Code в той же песочнице
-agent-sandbox down @work
-agent-sandbox ~/code/proj -- claude    # разово, без конфига
-```
-
-Первый раз в каждой песочнице: `claude login`, `gh auth login`,
-`dsh-setup` (dsh и плагины), в kandev профиль Claude Code →
-**CLI passthrough**. Языки и гемы с хоста подключаются только для чтения —
-повторно не скачиваются. Как пользоваться день в день —
-`docs/AGENT-SANDBOX.md`; история решений и все нюансы —
-`docs/REFERENCE.md`.
-
-`claude` и `opencode` есть и прямо на машине — для разовых вопросов; для
-работы с кодом запускайте их через `agent-sandbox`.
-
-## Переход → просмотр → редактирование
-
-`z <часть-имени>` (zoxide — запоминает часто используемые папки) → `y`
-(yazi — файловый менеджер в терминале, превью картинок/видео/архивов) →
-`Enter`/`o` на файле открывает его в `$EDITOR` (LazyVim, `nvim`).
-
-## Горячие клавиши (сверх стандартных DMS)
-
-| Клавиши | Действие |
-|---|---|
-| SUPER+/ | шпаргалка всех клавиш DMS |
-| Win (короткое нажатие) | поиск приложений (лаунчер DMS); запасной — SUPER+Space |
-| SUPER+E | файловый менеджер (Nautilus) |
-| `y` (в терминале) | терминальный файловый менеджер yazi; при выходе (`q`) терминал остаётся в той папке |
-| SUPER+T | терминал (ghostty) |
-| SUPER+X | меню питания (выход, перезагрузка) |
-| CapsLock | переключить раскладку en/ru |
-| Print / SHIFT+Print / SUPER+Print | скриншот области / экрана / окна |
-| SUPER+SHIFT+Print | скриншот области с рисованием (swappy) |
-| SUPER+SHIFT+R / SUPER+CTRL+R | запись области / экрана (повтор — стоп) |
-| SUPER+ALT+T | перевести выделенный текст (Dialect) |
-
-### Где менять сочетания
-
-1. **Быстро, мышью:** SUPER+запятая → раздел Keybinds в настройках DMS — там
-   поиск по всем сочетаниям и переопределение существующих.
-2. **Навсегда и на всех машинах:** блок `NIXOS-MANAGED BINDS` в
-   `modules/home/hyprland.nix` (там же сочетания из таблицы выше) — один
-   `nixos-rebuild switch`, и они на месте. Формат:
-   `hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))`. Править прямо файл
-   `~/.config/hypr/dms/binds-user.lua` между строками `NIXOS-MANAGED` бесполезно:
-   блок перезаписывается при каждой перестройке.
-3. Файлы DMS (`~/.config/hypr/dms/binds.lua`) — его стандартные сочетания,
-   их пишет сам DMS.
+Горячие клавиши, навигация по файлам (`z`/`y`/редактор), версии языков,
+docker-compose, растущий FAQ — **`docs/DAILY-WORKFLOW.md`**.
