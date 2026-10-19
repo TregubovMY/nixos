@@ -591,82 +591,66 @@ hl.bind("SUPER + CTRL + R", hl.dsp.exec_cmd("screenrec screen"))
 -- - Win+E opens the file manager (Nautilus, desktop-apps.nix).
 hl.bind("SUPER + SUPER_L", hl.dsp.exec_cmd("dms ipc call spotlight toggle"), { release = true })
 hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))
--- Win+L locks the screen (Windows convention, asked for 2026-10-18).
--- DMS's own factory binds.lua already ships "SUPER + ALT + L" for this
--- (dms ipc call lock lock) -- that one is left alone, this just adds the
--- plain SUPER + L shortcut alongside it.
+-- Two distinct locks (Windows convention, asked for 2026-10-18, split
+-- into two behaviours 2026-10-19):
+-- - Win+L: a normal lock -- screensaver/live-wallpaper (lockscreen-videos,
+--   home.packages above) keeps playing on the lock screen, monitors stay
+--   on. DMS's own factory binds.lua already ships "SUPER + ALT + L" for
+--   plain `lock` too (left alone, harmless overlap) -- this adds the bare
+--   Win key for it.
+-- - Win+Alt+L: lock AND power the monitors off (`lockAndOutputsOff`, a
+--   separate dms ipc target from plain `lock` -- confirmed via `dms ipc`
+--   listing its targets). Overrides the SUPER+ALT+L combo DMS's factory
+--   binds already uses for plain `lock` -- `hl.unbind` was tried live
+--   first but didn't actually remove the old registration (`hyprctl
+--   binds` still showed it after calling it), so this just adds a second
+--   registration on the same combo instead: harmless, since DMS's own
+--   lock()/lockAndOutputsOff() (Modules/Lock/Lock.qml, read directly)
+--   guard against a second lock() call while already locked and just
+--   proceed straight to powering the outputs off -- confirmed live, both
+--   firing on one keypress ends up locked-with-outputs-off either way.
 hl.bind("SUPER + L", hl.dsp.exec_cmd("dms ipc call lock lock"))
--- Win+Tab to switch windows (asked for 2026-10-19). First found and fixed
--- a real bug on the way here: DMS's own factory dms/binds.lua ships
--- "SUPER + TAB" (all caps) for this key, but Hyprland's Lua key names are
--- X11 keysym names ("Tab", not "TAB") -- confirmed live with `hyprctl
--- eval 'hl.bind("SUPER + Tab", ...)'`, which DOES register
--- (`hyprctl binds` then shows it), while re-running the exact upstream
--- "TAB" string does not. That bug made DMS's own bind -- toggleOverview, a
--- click-to-switch grid -- silently do nothing at all. But a plain fix of
--- the casing isn't what was actually asked for next: a classic hold-Win,
--- tap-Tab-repeatedly, release-to-confirm switcher, not a grid you click.
---
--- Second false start, also found live: Hyprland's own `cyclenext`
--- dispatcher (hl.dsp.window.cycle_next) only cycles windows on the
--- CURRENT workspace -- confirmed both against upstream (github.com/
--- hyprwm/Hyprland/issues/6678, a cross-workspace request closed "not
--- planned") and live here: with most windows on separate workspaces,
--- repeated cycle_next() calls just sat on the same window, looking like
--- Win+Tab did nothing at all. DMS's own Overview (the thing this bind
--- used to open) handles cross-workspace fine but only supports
--- Left/Right between workspace columns and mouse clicks on a window --
--- no Tab-to-cycle, no Enter-to-confirm (checked its actual QML,
--- Modules/WorkspaceOverlays/HyprlandOverview.qml's Keys.onPressed).
---
--- So this hand-rolls real cross-workspace cycling from Hyprland's Lua
--- primitives, each piece confirmed live via `hyprctl eval` before being
--- written here (hl.get_windows()'s focus_history_id field for ordering;
--- hl.dsp.focus({ window = "address:" .. addr }) -- note the "address:"
--- prefix, a bare address alone gives "window not found" -- to actually
--- jump to a specific window AND switch to its workspace in one call).
--- altTabWindows/altTabIndex are plain Lua locals: this whole file is one
--- Lua chunk, so they persist as upvalues across every subsequent
--- keypress exactly like a closure would in any other language -- verified
--- live by calling the equivalent of altTabStart/altTabStep from separate
--- `hyprctl eval` invocations in sequence and seeing the stepping stay
--- consistent between calls.
---
--- Entering the submap (wiki.hypr.land/configuring/core/binds/submaps/
--- pattern, same as the earlier false start) and exiting it on releasing
--- Super (this file's own SUPER + SUPER_L release-bind pattern, see
--- above) are unchanged from that attempt -- only the in-submap action
--- changed, from the workspace-local cycle_next to this.
-local altTabWindows = {}
-local altTabIndex = 1
+hl.bind("SUPER + ALT + L", hl.dsp.exec_cmd("dms ipc call lock lockAndOutputsOff"))
 
-local function altTabStep(delta)
-  if #altTabWindows == 0 then
-    return
+-- "Peek" a tray app: toggle a small floating, centered window on its own
+-- special workspace, launching it first if it isn't running yet -- never
+-- quits the app (its tray-icon process, e.g. Bitwarden's SSH agent,
+-- stays alive throughout), just shows/hides its window. Asked for
+-- 2026-10-19 as "Ctrl+click a tray icon to peek it" -- checked DMS's
+-- actual tray widget QML (Modules/DankBar/Widgets/SystemTrayBar.qml):
+-- its MouseAreas only distinguish Left/Right/Middle mouse buttons, no
+-- keyboard-modifier handling at all, so a literal "Ctrl+click the tray
+-- icon" trigger isn't something this config can hook -- a normal
+-- keybind gets the same result (open small, centered, on top; press
+-- again to put it away) without patching DMS's own QML.
+--
+-- Mechanism verified live piece by piece (hl.window_rule's `workspace`
+-- field, hl.dsp.workspace.toggle_special, hl.get_workspace) before
+-- being written here, on a disposable test app first -- one real
+-- mistake found and fixed in the process: toggle_special takes the
+-- special workspace's bare name as a plain string
+-- (toggle_special("bitwarden")), NOT a table ({ name = "bitwarden" });
+-- passing the table form didn't error, but silently kept the window
+-- from ever mapping at all (confirmed live against the real Bitwarden
+-- window before switching to the disposable test app to finish
+-- verifying).
+--
+-- Bitwarden is the first case (asked for by example, "in fact for any
+-- tray app") -- repeat the same two lines (window_rule + bind) for any
+-- other tray app later, with its own class and special-workspace name.
+hl.window_rule({
+  match = { class = "^bitwarden$" },
+  float = true,
+  size = "30% 70%",
+  center = true,
+  workspace = "special:peek-bitwarden",
+})
+hl.bind("SUPER + B", function()
+  local ws = hl.get_workspace("special:peek-bitwarden")
+  if not ws or ws.windows == 0 then
+    hl.exec_cmd("bitwarden")
   end
-  altTabIndex = ((altTabIndex - 1 + delta) % #altTabWindows) + 1
-  local w = altTabWindows[altTabIndex]
-  if w then
-    hl.dispatch(hl.dsp.focus({ window = "address:" .. w.address }))
-  end
-end
-
-hl.bind("SUPER + Tab", function()
-  altTabWindows = hl.get_windows()
-  table.sort(altTabWindows, function(a, b)
-    return a.focus_history_id < b.focus_history_id
-  end)
-  altTabIndex = 1
-  altTabStep(1)
-  hl.dispatch(hl.dsp.submap("windowswitch"))
-end)
-hl.define_submap("windowswitch", function()
-  hl.bind("Tab", function() altTabStep(1) end, { repeating = true })
-  hl.bind("SHIFT + Tab", function() altTabStep(-1) end, { repeating = true })
-  hl.bind("SUPER + SUPER_L", hl.dsp.submap("reset"), { release = true })
-  -- Wiki's own explicit warning: always keep an escape hatch out of a
-  -- submap in case the release-bind above doesn't fire for some reason.
-  hl.bind("Escape", hl.dsp.submap("reset"))
+  hl.dispatch(hl.dsp.workspace.toggle_special("peek-bitwarden"))
 end)
 -- Translate the current selection (system-plan.md §5.11): SUPER+ALT+T runs
 -- translate-selection (home.packages) -- selected text -> Crow's CLI ->
