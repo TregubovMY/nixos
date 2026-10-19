@@ -612,23 +612,44 @@ hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))
 hl.bind("SUPER + L", hl.dsp.exec_cmd("dms ipc call lock lock"))
 hl.bind("SUPER + ALT + L", hl.dsp.exec_cmd("dms ipc call lock lockAndOutputsOff"))
 
--- Win+Tab window switcher, re-added at the user's request after a
--- round trip: removed once ("works strangely"), the replacement idea
--- (tray-icon peek) hit a dead end and got dropped too, and the user
--- then asked for this back specifically. Unchanged from the version
--- verified live before (see git history, commit e8a3b7c, for the full
--- two-false-starts story): DMS's factory "SUPER + TAB" has a casing bug
--- (Hyprland wants the X11 keysym "Tab", not "TAB") that silently no-ops
--- it, and Hyprland's own cyclenext dispatcher only cycles within the
--- current workspace (upstream closed the cross-workspace request as
--- "not planned") -- so this hand-rolls real cross-workspace cycling:
--- hl.get_windows()'s focus_history_id for recency ordering,
--- hl.dsp.focus({ window = "address:" .. addr }) (the "address:" prefix
--- is required -- a bare address errors "window not found") to jump to
--- a specific window and switch to its workspace in one call, inside a
--- submap (wiki.hypr.land/configuring/core/binds/submaps/) entered on
--- SUPER + Tab and exited on releasing Super (this file's own
--- SUPER + SUPER_L release-bind pattern, above) or Escape.
+-- Win+Tab window switcher. Re-added at the user's request after a
+-- round trip (removed once as "works strangely"; see git history,
+-- commit e8a3b7c, for the original two-false-starts story: DMS's
+-- factory "SUPER + TAB" has a casing bug that silently no-ops it, and
+-- Hyprland's own cyclenext dispatcher only cycles within the current
+-- workspace, upstream closed the cross-workspace request as "not
+-- planned"). That version hand-rolled cross-workspace cycling but
+-- moved REAL keyboard focus to the candidate window on every single
+-- Tab press -- reported live 2026-10-19 as "it catches focus on them,
+-- so I sometimes type in the console": holding Super and tapping Tab
+-- repeatedly, any stray keystroke (or just tapping one step too many)
+-- was already landing in whatever window the cycle happened to be on
+-- at that moment, not a safe preview.
+--
+-- Also found live in the same report, separately: the submap this
+-- lives in (wiki.hypr.land/configuring/core/binds/submaps/) was
+-- confirmed GENUINELY stuck active (`hl.get_current_submap()` returned
+-- "windowswitch") with Escape not having gotten the user out -- fixed
+-- for that session by dispatching `hl.dsp.submap("reset")` by hand, but
+-- the underlying unreliability (upstream submap-exit-bind flakiness --
+-- a related, not identical, case is documented at github.com/hyprwm/
+-- Hyprland/discussions/14733) isn't something this config can fully
+-- rule out going forward.
+--
+-- Two changes address both reports:
+-- 1. Tab/Shift+Tab now only move an index (altTabIndex) -- no
+--    hl.dsp.focus call at all while cycling, verified live (stepping
+--    repeatedly left `hyprctl activewindow` completely unchanged).
+--    Real focus only moves once, in altTabConfirm, called from the
+--    release-bind (confirm the pick) -- Escape instead just resets
+--    with no confirm call at all (cancel, nothing refocused).
+-- 2. A one-shot timer (`hl.timer`, confirmed live elsewhere in this
+--    session to fire in milliseconds) started the moment the submap
+--    is entered force-exits it after 8s if something has gone wrong
+--    and neither Escape nor releasing Super got out on their own --
+--    guarantees this can't leave the session stuck the way it did
+--    live, regardless of whether the upstream flakiness above is ever
+--    fully root-caused.
 local altTabWindows = {}
 local altTabIndex = 1
 
@@ -637,6 +658,9 @@ local function altTabStep(delta)
     return
   end
   altTabIndex = ((altTabIndex - 1 + delta) % #altTabWindows) + 1
+end
+
+local function altTabConfirm()
   local w = altTabWindows[altTabIndex]
   if w then
     hl.dispatch(hl.dsp.focus({ window = "address:" .. w.address }))
@@ -651,14 +675,29 @@ hl.bind("SUPER + Tab", function()
   altTabIndex = 1
   altTabStep(1)
   hl.dispatch(hl.dsp.submap("windowswitch"))
+  hl.timer(function()
+    if hl.get_current_submap() == "windowswitch" then
+      altTabConfirm()
+      hl.dispatch(hl.dsp.submap("reset"))
+    end
+  end, { timeout = 8000, type = "oneshot" })
 end)
 hl.define_submap("windowswitch", function()
   hl.bind("Tab", function() altTabStep(1) end, { repeating = true })
   hl.bind("SHIFT + Tab", function() altTabStep(-1) end, { repeating = true })
-  hl.bind("SUPER + SUPER_L", hl.dsp.submap("reset"), { release = true })
-  -- Wiki's own explicit warning: always keep an escape hatch out of a
-  -- submap in case the release-bind above doesn't fire for some reason.
-  hl.bind("Escape", hl.dsp.submap("reset"))
+  hl.bind("SUPER + SUPER_L", function()
+    altTabConfirm()
+    hl.dispatch(hl.dsp.submap("reset"))
+  end, { release = true })
+  -- Cancel: no confirm call, nothing gets focused -- just back to
+  -- whatever was already focused before Win+Tab was pressed. Wiki's
+  -- own explicit warning: always keep an escape hatch out of a submap
+  -- in case the release-bind above doesn't fire for some reason (the
+  -- 8s timer above is the second, belt-and-suspenders fallback for the
+  -- same reason).
+  hl.bind("Escape", function()
+    hl.dispatch(hl.dsp.submap("reset"))
+  end)
 end)
 -- Translate the current selection (system-plan.md §5.11): SUPER+ALT+T runs
 -- translate-selection (home.packages) -- selected text -> Crow's CLI ->
