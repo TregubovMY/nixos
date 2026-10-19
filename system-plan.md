@@ -357,7 +357,7 @@ firefox                 # + Firefox Sync аккаунт для кук/парол
 ### 5.7 API / сеть
 ```
 postman                 # unfree, в nixpkgs есть
-bruno                   # MIT, в nixpkgs есть -- добавлен 2026-10-19
+bruno                   # MIT; свежий релиз из GitHub (AppImage), nixpkgs-версия старая -- см. modules/nixos/packages/bruno.nix
 ```
 
 ### 5.8 Прокси-клиент

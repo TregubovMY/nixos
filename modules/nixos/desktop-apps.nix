@@ -68,10 +68,11 @@
 
       # §5.7 API / сеть
       postman
-      # bruno -- запрошено live 2026-10-19. MIT, не unfree (проверено
-      # `nix eval nixpkgs#bruno.meta.license`) -- allowUnfree здесь не
-      # при чём, просто рядом с остальными API-клиентами.
-      bruno
+      # bruno -- запрошено live 2026-10-19. MIT, не unfree. Берём не
+      # nixpkgs#bruno (4.0.0, не понимает opencollection.yml: "The
+      # collection is not valid"), а свежий апстрим-релиз из GitHub --
+      # см. modules/nixos/packages/bruno.nix.
+      (callPackage ./packages/bruno.nix { })
 
       # §5.1.1 Удалённый стол (обе стороны — сервер и клиент, решено
       # 2026-08-10)
