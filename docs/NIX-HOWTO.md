@@ -70,6 +70,68 @@ home.packages = with pkgs; [ jq ];
 programs.zsh.shellAliases.ll = "eza -la";
 ```
 
+## Поставить готовый бинарник с GitHub (не из nixpkgs)
+
+Сначала всегда проверить `nix search nixpkgs <имя>` — если пакета там
+нет (частый случай для узких/новых инструментов), оборачивать бинарник
+в свою derivation в `modules/nixos/packages/<имя>.nix`
+(правило — CLAUDE.md "Правила для пакетов"), не качать и не запускать
+руками: тогда он версионируется, попадает под `nix-collect-garbage` как
+обычный пакет, и `autoPatchelfHook` сам поправит ему динамический
+линковщик/RPATH под NixOS (без этого готовый Linux-бинарник не
+запустится — NixOS не FHS-дистрибутив, см. раздел про `nix-ld` в
+system-plan.md).
+
+Готовый рабочий пример в этом репо — `modules/nixos/packages/kandev.nix`
+(скачивает прямо с реестра npm, но техника для GitHub releases та же):
+
+```nix
+{ lib, stdenv, fetchurl, autoPatchelfHook }:
+
+stdenv.mkDerivation rec {
+  pname = "мой-инструмент";
+  version = "1.2.3";
+
+  src = fetchurl {
+    url = "https://github.com/<owner>/<repo>/releases/download/v${version}/<asset>-linux-x64.tar.gz";
+    hash = ""; # см. ниже, как получить
+  };
+
+  nativeBuildInputs = [ autoPatchelfHook ];
+  buildInputs = [ stdenv.cc.cc.lib ]; # если бинарнику нужен libstdc++ и т.п.
+
+  installPhase = ''
+    mkdir -p $out/bin
+    cp мой-инструмент $out/bin/
+  '';
+
+  meta = {
+    description = "...";
+    homepage = "https://github.com/<owner>/<repo>";
+    platforms = [ "x86_64-linux" ];
+  };
+}
+```
+
+Получить `hash` (nix откажется собирать с пустым — подскажет реальный
+при первой попытке, либо сразу так):
+```bash
+nix store prefetch-file --json https://github.com/<owner>/<repo>/releases/download/v1.2.3/<asset>-linux-x64.tar.gz | jq -r .hash
+```
+
+Подключить: `environment.systemPackages` нужного модуля в
+`modules/nixos/` через `pkgs.callPackage ./packages/<имя>.nix { }`
+(как `kandev.nix` подключён в `modules/nixos/packages/agent-sandbox.nix`).
+
+Если инструмент нужен **разово, не как часть системы** — быстрее без
+derivation вообще, раз `nix-ld` уже включён (`modules/nixos/nix-ld.nix`):
+```bash
+curl -LO https://github.com/<owner>/<repo>/releases/download/v1.2.3/<asset>-linux-x64.tar.gz
+tar xzf <asset>-linux-x64.tar.gz && ./мой-инструмент   # просто запускается
+```
+Минус — не версионируется и не защищён от `nix-collect-garbage`
+(обычный файл в `$HOME`), годится только для одноразовой/временной штуки.
+
 ## Старый компилятор для конкретного проекта
 
 Симптом: `mise install ruby@2.5.1` (или любой другой старый язык/гем с
