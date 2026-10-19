@@ -53,13 +53,24 @@ in
   # its XDG autostart entry.
   services.spice-vdagentd.enable = config.hardware.facter.detected.virtualisation.qemu.enable;
 
-  # Throne is up now (confirmed live, system-plan.md §7) -- flipped back
-  # to true, see desktop-apps.nix's own comment for the HTTP 451 reason
-  # this was off. nix-daemon still won't route the fetch through Throne
-  # on its own (it's a separate systemd service with its own env, not
-  # the login session's) -- see docs/NIX-HOWTO.md ("Собрать пакет,
-  # который блокируют без прокси") for the actual per-command mechanism.
-  desktopApps.rubymine.enable = true;
+  # Stays false here on purpose -- this is the shared default for ANY
+  # host, including one that hasn't been installed yet, and
+  # download.jetbrains.com's HTTP 451 (desktop-apps.nix's own comment)
+  # hits before that host's Throne is even configured. Found live
+  # 2026-10-19: had briefly set this to `true` HERE instead of per-host,
+  # which would have broken RubyMine's fetch on every future fresh
+  # install the moment it reaches the first full build -- moved to
+  # hosts/demiurge/configuration.nix instead, the one host that actually
+  # has Throne running right now. A new host re-enables it there too,
+  # once ITS Throne is set up (docs/INSTALL.md step 5).
+  #
+  # lib.mkDefault, not a plain assignment -- a host file setting this to
+  # `true` at the same (normal) priority as this one would otherwise be a
+  # flat conflict ("has conflicting definition values"), caught live by
+  # `nixos-rebuild dry-build` (NOT by `nix flake check --no-build`, which
+  # stayed green through the same conflict -- worth remembering: a bool
+  # option set in two places needs dry-build, not just check, to catch).
+  desktopApps.rubymine.enable = lib.mkDefault false;
 
   time.timeZone = "Europe/Moscow";
   i18n.defaultLocale = "ru_RU.UTF-8";
