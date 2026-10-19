@@ -50,34 +50,88 @@ in
   # version, not per project); the agent sandbox reads them from there
   # read-only and installs only missing ones into its own dir (GEM_PATH in
   # modules/nixos/packages/agent-sandbox.nix).
+  # NOT using programs.mise.globalConfig: it home-manager-symlinks
+  # ~/.config/mise/config.toml into /nix/store, read-only -- any later
+  # `mise use -g`/`mise install -g` (including this module's own
+  # bootstrap below) tries to write INTO that same file and fails with
+  # "Read-only file system" (reported live 2026-10-19,
+  # `mise use -g go@1.26.9`, then reproduced by the bootstrap itself on
+  # the next switch). Tried redirecting writes via a `write_targets`
+  # setting first (mise.jdx.dev/configuration.html describes it) --
+  # turned out not to exist in the installed mise 2026.10.3 at all
+  # ("unknown field in ~/.config/mise/config.toml: settings.write_targets",
+  # then the same Read-only error anyway since the real write still landed
+  # on the Nix-managed file) -- a stale/future-version doc claim, not
+  # verified against the actual binary before relying on it; don't repeat
+  # that mistake here. Simplest correct fix: don't manage config.toml
+  # through Nix/home-manager AT ALL, so mise owns that file completely
+  # and both `mise use -g` and this module's own bootstrap write to a
+  # plain, ordinary, writable file -- no split, no second file, no
+  # precedence to reason about.
   programs.mise = {
     enable = true;
     enableZshIntegration = true;
-    # mise defaults `all_compile` (its "always build from source instead of
-    # downloading upstream's precompiled binary" setting) to true
-    # specifically on NixOS/Alpine (mise.jdx.dev/configuration/
-    # settings.html -- called out there as deprecated behavior, mise
-    # 2027.8.0 drops this special case) -- presumably because on a plain
-    # NixOS, a downloaded precompiled binary just fails to execute (no
-    # /lib64/ld-linux-x86-64.so.2). That's no longer true here:
-    # modules/nixos/nix-ld.nix already makes precompiled, dynamically-linked
-    # binaries runnable system-wide. So mise's own NixOS special-case is now
-    # actively counterproductive -- it was defaulting to a slow source
-    # compile (needing a hand-declared build toolchain per language, see
-    # rubyBuildToolchain below) when a plain downloaded binary would just
-    # work. Reproduced live 2026-10-18: `mise install node@24.3.0` and
-    # `mise install python@3.14` both fell into source builds and failed on
-    # missing build tools (python/make not on PATH) before this was found.
-    # Ruby is unaffected by this flag either way -- mise's ruby-build
-    # backend has no precompiled-binary path on Linux at all, source build
-    # is its only option, which is why rubyBuildToolchain/rubyBuildLibs
-    # below still exist and are still needed.
-    globalConfig.settings.all_compile = false;
   };
+
+  # mise defaults `all_compile` (its "always build from source instead of
+  # downloading upstream's precompiled binary" setting) to true
+  # specifically on NixOS/Alpine (mise.jdx.dev/configuration/
+  # settings.html -- called out there as deprecated behavior, mise
+  # 2027.8.0 drops this special case) -- presumably because on a plain
+  # NixOS, a downloaded precompiled binary just fails to execute (no
+  # /lib64/ld-linux-x86-64.so.2). That's no longer true here:
+  # modules/nixos/nix-ld.nix already makes precompiled, dynamically-linked
+  # binaries runnable system-wide. So mise's own NixOS special-case is now
+  # actively counterproductive -- it was defaulting to a slow source
+  # compile (needing a hand-declared build toolchain per language, see
+  # rubyBuildToolchain below) when a plain downloaded binary would just
+  # work. Reproduced live 2026-10-18: `mise install node@24.3.0` and
+  # `mise install python@3.14` both fell into source builds and failed on
+  # missing build tools (python/make not on PATH) before this was found.
+  # Ruby is unaffected by this flag either way -- mise's ruby-build
+  # backend has no precompiled-binary path on Linux at all, source build
+  # is its only option, which is why rubyBuildToolchain/rubyBuildLibs
+  # below still exist and are still needed.
+  #
+  # Set via env var, not globalConfig.settings (see above, this is the
+  # replacement for that) -- confirmed live, `MISE_ALL_COMPILE=false mise
+  # settings get all_compile` reports `false`, so this one setting doesn't
+  # need a config file at all.
 
   home.packages = rubyBuildToolchain ++ map (p: p.dev) rubyBuildLibs ++ [
     pkgs.libxcrypt
   ];
+
+  # Bootstrap go/node/python globally once, so a fresh install has them
+  # immediately instead of needing `mise use -g` by hand first (asked
+  # live 2026-10-19). "Stable" here: node's "lts" alias (its actual
+  # meaning of "stable" -- the bleeding-edge @latest train is a different,
+  # faster-moving thing for node specifically); go/python have no such
+  # split, @latest IS their stable release. Writes to the now-plain
+  # ~/.config/mise/config.toml (confirmed live: `mise use` resolves and
+  # installs, but writes the alias strings themselves to the TOML, not
+  # the resolved version -- so this stays "lts"/"latest", tracking
+  # upstream, not frozen to today's exact version).
+  #
+  # Still entryAfter "linkGeneration", even though config.toml is no
+  # longer a home-manager-linked file in THIS generation: on the machine
+  # this was found on, it still IS one from the previous (broken)
+  # generation -- cleanOldGen (part of the "linkGeneration" DAG step,
+  # confirmed in the real generated script: it calls cleanOldGen then
+  # linkNewGen) is what actually removes that stale symlink. Checking for
+  # the file's existence any earlier (e.g. at "writeBoundary", which runs
+  # before "linkGeneration") would see the not-yet-cleaned-up old symlink,
+  # skip the bootstrap, and leave no config.toml at all once cleanup
+  # catches up later in the same run.
+  #
+  # Guarded by the file's own existence -- same idempotency discipline as
+  # shell.nix's codeDirs: runs once ever, so it never fights a version
+  # changed later by hand with `mise use -g`.
+  home.activation.miseGlobalTools = lib.hm.dag.entryAfter [ "linkGeneration" ] ''
+    if [ ! -e "$HOME/.config/mise/config.toml" ]; then
+      run ${pkgs.mise}/bin/mise use --global -y node@lts go@latest python@latest
+    fi
+  '';
 
   # Adding the libraries above to home.packages only gets their headers/
   # .so/.pc files symlinked into the user's profile directory -- it does
@@ -94,5 +148,6 @@ in
     CPATH = lib.concatMapStringsSep ":" (p: "${p.dev}/include") rubyBuildLibs;
     LIBRARY_PATH = lib.concatMapStringsSep ":" (p: "${lib.getLib p}/lib") rubyBuildLibs;
     PKG_CONFIG_PATH = lib.concatMapStringsSep ":" (p: "${p.dev}/lib/pkgconfig") rubyBuildLibs;
+    MISE_ALL_COMPILE = "false";
   };
 }
