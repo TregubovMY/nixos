@@ -109,6 +109,31 @@ claude-use --auto            # вернуться к правилам (когд�
 claude-use                   # кто сейчас активен и почему
 ```
 
+### Worktree kandev на хосте
+
+kandev хранит всё (БД, `master.key`, логи, worktree'ы задач) в своей домашней
+папке. Раньше она лежала в томе песочницы (`~/.kandev`) — с хоста недоступна, а
+git на хосте видел worktree как `prunable`. Теперь она на хосте и монтируется
+по тому же пути (`KANDEV_HOME_DIR`, строка `rw =` и `autostart` в конфиге
+песочницы):
+
+```ini
+rw        = ~/code/work/kandev-rnds
+autostart = KANDEV_HOME_DIR=/home/max/code/work/kandev-rnds CLAUDE_CODE_EXECUTABLE=$(command -v claude) kandev start --backend-port 38429
+```
+
+Worktree задачи — `~/code/work/kandev-rnds/tasks/<id>/<репозиторий>`: открывайте
+в IDE, `ais`/`aih`/`ai` запускаются прямо в нём (`agent-sandbox which` там даёт
+`work-rnds`, сессии общие), `git worktree list` в основном репозитории больше не
+«prunable». Незакоммиченные правки агента видны сразу, это те же файлы.
+
+Нюансы: в `kandev-rnds` лежит `master.key` — в git не добавлять; в контейнере
+`~/.kandev` — симлинк на эту папку (старые абсолютные пути в БД kandev ведут
+в `/home/agent/.kandev/tasks/...`, симлинк их сохраняет); при переносе
+метаданные git поправлены `git worktree repair <путь>` в каждом репозитории;
+старая копия осталась в томе как `~/.kandev.pre-move` — удалить, когда убедитесь,
+что всё на месте. Новый репозиторий/задача: ничего делать не нужно.
+
 ### Как запустить: `ai`, `aih`, `ais`
 
 | Команда | Что делает |
