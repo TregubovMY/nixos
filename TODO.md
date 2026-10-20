@@ -27,10 +27,10 @@
 Проверено в VM (README, «Одна песочница»): kandev и dsh web в одном
 контейнере через `autostart`, `socat` для dsh, доп. папки, `gh`.
 
-- [ ] Конфиги `work`/`study`/`personal` (`~/.config/agent-sandbox/projects/`,
-      пример в README) со своими портами.
-- [ ] Первый запуск каждого: `claude login`, `npm i -g @deepseek-ai/dsh@0.2.0-rc.2`,
-      в kandev профиль Claude Code → **CLI passthrough**.
+- [ ] Конфиги `work`/`my` (`~/.config/agent-sandbox/projects/`, пример в
+      `docs/AGENT-SANDBOX.md`) со своими портами.
+- [ ] Первый запуск каждого: `dsh-setup` (rc.2), в kandev профиль Claude Code →
+      **CLI passthrough**. Логин Claude общий с хостом (`claude-use`).
 - [ ] mise хоста в песочнице: `mise use -g node@22` на хосте → в песочнице
       `node -v` без скачивания; Ruby, собранный mise на хосте, запускается
       в песочнице.
@@ -47,7 +47,7 @@
       (`dsh-file-review` → отправка агенту), токены (`dsh-cost-meter`).
 - [ ] `conductor` вживую: «попроси Claude Code объяснить файл» → в песочнице
       запускается именно `claude -p`, запись заблокирована. Нужны
-      `claude login` в песочнице и модель dsh (DeepSeek по API-ключу).
+      логин Claude (общий с хостом) и модель dsh (DeepSeek по API-ключу).
 - [ ] Опционально: `dsh-setup claude-sdk` (серая зона, на подписке) —
       сравнить с `conductor`.
 - [ ] `dsh-setup extra`: при желании; `dsh-maze` не ставится (его peer-диапазон
@@ -55,15 +55,33 @@
 - [ ] Следить за статьёй Anthropic о плане Agent SDK: отдельный пул для
       `claude -p`/SDK приостановлен, но может вернуться.
 
-## agent-sandbox: конфиг проекта (`@name`) — проверить на mimir
+## agent-sandbox: группы проектов и аккаунты Claude (2026-10-19) — проверить живьём
 
-Сделано (README, «Конфиг проекта»), проверено тестами с фейковым podman.
+Переписано (песочница = группа проектов по хостовым путям, без `/workspace`,
+`up`/`attach`/`exec` слиты в `agent-sandbox [@имя] [-- cmd]`, аккаунты Claude
+через `claude-use`). Проверено тестами с фейковым podman и сборкой rootfs;
+живьём с podman — нет.
 
-- [ ] Пересобрать образ (`AGENT_EXTRA_TRUSTED` в entrypoint) и проверить
-      `mise.toml` в дополнительной папке.
-- [ ] Постоянный `agent-home-*` на `/home/agent` с вложенными общими
-      volume'ами: после `down`/`up` на месте `~/.gitconfig`, история,
-      `~/.dsh`; общие mise/npm по-прежнему общие.
+- [ ] `nixos-rebuild switch`, затем по `docs/AGENT-SANDBOX.md`: конфиги `work`
+      и `my` (`rw = ~/code/my`, `~/code/learn`, `~/code/sfedu`; старый
+      `person.conf` удалить), правила `~/.config/claude-accounts/rules`.
+- [ ] Закрыть все `claude`, `claude-use --import personal --yes`,
+      `claude-use --add work`, `CLAUDE_ACCOUNT=work claude` → `/login`.
+- [ ] `agent-sandbox up` → `pwd` внутри совпадает с хостовым;
+      `agent-sandbox --no-tty -- false; echo $?` → 1; `down`.
+- [ ] **Сессии общие**: начать беседу на хосте, в песочнице `claude --continue`
+      видит её (и наоборот).
+- [ ] **Переключение**: `claude-use work` → беседа под личным аккаунтом →
+      `claude-use personal` → `claude --continue` продолжает ту же беседу.
+      Если `--continue` под другим аккаунтом не подхватывает сессию —
+      пересмотреть раскладку `claude-accounts` (`system-plan.md` §9.8).
+- [ ] `mise.toml` в папках группы (`AGENT_MOUNTS`), `~/.gitconfig`/история на
+      месте после `down`/`up`.
+- [ ] Следующее усиление по результатам обзора: allowlist сети для песочниц;
+      `runsc` (gVisor) как runtime podman — проверить, собирается ли ruby.
+- [ ] Править Nix-конфиг агентом: отдельная песочница для `~/code/nixos` с
+      read-only наложением на файлы самой песочницы (`bin/agent-sandbox`,
+      `modules/nixos/*agent-sandbox*`) — пока репозиторий правится на хосте.
 
 ## llm-dev-template (`~/code/my/llm-dev-template`)
 

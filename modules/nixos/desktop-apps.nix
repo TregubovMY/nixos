@@ -43,7 +43,11 @@
       # §5.5 AI coding agents — host-level packages for one-off interactive
       # use (system-plan.md §5.5); the sandboxed/per-project path is
       # separate, see modules/nixos/packages/agent-sandbox.nix and README.md.
-      claude-code
+      # claude-code behind the account-switching wrapper: `claude` and
+      # `claude-use` (modules/nixos/packages/claude-accounts.nix, bin/claude-use).
+      # Replaces the bare claude-code on purpose -- every launcher must pick
+      # the account the same way.
+      (callPackage ./packages/claude-accounts.nix { })
       opencode
       # Project-template tooling (llm-dev-template): OpenSpec CLI, and
       # lefthook + gitleaks for its pre-commit hooks -- so human commits on

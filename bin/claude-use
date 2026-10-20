@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# claude-use -- pick which Claude account (subscription) claude-code runs
+# under, without logging out and in again. Used on the host and inside
+# agent-sandbox alike; the `claude` wrapper (modules/nixos/packages/
+# claude-accounts.nix) calls `claude-use resolve` before every launch.
+#
+# Layout (one root, mounted at the same path into every sandbox):
+#   <root>/shared/            what belongs to YOU, not to an account: session
+#                             transcripts (projects/), history, skills, plugins...
+#   <root>/<account>/         one CLAUDE_CONFIG_DIR per account. Holds only the
+#                             login (.credentials.json) and .claude.json
+#                             (account identity, per-project trust); everything
+#                             in SHARED_ITEMS is a relative symlink into shared/.
+#
+# Why that split: claude-code keeps session transcripts inside its config
+# dir, so with one dir per account a session started under account A cannot
+# be resumed under B -- exactly what is needed when A hits its usage limit.
+# Sharing projects/ makes `claude-use B && claude --continue` pick the same
+# conversation up. The symlinks are relative so they resolve wherever the
+# root is mounted (host $HOME vs. the sandbox).
+#
+# Which account is used (first match wins; `claude-use resolve`):
+#   1. $CLAUDE_ACCOUNT                  explicit, one invocation
+#   2. <root>/.override                 set by `claude-use <account>` (global, until --auto)
+#   3. $CLAUDE_ACCOUNT_DEFAULT          set by agent-sandbox from the sandbox config's `account =`
+#   4. rules file, longest matching `path = account` for $PWD, then `default = account`
+#      (~/.config/claude-accounts/rules; plain data, never sourced)
+# The override lives in <root> (not in $HOME) so a running sandbox sees it
+# too: switching on the host also switches the agents in the sandboxes.
+set -euo pipefail
+
+root="${CLAUDE_ACCOUNTS_ROOT:-$HOME/.local/share/claude-accounts}"
+rules="${XDG_CONFIG_HOME:-$HOME/.config}/claude-accounts/rules"
+override="$root/.override"
+
+# Directories/files that are shared between accounts. NOT settings.json and
+# CLAUDE.md: claude-code may rewrite them via write-temp-and-rename, which
+# would silently replace a symlink with a private copy; they are copied once
+# at --add instead (see add_account) and are per account afterwards.
+SHARED_ITEMS=(projects history.jsonl skills agents commands plugins file-history todos)
+COPIED_ITEMS=(settings.json CLAUDE.md)
+
+die() { echo "claude-use: $*" >&2; exit 1; }
+
+valid_name() { case "$1" in "" | *[!a-z0-9_-]* | [_-]*) return 1 ;; esac; }
+
+account_exists() { valid_name "$1" && [ "$1" != shared ] && [ -d "$root/$1" ]; }
+
+list_accounts() {
+  local d
+  for d in "$root"/*/; do
+    [ -d "$d" ] || continue
+    d="${d%/}"; d="${d##*/}"
+    [ "$d" = shared ] || echo "$d"
+  done
+}
+
+expand_tilde() {
+  # shellcheck disable=SC2088  # matching a literal "~/" prefix on purpose
+  case "$1" in "~") printf '%s' "$HOME" ;; "~/"*) printf '%s' "$HOME/${1#"~/"}" ;; *) printf '%s' "$1" ;; esac
+}
+
+# Prints "<account>\t<source>" ; source is a human-readable reason.
+resolve() {
+  local acct="" why=""
+  if [ -n "${CLAUDE_ACCOUNT:-}" ]; then
+    acct="$CLAUDE_ACCOUNT"; why="\$CLAUDE_ACCOUNT"
+  elif [ -s "$override" ]; then
+    acct="$(head -n1 "$override")"; why="override (claude-use --auto clears it)"
+  elif [ -n "${CLAUDE_ACCOUNT_DEFAULT:-}" ]; then
+    acct="$CLAUDE_ACCOUNT_DEFAULT"; why="sandbox config"
+  elif [ -f "$rules" ]; then
+    local cwd line key val best=0 default=""
+    cwd="$(pwd -P)"
+    while IFS= read -r line || [ -n "$line" ]; do
+      line="${line%%#*}"
+      line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+      case "$line" in *=*) ;; *) continue ;; esac
+      key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
+      val="${line#*=}"; val="${val#"${val%%[![:space:]]*}"}"
+      if [ "$key" = default ]; then default="$val"; continue; fi
+      key="$(expand_tilde "$key")"
+      case "$cwd/" in
+        "$key"/*) if [ "${#key}" -gt "$best" ]; then best="${#key}"; acct="$val"; why="rule for $key"; fi ;;
+      esac
+    done <"$rules"
+    if [ -z "$acct" ] && [ -n "$default" ]; then acct="$default"; why="default rule"; fi
+  fi
+  [ -n "$acct" ] || die "no account selected: set 'default = <account>' in $rules or run: claude-use <account>"
+  account_exists "$acct" || die "unknown account '$acct' (from $why); existing: $(list_accounts | tr '\n' ' ')-- create one with: claude-use --add <name>"
+  printf '%s\t%s\n' "$acct" "$why"
+}
+
+add_account() {
+  local name="$1" item src="${2:-}"
+  valid_name "$name" && [ "$name" != shared ] || die "account name must be [a-z0-9_-] and not 'shared': $name"
+  mkdir -p "$root/shared" "$root/$name"
+  chmod 700 "$root" "$root/$name"
+  for item in "${SHARED_ITEMS[@]}"; do
+    case "$item" in
+      *.*) [ -e "$root/shared/$item" ] || : >"$root/shared/$item" ;;
+      *) mkdir -p "$root/shared/$item" ;;
+    esac
+    [ -e "$root/$name/$item" ] || [ -L "$root/$name/$item" ] || ln -s "../shared/$item" "$root/$name/$item"
+  done
+  # Starting point for the per-account copies: from the explicit source
+  # (import) or from any existing account.
+  if [ -z "$src" ]; then
+    local other
+    other="$(list_accounts | grep -vx -- "$name" | head -n1 || true)"
+    [ -z "$other" ] || src="$root/$other"
+  fi
+  if [ -n "$src" ]; then
+    for item in "${COPIED_ITEMS[@]}"; do
+      [ -e "$src/$item" ] && [ ! -e "$root/$name/$item" ] && cp -L "$src/$item" "$root/$name/$item"
+    done
+  fi
+  echo "claude-use: account '$name' ready: $root/$name"
+  echo "  log in once:  CLAUDE_ACCOUNT=$name claude   (then /login)"
+}
+
+# One-time move of an existing ~/.claude (+ ~/.claude.json) into the layout.
+# A move, not a copy: transcripts can be large, and two copies would diverge.
+import_default() {
+  local name="$1" yes="${2:-}" item old="$HOME/.claude" oldjson="$HOME/.claude.json"
+  valid_name "$name" && [ "$name" != shared ] || die "bad account name: $name"
+  [ -d "$old" ] && [ ! -L "$old" ] || die "$old is not a plain directory -- nothing to import"
+  [ ! -e "$root/shared/projects" ] || [ -z "$(ls -A "$root/shared/projects" 2>/dev/null)" ] ||
+    die "$root already holds data; refusing to import over it"
+  if [ "$yes" != --yes ]; then
+    cat >&2 <<EOF
+claude-use: this MOVES $old and $oldjson into $root
+  (login + .claude.json -> $name/, transcripts/skills/plugins/... -> shared/).
+Close every running claude (including sandboxes) first, then repeat with --yes:
+  claude-use --import $name --yes
+EOF
+    exit 1
+  fi
+  mkdir -p "$root/shared" "$root/$name"
+  chmod 700 "$root" "$root/$name"
+  for item in "${SHARED_ITEMS[@]}"; do
+    [ ! -e "$old/$item" ] || mv "$old/$item" "$root/shared/$item"
+  done
+  [ ! -e "$old/.credentials.json" ] || mv "$old/.credentials.json" "$root/$name/.credentials.json"
+  [ ! -e "$oldjson" ] || mv "$oldjson" "$root/$name/.claude.json"
+  for item in "${COPIED_ITEMS[@]}"; do
+    [ ! -e "$old/$item" ] || cp -L "$old/$item" "$root/$name/$item"
+  done
+  add_account "$name" "$old"
+  echo "claude-use: imported. What is left in $old (caches, telemetry, backups) is not needed any more."
+}
+
+case "${1:-}" in
+  "")
+    IFS=$'\t' read -r acct why < <(resolve)
+    echo "current: $acct  ($why)"
+    echo "accounts: $(list_accounts | tr '\n' ' ')"
+    ;;
+  resolve) resolve ;;
+  dir)
+    IFS=$'\t' read -r acct _ < <(resolve)
+    printf '%s\n' "$root/$acct"
+    ;;
+  --auto) rm -f "$override"; echo "claude-use: override cleared" ;;
+  --list) list_accounts ;;
+  --add) [ -n "${2:-}" ] || die "usage: claude-use --add <name>"; add_account "$2" ;;
+  --import) [ -n "${2:-}" ] || die "usage: claude-use --import <name> --yes"; import_default "$2" "${3:-}" ;;
+  -h | --help)
+    sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  -*) die "unknown option: $1 (see --help)" ;;
+  *)
+    account_exists "$1" || die "unknown account '$1'; existing: $(list_accounts | tr '\n' ' ')"
+    printf '%s\n' "$1" >"$override"
+    echo "claude-use: now using '$1' everywhere (host and sandboxes) until: claude-use --auto"
+    echo "  continue the last conversation:  claude --continue"
+    ;;
+esac

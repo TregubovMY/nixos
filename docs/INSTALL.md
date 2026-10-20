@@ -119,8 +119,8 @@ lanzaboote (подписан загрузчик-«заглушка», ядро �
    пакет, который блокируют без прокси»).
 6. **Рабочий VPN**: `nmcli connection import type openvpn file work.ovpn`.
 7. **Календарь**: `dcal account add google`.
-8. **Песочницы агентов**: конфиги `work`/`study`/`personal` и первый вход в
-   каждой — docs/AGENT-SANDBOX.md.
+8. **Песочницы агентов и аккаунты Claude**: конфиги `work`/`my`, аккаунты
+   (`claude-use --add`, вход в каждый) — docs/AGENT-SANDBOX.md.
 
 ## Обновление уже установленной системы
 

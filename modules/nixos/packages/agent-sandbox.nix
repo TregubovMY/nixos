@@ -27,6 +27,15 @@ let
   # sandbox resolve foreign binaries against the same baseline and
   # "works on the host" reliably predicts "works in the sandbox" too. If
   # upstream's default list changes, re-sync from there.
+  # Global mise fallback (MISE_GLOBAL_CONFIG_FILE in the entrypoint): which
+  # Go/Node/Python a directory without its own mise config gets. See there.
+  miseGlobalConfig = pkgs.writeText "agent-sandbox-mise-global.toml" ''
+    [tools]
+    go = "1.26"
+    node = "24"
+    python = "3"
+  '';
+
   nixLdLibraries = pkgs.lib.makeLibraryPath (with pkgs; [
     zlib
     zstd
@@ -149,7 +158,9 @@ let
         ripgrep
         mise
         cacert
-        claude-code
+        # claude-code behind the account-switching wrapper (claude-accounts.nix):
+        # `claude` picks CLAUDE_CONFIG_DIR per account, `claude-use` switches it.
+        (callPackage ./claude-accounts.nix { })
         opencode
         chromium
         # notebooklm-py's own runtime deps -- see the entrypoint's
@@ -423,27 +434,11 @@ let
     export PATH="/home/agent/.local/bin:$PATH"
     mkdir -p /home/agent/.local/bin
 
-    # Wire the single per-project credentials volume (bin/agent-sandbox's
-    # -v agent-creds-$project_hash:/home/agent/.sandbox-creds) up to the
-    # actual paths claude-code/opencode read: ~/.claude (dir),
-    # ~/.claude.json (file, NOT inside ~/.claude -- claude-code's own
-    # top-level session file, confirmed against its real layout), and
-    # ~/.config/opencode (dir). A podman named volume mounts cleanly onto
-    # a directory but not onto a lone file, so this symlinks each real
-    # path into one shared mounted directory instead of trying to mount
-    # the volume three times (which also wouldn't work for the file case
-    # at all). `[ -e ... ]` guards make this idempotent across container
-    # restarts of the same project once the symlinks exist from a
-    # previous run -- container itself is --rm (fresh rootfs every time),
-    # only the named volume persists, so without this the entrypoint
-    # would otherwise need to recreate the symlinks every single launch
-    # regardless, but the guard also makes it safe to re-run by hand.
-    mkdir -p /home/agent/.sandbox-creds/claude /home/agent/.sandbox-creds/opencode
-    touch /home/agent/.sandbox-creds/claude.json
-    [ -e /home/agent/.claude ] || ln -s /home/agent/.sandbox-creds/claude /home/agent/.claude
-    [ -e /home/agent/.claude.json ] || ln -s /home/agent/.sandbox-creds/claude.json /home/agent/.claude.json
-    mkdir -p /home/agent/.config
-    [ -e /home/agent/.config/opencode ] || ln -s /home/agent/.sandbox-creds/opencode /home/agent/.config/opencode
+    # Claude's login and sessions are NOT wired here: the `claude` wrapper
+    # (claude-accounts.nix) points CLAUDE_CONFIG_DIR at the account
+    # directory that bin/agent-sandbox mounts from the host, so host and
+    # sandbox share logins and sessions. opencode keeps its config in the
+    # per-sandbox home volume as it is (~/.config/opencode).
 
     # `dockerTools.buildLayeredImage`'s `contents` merges every listed
     # package's outputs into shared top-level dirs (/bin, /lib, /include,
@@ -482,40 +477,53 @@ let
     export PKG_CONFIG_PATH="${tools}/lib/pkgconfig''${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
     # mise treats `mise.toml`/`.mise.toml` (but not `.tool-versions`) as
-    # potentially code-executing config and refuses to use it until it's
-    # marked trusted — interactively prompting on a real TTY, or under
-    # `set -euo pipefail` in this non-interactive entrypoint, aborting the
-    # whole container before the user ever gets a shell. Only
-    # `.tool-versions` was exercised end-to-end (Task 6); this was found
-    # by static review of mise's trust-prompt behavior for the other two
-    # formats (final review, I4). /workspace is always exactly the
-    # bind-mounted project dir here (never untrusted host content beyond
-    # what the user chose to mount), so pre-trusting it is safe and
-    # harmless for `.tool-versions` projects, which don't consult trust
-    # at all.
-    # Extra dirs from a bin/agent-sandbox @name config (AGENT_EXTRA_TRUSTED,
-    # ':'-separated host paths mounted at the same path) get the same trust.
-    export MISE_TRUSTED_CONFIG_PATHS="/workspace''${AGENT_EXTRA_TRUSTED:+:$AGENT_EXTRA_TRUSTED}"
+    # potentially code-executing config and refuses it until trusted --
+    # prompting on a TTY, or aborting this non-interactive entrypoint under
+    # `set -e` before the user ever gets a shell. AGENT_MOUNTS (set by
+    # bin/agent-sandbox, ':'-separated host paths mounted at the same path
+    # inside) are exactly the directories the user chose to give the sandbox,
+    # so trusting them adds nothing an agent there could not already do.
+    # kandev (autostart) checks agent worktrees out under ~/.kandev/tasks,
+    # outside every AGENT_MOUNTS path, so their mise.toml would be untrusted
+    # and mise would refuse them (go/node/ruby silently missing, found live
+    # 2026-10-20). Same trust level as the project mounts: an agent can write
+    # a mise.toml into either.
+    export MISE_TRUSTED_CONFIG_PATHS="''${AGENT_MOUNTS:-}:/home/agent/.kandev"
+    # Shims on PATH for EVERY process, not just those started through the
+    # `mise exec` below: kandev spawns its terminals and agents itself
+    # (autostart -> kandev -> agentctl -> sh), so they never pass through
+    # `mise exec`; without the shims dir `go`/`node`/`ruby` were "command not
+    # found" there (found live 2026-10-20). A shim resolves the version from
+    # the cwd's .tool-versions/mise.toml, else from the global fallback
+    # below. `mise exec` still prepends the exact versions for the commands
+    # that go through it, so this only adds coverage.
+    export PATH="$MISE_DATA_DIR/shims:$PATH"
+    # Fallback for directories with no mise config (a worktree whose
+    # mise.toml is untracked, e.g. crypton's: only go.mod is checked out).
+    # Major/minor prefixes, not exact pins: they match whatever the host's
+    # read-only installs (MISE_SHARED_INSTALL_DIRS) provide, so a host Go
+    # bump does not need an edit here; a project's own pin always wins.
+    export MISE_GLOBAL_CONFIG_FILE=${miseGlobalConfig}
 
-    # AGENT_WORKDIR (set by `bin/agent-sandbox --workdir`) starts the
-    # command in a subdirectory of the mounted project instead of its root
-    # -- the use case is a git worktree under `.worktrees/<branch>`, which
-    # lives inside the project precisely so it is covered by the one
-    # /workspace bind mount (system-plan.md §9.7). Done here rather than
-    # with `podman run -w`/`podman exec -w`, because this entrypoint cd's
-    # unconditionally and runs `mise install` for the directory it lands
-    # in: a worktree carries its own copy of `.tool-versions`, so mise has
-    # to resolve versions *there*. Only paths under /workspace are
-    # accepted and `..` components are refused, so the flag cannot be
-    # used to start an agent somewhere outside the project view.
-    workdir="''${AGENT_WORKDIR:-/workspace}"
-    case "$workdir" in
-      /workspace | /workspace/*) ;;
-      *)
-        echo "agent-sandbox: AGENT_WORKDIR must be /workspace or below it: $workdir" >&2
-        exit 64
-        ;;
-    esac
+    # AGENT_WORKDIR (set by `bin/agent-sandbox` to the cwd you ran it from,
+    # or -C) is where the command starts. Done here, not with `podman exec
+    # -w`, because this entrypoint cd's unconditionally and runs `mise
+    # install` for the directory it lands in: a subdirectory or worktree
+    # carries its own .tool-versions, so mise has to resolve versions there.
+    # It must be inside one of AGENT_MOUNTS and free of `..`, so the flag
+    # cannot start an agent somewhere outside the project view.
+    first_mount="''${AGENT_MOUNTS%%:*}"
+    workdir="''${AGENT_WORKDIR:-$first_mount}"
+    inside=0
+    old_ifs="$IFS"; IFS=:
+    for m in ''${AGENT_MOUNTS:-}; do
+      case "$workdir/" in "$m"/*) inside=1 ;; esac
+    done
+    IFS="$old_ifs"
+    if [ "$inside" = 0 ]; then
+      echo "agent-sandbox: AGENT_WORKDIR must be inside one of the sandbox's directories (''${AGENT_MOUNTS:-none}): $workdir" >&2
+      exit 64
+    fi
     case "/$workdir/" in
       */../*)
         echo "agent-sandbox: AGENT_WORKDIR must not contain '..': $workdir" >&2
@@ -523,7 +531,7 @@ let
         ;;
     esac
     if [ ! -d "$workdir" ]; then
-      echo "agent-sandbox: AGENT_WORKDIR does not exist inside the project: $workdir" >&2
+      echo "agent-sandbox: AGENT_WORKDIR does not exist: $workdir" >&2
       exit 66
     fi
     cd "$workdir"
@@ -550,10 +558,23 @@ let
     # current directory's pinned tool versions onto PATH for the
     # wrapped command; on a project with no mise config it's a no-op
     # passthrough, so this is safe for non-mise projects too.
-    if [ "$#" -eq 0 ]; then
-      exec mise exec -- ${pkgs.bashInteractive}/bin/bash -l
+    # Only wrap in `mise exec` when this directory has its own mise config.
+    # With the global fallback config (MISE_GLOBAL_CONFIG_FILE above) `mise
+    # exec` is no longer a no-op on a config-less directory: it would
+    # prepend the fallback go/node/python to PATH ahead of the shims, and
+    # every process started from here (kandev -> its worktrees) would then
+    # ignore each worktree's own pin (seen live 2026-10-20: node 24.22
+    # instead of the project's 24.3.0). Without the wrapper the shims alone
+    # resolve per directory: the pin if there is one, the fallback if not.
+    if [ -f .tool-versions ] || [ -f mise.toml ] || [ -f .mise.toml ]; then
+      runner="mise exec --"
     else
-      exec mise exec -- "$@"
+      runner=""
+    fi
+    if [ "$#" -eq 0 ]; then
+      exec $runner ${pkgs.bashInteractive}/bin/bash -l
+    else
+      exec $runner "$@"
     fi
   '';
 in
@@ -576,8 +597,7 @@ in
 #   end-to-end test; same bundle as SSL_CERT_FILE, not a copy).
 # - agent-entrypoint: stable path for `podman exec` (exec doesn't run an
 #   entrypoint, bin/agent-sandbox calls this explicitly).
-# - workspace, tmp: mount points (project, tmpfs); see below for why
-#   home/agent is NOT one.
+# - tmp: mount point (tmpfs); see below for why home/agent is NOT one.
 let
   rootfs = pkgs.runCommand "agent-sandbox-rootfs" { } ''
     # No home/agent here on purpose: an existing mount point makes podman
@@ -585,7 +605,7 @@ let
     # fresh agent-home volume, which the user then can't write to (seen in
     # the VM). Absent, podman creates it in the overlay and the volume
     # stays owned by the keep-id user.
-    mkdir -p $out/{bin,usr/bin,lib64,etc/ssl/certs,workspace,tmp,nix/store,run,dev,proc,sys}
+    mkdir -p $out/{bin,usr/bin,lib64,etc/ssl/certs,tmp,nix/store,run,dev,proc,sys}
     ln -s ${pkgs.nix-ld}/libexec/nix-ld $out/lib64/ld-linux-x86-64.so.2
     ln -s ${pkgs.bashInteractive}/bin/bash $out/bin/sh
     ln -s ${pkgs.bashInteractive}/bin/bash $out/bin/bash

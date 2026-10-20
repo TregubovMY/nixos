@@ -42,60 +42,9 @@
       bindkey '^[[27;5;127~' backward-kill-word
       bindkey '^[[3;5~' kill-word
 
-      # `sclaude`: run from inside any subdirectory of a project and it
-      # opens claude-code in whichever agent-sandbox covers it, cd'd to
-      # that same subdirectory inside the container -- requested live
-      # 2026-10-07 ("write one command in a project subdir, claude opens
-      # in the sandbox there"). Matches cwd against every
-      # ~/.config/agent-sandbox/projects/*.conf's `dir =` (longest prefix
-      # wins, for nested configs), falls back to the git root (or cwd
-      # itself outside any repo) as a plain path -- `up` on a bare path
-      # works without a config too (docs/AGENT-SANDBOX.md). The actual
-      # "open in a subdir" part is bin/agent-sandbox's own `--workdir`
-      # flag (built for git worktrees); this just works out which
-      # project/config that is and the path relative to its root. `up`
-      # before `attach` is idempotent -- a no-op one-liner if already running.
-      sclaude() {
-        emulate -L zsh
-        local cwd="$(pwd -P)"
-        local conf_dir="''${XDG_CONFIG_HOME:-$HOME/.config}/agent-sandbox/projects"
-        local target="" root="" best_len=0 f d
-        for f in "$conf_dir"/*.conf(N); do
-          d=$(sed -n 's/^[[:space:]]*dir[[:space:]]*=[[:space:]]*\([^#]*\).*/\1/p' "$f" \
-            | head -1 | sed 's/[[:space:]]*$//')
-          [ -n "$d" ] || continue
-          # Same ~-expansion bin/agent-sandbox's own cfg_path() does.
-          case "$d" in
-            "~") d="$HOME" ;;
-            "~/"*) d="$HOME/''${d#"~/"}" ;;
-          esac
-          [ -d "$d" ] || continue
-          d="$(cd "$d" && pwd -P)"
-          case "$cwd" in
-            "$d"|"$d"/*)
-              [ "''${#d}" -gt "$best_len" ] || continue
-              best_len="''${#d}"; root="$d"; target="@''${f:t:r}"
-              ;;
-          esac
-        done
-        if [ -z "$target" ]; then
-          root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)" || root="$cwd"
-          target="$root"
-        fi
-        local rel=.
-        [ "$cwd" = "$root" ] || rel="''${cwd#$root/}"
-        agent-sandbox up "$target"
-        if [ "$rel" = . ]; then
-          agent-sandbox attach "$target" -- claude
-        else
-          agent-sandbox attach --workdir "$rel" "$target" -- claude
-        fi
-      }
-
       # Tab-completion for agent-sandbox: subcommands, @name configs (read
       # fresh from ~/.config/agent-sandbox/projects/*.conf every time, so a
-      # newly added config shows up without a new shell), plain
-      # directories, and its flags. Runs after compinit further up in this
+      # newly added config shows up without a new shell) and its flags. Runs after compinit further up in this
       # same initContent (home-manager injects compinit at a lower
       # mkOrder, 570, than this file's own plain initContent, 1000 by
       # default -- confirmed against this repo's pinned home-manager
@@ -114,28 +63,27 @@
         done
 
         if (( CURRENT == 2 )); then
-          compadd -- up attach exec down status "''${names[@]}"
-          _files -/
+          compadd -- up down status "''${names[@]}"
           return
         fi
 
         _arguments -s \
+          '-C[start in this directory (must be inside the sandbox)]:directory:_files -/' \
           '--gui[Wayland + GPU passthrough]' \
-          '--workdir[start in a subdirectory of the project]:subdirectory:_files -/' \
           '--no-tty[never allocate a TTY]' \
-          '--publish[publish host\:container port]:host\:container' \
           '--gitlab-token[pass GITLAB_TOKEN through]' \
-          '--shared-root[directory holds several projects (up only)]' \
           '*::target:->target'
 
         if [[ "$state" == target ]]; then
           compadd -- "''${names[@]}"
-          _files -/
         fi
       }
       compdef _agent_sandbox agent-sandbox
     '';
     shellAliases = {
+      # claude-code in the sandbox that covers the current directory, started
+      # right here (bin/agent-sandbox finds the sandbox by cwd).
+      sclaude = "agent-sandbox -- claude";
       ".." = "cd ..";
       "..." = "cd ../..";
       gs = "git status";

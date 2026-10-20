@@ -56,95 +56,104 @@ Playwright), которые и так лежали на хосте. Провер
 
 ### Использование
 
-```bash
-bin/agent-sandbox ~/code/myproject          # интерактивный shell в /workspace
-bin/agent-sandbox ~/code/myproject -- claude # сразу запустить claude-code
-bin/agent-sandbox --gui ~/code/myproject     # + видимое окно браузера на десктопе
-```
-
-### Долгоживущий контейнер на проект (`up`/`attach`/`exec`/`down`)
-
-Для всего, что должно жить дольше одной команды (Web UI dsh,
-tmux-сессии) — один именованный
-контейнер на проект (`agent-sandbox-<hash пути>`), те же volume'ы, что и
-в одноразовом режиме. Зачем и как устроено — `system-plan.md` §9.7.
+Песочница — именованная **группа проектов** (конфиг, ниже), один
+долгоживущий контейнер на группу; проекты лежат внутри по тем же путям, что
+на хосте. Короткая шпаргалка — `docs/AGENT-SANDBOX.md`.
 
 ```bash
-bin/agent-sandbox up ~/code/myproject                      # поднять (detached, --init)
-bin/agent-sandbox attach ~/code/myproject                  # интерактивный shell внутри
-bin/agent-sandbox attach --workdir .worktrees/feature/KEY-1-slug ~/code/myproject -- claude
-bin/agent-sandbox exec --no-tty ~/code/myproject -- claude -p "..." --output-format stream-json
-bin/agent-sandbox status                                   # все поднятые проекты
-bin/agent-sandbox down ~/code/myproject                    # остановить (volume'ы остаются)
+bin/agent-sandbox                    # shell в песочнице, покрывающей cwd; поднимет её сама
+bin/agent-sandbox -- claude          # то же, сразу claude-code
+bin/agent-sandbox @work -- claude    # явный выбор из любой папки (старт — в первом проекте)
+bin/agent-sandbox -C ~/code/my/app/.worktrees/feature/KEY-1-slug -- claude
+bin/agent-sandbox --no-tty @work -- claude -p "..." --output-format stream-json
+bin/agent-sandbox up @work           # явно поднять в фоне + autostart
+bin/agent-sandbox status             # все поднятые песочницы
+bin/agent-sandbox down @work         # остановить (volume'ы остаются)
 ```
 
-- `--workdir <путь>` — запуск в подкаталоге проекта (обычно git worktree
-  в `.worktrees/<branch>`), относительно корня проекта или абсолютным
-  путём внутри него. Путь вне проекта (в т.ч. через `..` или симлинк)
-  отклоняется. Работает и в одноразовом режиме.
+- Песочницу без `@имя` определяет cwd: берётся конфиг, у которого самая
+  длинная смонтированная папка содержит cwd. Битый или посторонний конфиг
+  поиск не ломает (каждый читается в подоболочке).
+- `-C <папка>` — старт в другой папке группы (например в git worktree в
+  `.worktrees/<branch>`). Вне папок песочницы — ошибка (путь разрешается
+  через `pwd -P`, симлинки наружу не работают; то же проверяет entrypoint).
 - `--no-tty` — никогда не выделять TTY (оркестратор, скрипты), даже при
-  запуске из терминала. Код возврата команды пробрасывается наружу и в
-  одноразовом режиме, и в `exec` (podman сам использует только 125–127).
-- `--publish <host-port>:<container-port>` (у `up` и одноразового режима)
-  — публикует порт **только на `127.0.0.1`** хоста, не в LAN.
-- `--gitlab-token` — передать `GITLAB_TOKEN` в контейнер. По умолчанию
-  выключено; только для Project Access Token (один проект, роль
-  Developer, срок действия), см. §9.7.
-- `--shared-root` (только `up`) — осознанно смонтировать каталог с
-  несколькими проектами: изоляция между проектами при этом теряется.
+  запуске из терминала. Код возврата команды пробрасывается наружу (podman
+  сам использует только 125–127).
+- `--gui`, `--gitlab-token` фиксируются при **создании** контейнера; если он
+  уже запущен — ошибка с подсказкой сделать `down`. `--gitlab-token`
+  передаёт `GITLAB_TOKEN`; только для Project Access Token (один проект,
+  роль Developer, срок действия), см. §9.7.
+- Порты — только ключом `publish` в конфиге, всегда на `127.0.0.1` хоста.
 - Переменные окружения хоста в контейнер **не** попадают, кроме явного
   белого списка (`ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `GITLAB_TOKEN`
-  по флагу) — токены Jira/GitLab/облаков, экспортированные в shell
-  хоста, агенту недоступны. Проверяется `make test`
-  (`tests/agent-sandbox-test.sh`, фейковый podman) и flake-check
-  `agent-sandbox-cli`.
+  по флагу, плюс служебные `AGENT_*`/`CLAUDE_ACCOUNT*`) — токены
+  Jira/GitLab/облаков, экспортированные в shell хоста, агенту недоступны.
+  Проверяется `make test` (`tests/agent-sandbox-test.sh`, фейковый podman)
+  и flake-check `agent-sandbox-cli`.
 
-### Конфиг проекта (`@name`)
+### Конфиг песочницы (`@name`)
 
-Вместо пути к проекту можно указать `@имя` — настройки берутся из
 `~/.config/agent-sandbox/projects/<имя>.conf`:
 
 ```ini
-# ~/.config/agent-sandbox/projects/shop.conf
-dir      = ~/code/shop-api          # основной проект → /workspace (обязателен)
-mount    = ~/code/shop-frontend     # ещё папка, чтение+запись, внутри по тому же пути
-mount_ro = ~/code/shared-lib        # ещё папка, только чтение
-mount    = ~/code/billing           # сколько угодно mount/mount_ro
-publish  = 3080:3080                # как --publish: только 127.0.0.1 хоста
-env      = RAILS_ENV=development    # обычная переменная (не для секретов)
+# ~/.config/agent-sandbox/projects/my.conf
+account = personal                  # аккаунт Claude по умолчанию (необязательно)
+rw      = ~/code/my                 # проект: чтение+запись, внутри по тому же пути (минимум один)
+rw      = ~/code/learn
+ro      = ~/code/shared-lib         # проект только для чтения
+publish = 3080:3080                 # только 127.0.0.1 хоста
+env     = RAILS_ENV=development     # обычная переменная (не для секретов)
+autostart = kandev start --backend-port 38429
 ```
 
-```bash
-bin/agent-sandbox up @shop
-bin/agent-sandbox attach @shop -- claude
-bin/agent-sandbox down @shop
-```
-
-- Конфиг лежит **вне** проекта намеренно: папка проекта смонтирована на
-  запись, и агент мог бы дописать себе в конфиг доступ к другим папкам.
-  Скрипт отказывается работать с конфигом, лежащим внутри любой
-  монтируемой на запись папки; `~` целиком и `/` монтировать тоже
-  отказывается.
+- Конфиг лежит **вне** проектов намеренно: папки смонтированы на запись, и
+  агент мог бы дописать себе в конфиг доступ к другим папкам. Скрипт
+  отказывается работать с конфигом, лежащим внутри любой смонтированной
+  папки; `~` целиком и `/` монтировать тоже отказывается.
 - Файл читается построчно как данные (не `source`): неизвестный ключ или
-  строка без `=` — ошибка, а не молчаливый пропуск.
-- Volume'ы с логинами и кэшем (`agent-creds-cfg-<имя>`,
-  `agent-cache-cfg-<имя>`) и контейнер (`agent-sandbox-cfg-<имя>`)
-  называются по имени конфига, а не по хэшу пути: перенос папки не
-  требует заново `claude login`. Но и переход с `agent-sandbox <путь>` на
-  `@имя` — это новые volume'ы (один раз залогиниться заново).
-- `mise.toml` в дополнительных папках доверяется так же, как в
-  `/workspace` (`AGENT_EXTRA_TRUSTED` → entrypoint) — это требует
-  пересобранного образа.
+  строка без `=` — ошибка, а не молчаливый пропуск. Прежние ключи
+  `dir`/`mount`/`mount_ro` удалены (остались `rw`/`ro`); `dir` значил
+  «главный проект → /workspace», а `/workspace` больше нет.
+- **Почему пути внутри те же, что на хосте.** claude-code хранит сессии по
+  рабочей директории (`projects/-home-max-code-…`). Пока проект был
+  `/workspace`, сессии песочницы и хоста лежали под разными именами и
+  `--resume` их друг у друга не видел. Те же пути дают общие сессии и
+  рабочие ссылки на файлы из логов.
+- Volume'ы и контейнер называются по имени конфига: `agent-home-<имя>`,
+  `agent-cache-<имя>`, `agent-mise-<имя>`, `agent-uv-tools-<имя>`,
+  `agent-npm-global-<имя>`, контейнер `agent-sandbox-cfg-<имя>`. Перенос
+  папок не требует ничего переделывать. Тулчейны per-песочница (раньше
+  общие), см. §9.6.
+- `mise.toml` во всех папках группы доверяется (`AGENT_MOUNTS` → entrypoint).
 - **Что сохраняется между `down`/`up` и перезагрузками** — весь домашний
-  каталог песочницы (`agent-home-<проект>`: история shell, `~/.gitconfig`,
-  `~/.dsh` с плагинами и сессиями dsh, настройки инструментов), логины
-  Claude/OpenCode (`agent-creds-*`), кэш, плюс общие на все проекты mise,
-  npm -g, uv, `~/.local/bin`. Сам контейнер одноразовый (`--rm`), теряется
-  только то, что записано вне `~` и вне папок проекта (например, в `/tmp`).
+  каталог песочницы (`agent-home-<имя>`: история shell, `~/.gitconfig`,
+  `~/.dsh` с плагинами и сессиями dsh, логин opencode), кэш, тулчейны (mise,
+  npm -g, uv). Логин Claude и сессии живут не в песочнице, а в каталоге
+  аккаунтов на хосте (§9.8). Контейнер одноразовый (`--rm`), теряется
+  только то, что записано вне `~` и вне папок проектов (например, в `/tmp`).
 - Прокси в конфиге нет намеренно: Throne в TUN-режиме и так заворачивает
   весь трафик машины, включая контейнеры.
-- Флаги командной строки (`--publish`, `--gitlab-token`, `--gui`)
-  работают вместе с конфигом.
+
+### Аккаунты Claude (`claude`, `claude-use`)
+
+Устройство и причины решений — `system-plan.md` §9.8, команды —
+`docs/AGENT-SANDBOX.md`, раздел «Аккаунты Claude». Что стоит помнить при
+правках:
+
+- Обёртка `claude` и `claude-use` — один пакет
+  (`modules/nixos/packages/claude-accounts.nix`, скрипт `bin/claude-use`),
+  стоит и на хосте (`desktop-apps.nix`), и в инструментах песочницы
+  (`packages/agent-sandbox.nix`); оба берут один и тот же claude-code.
+- `CLAUDE_CONFIG_DIR` кладёт `.claude.json` **внутрь** каталога (проверено
+  живьём: `claude auth status` с таким каталогом создаёт его там), а не
+  рядом, как `~/.claude.json` у дефолтной раскладки. Проверено и то, что
+  claude-code принимает каталог аккаунта, где `projects/` и др. — симлинки, и
+  не заменяет их. **Не проверено**: продолжение сессии, начатой под одним
+  аккаунтом, под другим (нужны оба логина) — проверить при первом
+  переключении.
+- Первичная миграция — `claude-use --import <имя> --yes` (перенос, не
+  копия; запускать при закрытых claude).
 
 ### LSP для агентов
 
@@ -156,10 +165,10 @@ bin/agent-sandbox down @shop
 совпадать с Ruby проекта из mise; плагин `ruby-lsp` Claude Code найдёт его
 через `bundle exec`/PATH.
 
-### Ручные установки (переживают перезапуск, общие на все проекты)
+### Ручные установки (переживают перезапуск, свои у каждой песочницы)
 
 ```bash
-bin/agent-sandbox attach ~/code/myproject
+bin/agent-sandbox
 # openspec и lefthook уже в образе (nixpkgs), ставить не нужно
 npm install -g @deepseek-ai/dsh        # DeepSeek Harness, см. ниже
 # одиночные бинарники из GitHub releases — в ~/.local/bin
@@ -213,11 +222,12 @@ Wayland-сессии команда сразу завершится с поня�
   (`hosts/mimir/`) — сделано намеренно одним
   механизмом в обоих местах, чтобы mise resolved одинаково что в
   песочнице, что вне неё.
-- **`up`/`attach`/`exec`/`--publish`/`--init` проверены только тестами
-  обёртки** (фейковый podman, `tests/agent-sandbox-test.sh`) и
-  статически — в среде разработки нет podman. Перед тем как полагаться на
-  них, один раз прогнать руками: `up` → `status` → `attach` → `exec
-  --no-tty … -- false; echo $?` (ожидается 1) → `down`. Отдельно
+- **Модель «группа проектов по хостовым путям» (2026-10-19) проверена
+  только тестами обёртки** (фейковый podman, `tests/agent-sandbox-test.sh`)
+  и статически, живьём с podman — нет. Перед тем как полагаться на неё,
+  один раз прогнать руками: `agent-sandbox up` → `status` →
+  `agent-sandbox --no-tty -- false; echo $?` (ожидается 1) → `pwd` внутри
+  (должен совпасть с хостовым) → `down`. Отдельно
   проверить, что `--init` работает с установленным podman (нужен
   catatonit; на NixOS идёт вместе с `virtualisation.podman`).
 - **Проверено в VM mimir (2026-10-06)** на корне из `/nix/store`:
@@ -228,45 +238,14 @@ Wayland-сессии команда сразу завершится с поня�
   только для чтения; mise сам ставит Node по `.tool-versions`; домашний
   каталог переживает `down`/`up`. Не проверены `--gui` и `uv tool install
   notebooklm-py`.
-- **Данные агента (логин/токены) переживают перезапуск контейнера, но
-  только для того же проекта.** `bin/agent-sandbox` монтирует отдельный
-  named volume `agent-creds-$project_hash` (тот же хэш пути проекта, что
-  и у `agent-cache-$project_hash`), а entrypoint-скрипт образа
-  (`modules/nixos/packages/agent-sandbox.nix`) симлинкует туда
-  `~/.claude`, `~/.claude.json` и `~/.config/opencode` при старте.
-  Сознательно **не** общий volume на все проекты — иначе песочница
-  одного проекта могла бы прочитать сессию/токен агента из другого,
-  что ломает весь смысл per-project blast-radius containment (шапка
-  `bin/agent-sandbox`). Компромисс: `claude login`/`opencode auth`
-  нужно пройти заново на каждый **новый** проект (создаётся новый volume
-  при первом запуске), но не при каждом перезапуске одного и того же.
-  `ANTHROPIC_API_KEY`, если задан на хосте, тоже прокидывается в
-  контейнер (альтернатива OAuth-логину) — опенкодовские
-  провайдер-ключи так же можно добавить в `bin/agent-sandbox` по тому же
-  паттерну, если понадобится. По тому же паттерну прокидывается и
-  `DEEPSEEK_API_KEY` для DeepSeek Harness, см. секцию ниже.
-
-## DeepSeek Harness (`dsh`) в agent-sandbox
-
-Как и notebooklm-py ниже — не в nixpkgs (npm-пакет `@deepseek-ai/dsh`,
-выложен 2026-08-13, апстрим сам предупреждает о breaking changes в
-developer preview), поэтому не задекларирован Nix-деривацией, а ставится
-руками внутри песочницы, персистентно между перезапусками того же
-контейнера через общий volume `agent-npm-global`
-(`modules/nixos/packages/agent-sandbox.nix`).
-
-**Декларативно (уже в образе):** `nodejs` — только рантайм для `npm`,
-самого `dsh` в образе нет.
-
-**Остаётся ручным шагом:**
-```bash
-bin/agent-sandbox ~/code/myproject
-npm install -g @deepseek-ai/dsh   # один раз на машину — переживает
-                                   # перезапуск контейнера (agent-npm-global),
-                                   # но НЕ переживает `podman volume rm`/сброс
-dsh                                # headless/CLI-режим — работает как есть
-```
-
+- **Логин Claude и сессии лежат на хосте, не в песочнице** (с 2026-10-19):
+  каталог аккаунтов `~/.local/share/claude-accounts/` монтируется в каждую
+  песочницу, обёртка `claude` выбирает аккаунт (`system-plan.md` §9.8).
+  Раньше был named volume `agent-creds-<проект>` и симлинки `~/.claude` в
+  entrypoint — удалены: на каждый новый проект приходилось заново
+  логиниться, а сессии песочницы были отрезаны от хоста. Цена: в каждой
+  песочнице видны логины всех аккаунтов. Логин opencode по-прежнему в
+  домашнем volume песочницы (`~/.config/opencode`).
 - Нужен `DEEPSEEK_API_KEY` — прокинь его на хосте перед запуском
   (`export DEEPSEEK_API_KEY=...`), `bin/agent-sandbox` передаёт его в
   контейнер тем же способом, что и `ANTHROPIC_API_KEY` (см. «Известные
@@ -277,8 +256,8 @@ dsh                                # headless/CLI-режим — работае�
   его откроет браузер на хосте (флаги `--host`/`--trusted-host` из
   `packages/bundle/web-app/src/startup.ts` dsh 0.1.5):
   ```bash
-  bin/agent-sandbox up --publish 3080:3080 ~/code/myproject
-  bin/agent-sandbox attach ~/code/myproject -- \
+  # в конфиге: publish = 3080:3080
+  bin/agent-sandbox @work -- \
     dsh web --host 0.0.0.0 --port 3080 --no-open --trusted-host 127.0.0.1:3080
   # браузер на хосте: http://127.0.0.1:3080
   ```
@@ -289,37 +268,38 @@ dsh                                # headless/CLI-режим — работае�
 
 Все агенты и доски живут в **одной песочнице на конфиг** (`agent-sandbox
 up @имя`): Claude Code, OpenCode, kandev, dsh — просто программы в одном
-контейнере, с общим домашним каталогом (логины Claude/GitHub — одни на
-всех), общими проектами и инструментами. Сменить доску — значит запустить
+контейнере, с общим домашним каталогом (логины GitHub/opencode — одни на всех; Claude — общий
+с хостом, §9.8), общими проектами и инструментами. Сменить доску — значит запустить
 в той же песочнице другую программу. Отдельного контейнера для kandev
 больше нет (был `bin/kandev-sandbox` с официальным образом, удалён
 2026-10-06); kandev — пакет в инструментах песочницы
 (`modules/nixos/packages/kandev.nix`, 0.97.0).
 
-Удобно держать по конфигу на сферу — например работа, учёба, свои
-проекты: у каждой свой домашний каталог и логины, проекты одной не видны
-из другой, порты разные, чтобы все могли работать одновременно.
+Удобно держать по конфигу на уровень доверия — например работа и всё
+личное (учёба, свои проекты): у каждой свой домашний каталог, проекты одной
+не видны из другой, порты разные, чтобы обе могли работать одновременно.
 
 ```ini
 # ~/.config/agent-sandbox/projects/work.conf
-dir       = ~/code/work/main
-mount     = ~/code/work/other
+account   = work
+rw        = ~/code/work/main
+rw        = ~/code/work/other
 publish   = 38429:38429                                   # kandev
 autostart = kandev start --backend-port 38429
 publish   = 3080:3080                                     # dsh web
 autostart = dsh web --no-open --port 3081 --trusted-host 127.0.0.1:3080
 autostart = socat TCP-LISTEN:3080,fork,reuseaddr TCP:127.0.0.1:3081
 ```
-`study.conf` и `personal.conf` — то же со своими папками и портами
-(например 38430/3090 и 38431/3100; во второй и третьей строке `autostart`
+`my.conf` — то же со своими папками и портами
+(например 38430/3090; во второй и третьей строке `autostart`
 порты меняются так же).
 
 ```bash
 agent-sandbox up @work            # контейнер + всё из autostart в фоне
 # kandev: http://127.0.0.1:38429
-agent-sandbox exec @work -- grep -o 'http://[^ ]*token=[^ ]*' /home/agent/.local-state/autostart.log
+agent-sandbox @work -- grep -o 'http://[^ ]*token=[^ ]*' /home/agent/.local-state/autostart.log
 #   ссылка dsh с токеном: заменить порт 3081 на 3080 и открыть
-agent-sandbox attach @work -- claude   # или просто терминал внутри
+agent-sandbox @work -- claude   # или просто терминал внутри (без -- claude)
 agent-sandbox down @work
 ```
 
@@ -335,15 +315,14 @@ agent-sandbox down @work
   интерфейсы (иначе проброс не дойдёт), но на хосте порт опубликован только
   на `127.0.0.1`.
 
-**Первый запуск конфига** (`agent-sandbox attach @work`, внутри):
-1. `claude login` — один раз на конфиг, им пользуются и терминал, и kandev,
-   и dsh.
-2. `dsh-setup` — ставит dsh `0.2.0-rc.2` (общий volume на все конфиги,
-   один раз) и плагины из закреплённого списка `core` (канбан, ревью по
+**Первый запуск конфига** (`agent-sandbox @work`, внутри):
+1. Логин Claude не нужен — он общий с хостом (`claude-use`, §9.8); им
+   пользуются и терминал, и kandev, и dsh.
+2. `dsh-setup` — ставит dsh `0.2.0-rc.2` (volume песочницы, один раз) и плагины из закреплённого списка `core` (канбан, ревью по
    строкам, токены); `dsh-setup extra` и `dsh-setup claude-sdk` — по
    желанию (второй — серая зона, спросит подтверждение). Профиль `~/.dsh`
    лежит в домашнем каталоге **этого** конфига, поэтому запускать внутри
-   нужной песочницы: `agent-sandbox exec @work -- dsh-setup`, потом
+   нужной песочницы: `agent-sandbox @work -- dsh-setup`, потом
    `down`/`up`. Списки — `modules/nixos/packages/dsh-plugins/`.
 3. `gh auth login` — если нужны PR из kandev.
 4. В kandev: **Settings → Agents** → профиль Claude Code → **CLI

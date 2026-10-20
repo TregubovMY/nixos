@@ -1,627 +1,517 @@
 #!/usr/bin/env bash
-# Wrapper around `podman run`/`podman exec` for the agent-sandbox image.
-# Only the target project directory is ever mounted in — see
-# system-plan.md §9.2 for why (blast-radius containment between projects,
-# not a network security boundary — networking is deliberately left open).
+# agent-sandbox -- run AI agents in a rootless-podman sandbox that sees only
+# the project directories you list (system-plan.md §9).
 #
-# Two ways to run (system-plan.md §9.4, §9.7):
-# - one-shot (the original mode, unchanged): `agent-sandbox <dir> [-- cmd]`
-#   — a fresh `--rm` container per invocation;
-# - long-lived per project: `up` starts one named container per project
-#   and keeps it running; `attach`/`exec` run commands inside it; `down`
-#   stops it. Needed by anything that has to outlive one command: the
-#   the dsh Web UI, tmux sessions.
+# Model: a sandbox is a NAMED GROUP of projects of one trust level, defined
+# by a config file (below), not a single directory. One long-lived container
+# per group; every project of the group is mounted at the SAME PATH as on
+# the host. That one rule buys three things:
+#   - claude-code keys its session transcripts by working directory, so a
+#     session started on the host can be resumed in the sandbox and back
+#     (there is no /workspace any more -- it made the paths differ);
+#   - paths in logs, errors and stack traces are paths the host IDE opens;
+#   - "the folder you opened the agent in" is simply your cwd.
+#
+#   agent-sandbox [@name] [-- command...]   enter: start the sandbox if needed, run
+#                                            the command (default: a shell) in the
+#                                            directory you are in; @name is guessed
+#                                            from the cwd when omitted
+#   agent-sandbox up [@name]                 start it (detached), run its autostart commands
+#   agent-sandbox down [@name]               stop it (volumes with data stay)
+#   agent-sandbox status                     list running sandboxes
 set -euo pipefail
 
 usage_text="Usage:
-  agent-sandbox [options] <project-dir> [-- command...]   one-shot container (--rm)
-  agent-sandbox up [options] <project-dir>                start the long-lived project container
-  agent-sandbox attach [--workdir P] <project-dir> [-- command...]
-                                                          interactive shell/command in it (TTY)
-  agent-sandbox exec [--workdir P] [--no-tty] <project-dir> -- command...
-                                                          run a command in it, exit code passed through
-  agent-sandbox down <project-dir>                        stop (and remove) it
-  agent-sandbox status [<project-dir>]                    list running project containers
+  agent-sandbox [options] [@name] [-- command...]   run a command (default: shell) in the sandbox,
+                                                    starting it first if it is not running
+  agent-sandbox up [options] [@name]                start it in the background
+  agent-sandbox down [@name]                        stop it
+  agent-sandbox status                              list running sandboxes
 
-<project-dir> can be @name: settings from ~/.config/agent-sandbox/projects/<name>.conf
-(main dir, extra dirs, env, ports) — see the comment in this script.
+@name: ~/.config/agent-sandbox/projects/<name>.conf (see the comment in this script).
+Without @name the sandbox whose directories contain the current directory is used.
 
-Options (one-shot and up):
-  --gui                   Wayland + GPU passthrough (see agent-sandbox-gui.sh)
-  --workdir <path>        start in a subdirectory of the project, e.g. .worktrees/feature/KEY-slug
-                          (one-shot/attach/exec only)
-  --no-tty                never allocate a TTY (scripts/orchestrators), even when run from a terminal
-  --publish <host>:<ctr>  publish a container port on 127.0.0.1 of the host only (repeatable)
-  --gitlab-token          pass GITLAB_TOKEN through (off by default; project-scoped token only)
-  --shared-root           acknowledge that <project-dir> holds several projects (up only):
-                          every project under it becomes visible to every agent in the container"
+Options:
+  -C <dir>          start in <dir> (a host path inside the sandbox) instead of the cwd
+  --no-tty          never allocate a TTY (scripts/orchestrators)
+  --gui             Wayland + GPU passthrough (fixed when the sandbox is created)
+  --gitlab-token    pass GITLAB_TOKEN through (fixed at creation; Project Access Token only)"
 usage() {
   echo "$usage_text" >&2
   exit 1
 }
 
+die() { echo "agent-sandbox: $*" >&2; exit 1; }
+
 # ---------------------------------------------------------------------------
-# Argument parsing
+# Arguments
 # ---------------------------------------------------------------------------
 
-mode=run
+mode=enter
 case "${1:-}" in
-  up | attach | exec | down | status)
+  up | down | status)
     mode="$1"
     shift
     ;;
 esac
 
 gui=0
-workdir_arg=""
 no_tty=0
 gitlab_token=0
-shared_root=0
-publish=()
+start_dir=""
+target=""
 
-# Options come before <project-dir>. Parsed in a loop (not the single
-# positional `--gui` check this script started with), because there are
-# now several and their order shouldn't matter.
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --gui) gui=1 ;;
-    --workdir)
-      [ "$#" -ge 2 ] || usage
-      workdir_arg="$2"
-      shift
-      ;;
     --no-tty) no_tty=1 ;;
     --gitlab-token) gitlab_token=1 ;;
-    --shared-root) shared_root=1 ;;
-    --publish)
+    -C)
       [ "$#" -ge 2 ] || usage
-      publish+=("$2")
+      start_dir="$2"
       shift
       ;;
-    # `-h`/`--help` (final review, M1) handled while parsing options, so
-    # `agent-sandbox --gui --help` is caught too, and before the podman
-    # check below (re-review nit): otherwise `agent-sandbox --help` on a
-    # host without podman installed prints the podman-missing error
-    # instead of usage text. Without this branch at all, "--help" would
-    # fall through to become $project_dir, `cd --help` prints bash's
-    # builtin help to stdout (silently swallowed by the command
-    # substitution below) and returns exit 2, which `set -e` then turns
-    # into a silent, message-less exit.
+    # Handled while parsing, before the podman check below, so `--help`
+    # works on a host without podman.
     -h | --help)
       echo "$usage_text" >&2
       exit 0
       ;;
     --) break ;;
-    -*)
-      echo "agent-sandbox: unknown option: $1" >&2
-      usage
+    @*)
+      [ -z "$target" ] || die "more than one @name given"
+      target="${1#@}"
       ;;
-    *) break ;;
+    -*) die "unknown option: $1" ;;
+    *) die "unexpected argument: $1 (sandboxes are configs: use @name; a command goes after --)" ;;
   esac
   shift
 done
-
-# Reject options that make no sense for the chosen mode instead of
-# silently ignoring them — a silently dropped `--workdir` would run an
-# agent in the project root instead of its worktree.
-case "$mode" in
-  up)
-    [ -z "$workdir_arg" ] || { echo "agent-sandbox up: --workdir applies to attach/exec, not up" >&2; exit 1; }
-    ;;
-  attach | exec)
-    if [ "$gui" = 1 ] || [ "$gitlab_token" = 1 ] || [ "${#publish[@]}" -gt 0 ] || [ "$shared_root" = 1 ]; then
-      echo "agent-sandbox $mode: --gui/--publish/--gitlab-token/--shared-root are fixed at 'up' time" >&2
-      exit 1
-    fi
-    ;;
-  down | status)
-    if [ "$gui" = 1 ] || [ -n "$workdir_arg" ] || [ "$no_tty" = 1 ] || [ "$gitlab_token" = 1 ] ||
-      [ "${#publish[@]}" -gt 0 ] || [ "$shared_root" = 1 ]; then
-      echo "agent-sandbox $mode: takes no options" >&2
-      exit 1
-    fi
-    ;;
-  run)
-    [ "$shared_root" = 0 ] || { echo "agent-sandbox: --shared-root applies to 'up' only" >&2; exit 1; }
-    ;;
-esac
-
-# `command -v podman` check up front (final review, M9): without this, a
-# host that never ran Task 1's build/load step gets a bare "podman:
-# command not found" from the final `exec` far below, with no pointer
-# back to the README's prerequisites section. Fail fast with an
-# actionable message instead.
-command -v podman >/dev/null 2>&1 || {
-  echo "agent-sandbox: podman not found on PATH (modules/nixos/podman.nix)" >&2
-  exit 1
-}
-
-# The sandbox root (since 2026-10-06 a directory in /nix/store, not an
-# image -- modules/nixos/packages/agent-sandbox.nix). The host module
-# links it at /etc/agent-sandbox/rootfs; AGENT_SANDBOX_ROOTFS overrides it
-# for testing a build without switching (`nix build .#agent-sandbox-rootfs`).
-# Resolved to the real store path because podman --rootfs needs a
-# directory, and so a later switch can't change it under a running
-# container. Only needed by run/up; attach/exec/down/status don't use it.
-resolve_rootfs() {
-  local link="${AGENT_SANDBOX_ROOTFS:-/etc/agent-sandbox/rootfs}"
-  rootfs="$(readlink -f "$link" 2>/dev/null || true)"
-  if [ -z "$rootfs" ] || [ ! -e "$rootfs/agent-entrypoint" ]; then
-    echo "agent-sandbox: no sandbox rootfs at $link -- enable modules/nixos/agent-sandbox.nix" \
-         "(nixos-rebuild switch) or point AGENT_SANDBOX_ROOTFS at a build" >&2
-    exit 1
-  fi
-}
-
-if [ "$mode" = status ] && [ "$#" -eq 0 ]; then
-  exec podman ps --filter label=agent-sandbox.project \
-    --format '{{.Names}}\t{{.Status}}\t{{index .Labels "agent-sandbox.project"}}'
-fi
-
-project_dir="${1:-}"
-[ -n "$project_dir" ] || usage
-shift
-
-# ---------------------------------------------------------------------------
-# Per-project config: `@name` instead of <project-dir>
-# ---------------------------------------------------------------------------
-# ~/.config/agent-sandbox/projects/<name>.conf, `key = value` per line:
-#   dir      = ~/code/shop-api          main project -> /workspace (required, once)
-#   mount    = ~/code/shop-frontend     extra dir, read-write, same path inside (repeatable)
-#   mount_ro = ~/code/shared-lib        extra dir, read-only, same path inside (repeatable)
-#   publish  = 3080:3080                like --publish, 127.0.0.1 only (repeatable)
-#   env      = RAILS_ENV=development    literal variable (repeatable; NOT for secrets)
-#   autostart = kandev start --backend-port 38429   command started in the background by `up` (repeatable)
-#
-# Why outside the project and not a dotfile in it: the project dir is
-# mounted read-write, so an agent could edit such a file and grant itself
-# more directories on the next start. The config is read here, on the
-# host, and the script refuses one that lives inside any directory it
-# mounts. Parsed line by line, never `source`d: it is data, and a
-# sourced file would be a second way to run arbitrary code on the host.
-# Extra dirs keep their host path inside the container (same rule as
-# bin/kandev-sandbox), so paths an agent mentions are paths the host IDE
-# can open; only the main dir is /workspace, as before.
-cfg_name=""
-cfg_mounts=()
-cfg_mounts_ro=()
-cfg_env=()
-cfg_autostart=()
-
-cfg_path() { # expand a leading ~ and resolve to a physical dir, or die
-  local p="$1"
-  case "$p" in "~") p="$HOME" ;; "~/"*) p="$HOME/${p#"~/"}" ;; esac
-  case "$p" in
-    *:*) echo "agent-sandbox: path in $cfg_file must not contain ':': $p" >&2; exit 1 ;;
-  esac
-  [ -d "$p" ] || { echo "agent-sandbox: not a directory (in $cfg_file): $p" >&2; exit 1; }
-  p="$(cd "$p" && pwd -P)"
-  # Mounting / or the whole home would hand the agent SSH keys, browser
-  # profiles, other projects — what the sandbox exists to hide.
-  if [ "$p" = / ] || [ "$p" = "$(cd "$HOME" && pwd -P)" ]; then
-    echo "agent-sandbox: refusing to mount $p (from $cfg_file) — list project directories" >&2
-    exit 1
-  fi
-  printf '%s' "$p"
-}
-
-case "$project_dir" in
-  @*)
-    cfg_name="${project_dir#@}"
-    case "$cfg_name" in
-      "" | *[!a-z0-9_-]* | [_-]*)
-        echo "agent-sandbox: config name must be [a-z0-9_-]: @$cfg_name" >&2
-        exit 1
-        ;;
-    esac
-    cfg_file="${XDG_CONFIG_HOME:-$HOME/.config}/agent-sandbox/projects/$cfg_name.conf"
-    [ -f "$cfg_file" ] || { echo "agent-sandbox: no config $cfg_file" >&2; exit 1; }
-    project_dir=""
-    lineno=0
-    while IFS= read -r line || [ -n "$line" ]; do
-      lineno=$((lineno + 1))
-      line="${line%%#*}"
-      # trim surrounding whitespace
-      line="${line#"${line%%[![:space:]]*}"}"
-      line="${line%"${line##*[![:space:]]}"}"
-      [ -n "$line" ] || continue
-      case "$line" in
-        *=*) ;;
-        *) echo "agent-sandbox: $cfg_file:$lineno: expected 'key = value'" >&2; exit 1 ;;
-      esac
-      key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
-      val="${line#*=}"; val="${val#"${val%%[![:space:]]*}"}"
-      case "$key" in
-        dir)
-          [ -z "$project_dir" ] || { echo "agent-sandbox: $cfg_file:$lineno: 'dir' given twice" >&2; exit 1; }
-          project_dir="$(cfg_path "$val")"
-          ;;
-        mount) cfg_mounts+=("$(cfg_path "$val")") ;;
-        mount_ro) cfg_mounts_ro+=("$(cfg_path "$val")") ;;
-        publish)
-          # Only from the config when the container is actually created;
-          # attach/exec/down reuse what `up` set (see the mode checks above).
-          case "$mode" in run | up) publish+=("$val") ;; esac
-          ;;
-        autostart) cfg_autostart+=("$val") ;;
-        env)
-          case "$val" in
-            [A-Za-z_]*=*) cfg_env+=("$val") ;;
-            *) echo "agent-sandbox: $cfg_file:$lineno: env expects NAME=value" >&2; exit 1 ;;
-          esac
-          ;;
-        *) echo "agent-sandbox: $cfg_file:$lineno: unknown key '$key'" >&2; exit 1 ;;
-      esac
-    done <"$cfg_file"
-    [ -n "$project_dir" ] || { echo "agent-sandbox: $cfg_file has no 'dir = ...'" >&2; exit 1; }
-    # The config must not be reachable (writable) from inside the container.
-    cfg_real="$(cd "$(dirname "$cfg_file")" && pwd -P)/$(basename "$cfg_file")"
-    for d in "$project_dir" ${cfg_mounts[@]+"${cfg_mounts[@]}"}; do
-      case "$cfg_real" in
-        "$d"/*)
-          echo "agent-sandbox: $cfg_file lies inside mounted dir $d — an agent could rewrite it; move it out" >&2
-          exit 1
-          ;;
-      esac
-    done
-    ;;
-esac
-
-# A project path containing ':' would silently corrupt the `-v
-# host:container` volume spec built below (podman splits on ':') —
-# reject it up front with a clear error instead of a confusing bind-mount
-# failure later (final review, M4).
-case "$project_dir" in
-  *:*)
-    echo "agent-sandbox: project directory path must not contain ':'" \
-         "(breaks the podman -v volume spec): $project_dir" >&2
-    exit 1
-    ;;
-esac
-
-# Resolve to an absolute, *physical* path (`pwd -P`, not logical `pwd`)
-# so relative paths like "." work regardless of where agent-sandbox is
-# invoked from, and so a symlinked project path always hashes to the
-# same project_hash/cache volume as its real path (final review, M4) —
-# plain `pwd` would resolve through the symlink and give the two paths
-# different hashes.
-project_dir="$(cd "$project_dir" && pwd -P)"
-
-# Per-project cache volume name, so two different projects' agent
-# session/index caches never collide or leak into each other. Also names
-# the long-lived `up` container, so one project maps to exactly one.
-project_hash="$(printf '%s' "$project_dir" | sha256sum | cut -c1-12)"
-# A config project is keyed by its name instead: moving the directory and
-# editing `dir =` keeps the same claude/opencode logins and caches. The
-# "cfg-" prefix keeps the namespace apart from the hex path hashes.
-[ -z "$cfg_name" ] || project_hash="cfg-$cfg_name"
-container_name="agent-sandbox-$project_hash"
-
-# Strip a single leading "--" from the remaining args before forwarding
-# them to the container. Before the image entrypoint switched to
-# `exec mise exec -- "$@"` (commit 1a3f550), this didn't matter: bash's
-# own `exec` builtin silently swallows a literal "--" as its first word
-# (verified: `bash -c 'set -- -- echo hi; exec "$@"'` prints "hi"). Now
-# that `mise` is the first word after `exec`, that swallowing no longer
-# happens, so `mise exec` receives a literal "--" and chokes on it
-# ("mise ERROR \"--\" couldn't exec process"). This is the documented
-# `agent-sandbox <dir> -- <command>` separator, not something meant to
-# reach the container's CMD.
+# A single leading "--" separates our options from the command. It must not
+# reach the container: the entrypoint execs `mise exec -- "$@"`, which would
+# receive a literal "--" and fail ("couldn't exec process").
 if [ "${1:-}" = "--" ]; then
   shift
 fi
 
-# --workdir: a path inside the project, given either relative to the
-# project root (`.worktrees/feature/KEY-slug`) or as an absolute host path
-# under it. Resolved on the host with `pwd -P` and checked to still be
-# inside $project_dir *after* symlink resolution, so neither `..` nor a
-# symlink can point the agent at a directory the container can't see
-# anyway (it would only fail later, less clearly). Passed to the image
-# entrypoint as AGENT_WORKDIR, which re-validates it (defence in depth,
-# see modules/nixos/packages/agent-sandbox.nix).
-container_workdir=""
-if [ -n "$workdir_arg" ]; then
-  case "$workdir_arg" in
-    /*) host_workdir="$workdir_arg" ;;
-    *) host_workdir="$project_dir/$workdir_arg" ;;
-  esac
-  if [ ! -d "$host_workdir" ]; then
-    echo "agent-sandbox: --workdir does not exist: $host_workdir" >&2
-    exit 1
-  fi
-  host_workdir="$(cd "$host_workdir" && pwd -P)"
-  case "$host_workdir" in
-    "$project_dir") container_workdir=/workspace ;;
-    "$project_dir"/*) container_workdir="/workspace/${host_workdir#"$project_dir"/}" ;;
-    *)
-      echo "agent-sandbox: --workdir must be inside the project directory ($project_dir): $host_workdir" >&2
-      exit 1
-      ;;
-  esac
+# Reject options that make no sense for the mode instead of ignoring them.
+case "$mode" in
+  down | status)
+    if [ "$gui" = 1 ] || [ "$no_tty" = 1 ] || [ "$gitlab_token" = 1 ] || [ -n "$start_dir" ]; then
+      die "$mode takes no options"
+    fi
+    ;;
+  up)
+    [ -z "$start_dir" ] || die "up: -C applies to running a command, not to starting"
+    [ "$no_tty" = 0 ] || die "up: --no-tty applies to running a command"
+    ;;
+esac
+if [ "$mode" != enter ] && [ "$#" -gt 0 ]; then
+  die "$mode takes no command"
 fi
 
-# TTY vs non-TTY (final review, I6): `-it` was previously passed
-# unconditionally, which breaks the documented non-interactive
-# `agent-sandbox <dir> -- <command>` form used from scripts/pipelines —
-# with no TTY on stdin, Docker-family frontends either mangle output
-# (CRLF, merged streams) or fail outright ("the input device is not a
-# TTY"). Only request a TTY when both stdin and stdout are actually
-# TTYs; otherwise stay with plain `-i` so piped/redirected invocations
-# keep working. `--no-tty` forces the non-TTY path even from a terminal:
-# an orchestrator (forge) started interactively still wants the agent's
-# stream-json output on a clean pipe, not through a pseudo-terminal.
+# Fail early with a pointer instead of a bare "command not found" from the
+# final exec far below.
+command -v podman >/dev/null 2>&1 || die "podman not found on PATH (modules/nixos/podman.nix)"
+
+if [ "$mode" = status ]; then
+  exec podman ps --filter label=agent-sandbox.name \
+    --format '{{.Names}}\t{{.Status}}\t{{index .Labels "agent-sandbox.name"}}'
+fi
+
+# ---------------------------------------------------------------------------
+# Config: ~/.config/agent-sandbox/projects/<name>.conf, `key = value` per line
+# ---------------------------------------------------------------------------
+#   rw        = ~/code/my          project dir, read-write, same path inside (repeatable, >= 1)
+#   ro        = ~/code/shared-lib  project dir, read-only (repeatable)
+#   account   = work               Claude account claude-code starts under (claude-use, bin/claude-use);
+#                                  optional -- without it the host's rules decide
+#   publish   = 3080:3080          like docker -p, but 127.0.0.1 only (repeatable)
+#   env       = RAILS_ENV=dev      literal variable (repeatable; NOT for secrets)
+#   autostart = kandev start ...   command started in the background by `up` (repeatable)
+# The first rw/ro is where a shell starts when the cwd is outside all of them.
+#
+# Why the file is outside the projects and not a dotfile in one: project
+# directories are mounted read-write, so an agent could edit such a file and
+# grant itself more directories on the next start. The config is read here, on
+# the host, and a config lying inside any mounted directory is refused. It is
+# parsed line by line and never `source`d: it is data, and sourcing would be a
+# second way to run arbitrary code on the host.
+
+conf_dir="${XDG_CONFIG_HOME:-$HOME/.config}/agent-sandbox/projects"
+
+cfg_name=""
+cfg_file=""
+cfg_mounts=()   # "path" or "path:ro"
+cfg_account=""
+cfg_env=()
+cfg_autostart=()
+cfg_publish=()
+
+cfg_path() { # expand a leading ~ and resolve to a physical dir, or die
+  local p="$1"
+  # shellcheck disable=SC2088  # matching a literal "~/" prefix on purpose
+  case "$p" in "~") p="$HOME" ;; "~/"*) p="$HOME/${p#"~/"}" ;; esac
+  case "$p" in
+    *:*) die "path in $cfg_file must not contain ':' (breaks the podman -v spec): $p" ;;
+  esac
+  [ -d "$p" ] || die "not a directory (in $cfg_file): $p"
+  p="$(cd "$p" && pwd -P)"
+  # Mounting / or the whole home would hand the agent SSH keys, browser
+  # profiles and every other project -- what the sandbox exists to hide.
+  if [ "$p" = / ] || [ "$p" = "$(cd "$HOME" && pwd -P)" ]; then
+    die "refusing to mount $p (from $cfg_file) -- list project directories"
+  fi
+  printf '%s' "$p"
+}
+
+load_config() { # load_config <name> -> fills the cfg_* globals
+  cfg_name="$1"
+  case "$cfg_name" in
+    "" | *[!a-z0-9_-]* | [_-]*) die "config name must be [a-z0-9_-]: @$cfg_name" ;;
+  esac
+  cfg_file="$conf_dir/$cfg_name.conf"
+  [ -f "$cfg_file" ] || die "no config $cfg_file"
+  cfg_mounts=(); cfg_account=""; cfg_env=(); cfg_autostart=(); cfg_publish=()
+  local line lineno=0 key val
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [ -n "$line" ] || continue
+    case "$line" in
+      *=*) ;;
+      *) die "$cfg_file:$lineno: expected 'key = value'" ;;
+    esac
+    key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
+    val="${line#*=}"; val="${val#"${val%%[![:space:]]*}"}"
+    case "$key" in
+      rw) cfg_mounts+=("$(cfg_path "$val")") ;;
+      ro) cfg_mounts+=("$(cfg_path "$val"):ro") ;;
+      account)
+        case "$val" in "" | *[!a-z0-9_-]* | [_-]*) die "$cfg_file:$lineno: account must be [a-z0-9_-]" ;; esac
+        cfg_account="$val"
+        ;;
+      publish)
+        case "$val" in
+          [0-9]*:[0-9]*) ;;
+          *) die "$cfg_file:$lineno: publish expects <host-port>:<container-port>" ;;
+        esac
+        case "${val%%:*}${val#*:}" in *[!0-9]*) die "$cfg_file:$lineno: publish expects numeric ports" ;; esac
+        cfg_publish+=("$val")
+        ;;
+      autostart) cfg_autostart+=("$val") ;;
+      env)
+        case "$val" in
+          [A-Za-z_]*=*) cfg_env+=("$val") ;;
+          *) die "$cfg_file:$lineno: env expects NAME=value" ;;
+        esac
+        ;;
+      *) die "$cfg_file:$lineno: unknown key '$key'" ;;
+    esac
+  done <"$cfg_file"
+  [ "${#cfg_mounts[@]}" -gt 0 ] || die "$cfg_file lists no 'rw = ...' directory"
+  # The config must not be reachable (writable) from inside the container.
+  local cfg_real m
+  cfg_real="$(cd "$(dirname "$cfg_file")" && pwd -P)/$(basename "$cfg_file")"
+  for m in "${cfg_mounts[@]}"; do
+    m="${m%:ro}"
+    case "$cfg_real" in
+      "$m"/*) die "$cfg_file lies inside mounted dir $m -- an agent could rewrite it; move it out" ;;
+    esac
+  done
+}
+
+# Longest mount of the loaded config that contains $1, or nothing.
+config_match_len() {
+  local m best=0
+  for m in "${cfg_mounts[@]}"; do
+    m="${m%:ro}"
+    case "$1/" in "$m"/*) [ "${#m}" -le "$best" ] || best="${#m}" ;; esac
+  done
+  [ "$best" -eq 0 ] || echo "$best"
+}
+
+# Which sandbox covers the cwd? Every config is loaded in a subshell: a
+# broken or unrelated config must neither abort the search nor leak state.
+# The longest matching mount wins (a sandbox for ~/code/work/rnds beats one
+# that lists ~/code/work).
+here="$(pwd -P)"
+if [ -z "$target" ]; then
+  best_len=0
+  for f in "$conf_dir"/*.conf; do
+    [ -f "$f" ] || continue
+    n="$(basename "$f" .conf)"
+    len="$( (load_config "$n" && config_match_len "$here") 2>/dev/null || true)"
+    if [ -n "$len" ] && [ "$len" -gt "$best_len" ]; then best_len="$len"; target="$n"; fi
+  done
+  [ -n "$target" ] || die "no sandbox config covers $here -- pick one with @name, or list this directory in a config under $conf_dir"
+fi
+load_config "$target"
+
+container_name="agent-sandbox-cfg-$cfg_name"
+
+running() {
+  [ "$(podman container inspect -f '{{.State.Running}}' "$container_name" 2>/dev/null || true)" = true ]
+}
+
+# ---------------------------------------------------------------------------
+# down
+# ---------------------------------------------------------------------------
+if [ "$mode" = down ]; then
+  # `up` starts the container with --rm: stopping removes it, the named
+  # volumes (home, cache, toolchains) stay.
+  exec podman stop "$container_name"
+fi
+
+# ---------------------------------------------------------------------------
+# Where does the command start? Always a host path (identical inside).
+# ---------------------------------------------------------------------------
+first_mount="${cfg_mounts[0]%:ro}"
+workdir="$here"
+if [ -n "$start_dir" ]; then
+  [ -d "$start_dir" ] || die "-C: not a directory: $start_dir"
+  workdir="$(cd "$start_dir" && pwd -P)"
+fi
+inside=0
+for m in "${cfg_mounts[@]}"; do
+  m="${m%:ro}"
+  case "$workdir/" in "$m"/*) inside=1 ;; esac
+done
+if [ "$inside" = 0 ]; then
+  # Run from outside the group (e.g. `agent-sandbox @work` from ~): start
+  # at its first project. An explicit -C pointing outside is an error: the
+  # entrypoint would refuse it anyway, less clearly.
+  [ -z "$start_dir" ] || die "-C $workdir is not inside the sandbox's directories"
+  workdir="$first_mount"
+fi
+
+# ---------------------------------------------------------------------------
+# Container creation (up, or the implicit up of `enter`)
+# ---------------------------------------------------------------------------
+
+# The sandbox root: a directory in /nix/store, not an image
+# (modules/nixos/packages/agent-sandbox.nix). The host module links it at
+# /etc/agent-sandbox/rootfs; AGENT_SANDBOX_ROOTFS points at a build for
+# testing without a switch (`nix build .#agent-sandbox-rootfs`). Resolved to
+# the real store path: podman --rootfs needs a directory, and a later switch
+# must not change it under a running container.
+resolve_rootfs() {
+  local link="${AGENT_SANDBOX_ROOTFS:-/etc/agent-sandbox/rootfs}"
+  rootfs="$(readlink -f "$link" 2>/dev/null || true)"
+  if [ -z "$rootfs" ] || [ ! -e "$rootfs/agent-entrypoint" ]; then
+    die "no sandbox rootfs at $link -- enable modules/nixos/agent-sandbox.nix (nixos-rebuild switch)" \
+        "or point AGENT_SANDBOX_ROOTFS at a build"
+  fi
+}
+
+start_container() {
+  local d m e p mounts_env=() args
+
+  # Environment passthrough is an explicit allowlist, never --env-host /
+  # --env-file: the container gets exactly what is named here. In particular
+  # Jira/GitLab/other service tokens exported in the host shell never reach
+  # an agent that reads untrusted ticket text over an open network
+  # (system-plan.md §9.7). tests/agent-sandbox-test.sh asserts this.
+  # `-e VAR` without =value forwards the host's value; only added when set,
+  # so an unset variable does not become an empty one inside.
+  local env_args=()
+  [ -z "${ANTHROPIC_API_KEY:-}" ] || env_args+=(-e ANTHROPIC_API_KEY)
+  # dsh refuses to do anything without a DeepSeek key.
+  [ -z "${DEEPSEEK_API_KEY:-}" ] || env_args+=(-e DEEPSEEK_API_KEY)
+  # GitLab: opt-in per creation, never implicit. For a *Project* Access
+  # Token only (one project, Developer role, expiry, protected main); a
+  # broader personal token must not be passed (system-plan.md §9.7).
+  if [ "$gitlab_token" = 1 ]; then
+    [ -n "${GITLAB_TOKEN:-}" ] || die "--gitlab-token given but GITLAB_TOKEN is not set"
+    env_args+=(-e GITLAB_TOKEN)
+  fi
+  for e in ${cfg_env[@]+"${cfg_env[@]}"}; do env_args+=(-e "$e"); done
+
+  # Claude accounts (bin/claude-use): the whole root is mounted, so
+  # `claude-use <account>` on the host switches the agents in here too, and
+  # sessions are shared with the host. Both accounts' logins are therefore
+  # readable inside every sandbox -- the accounts are yours, and the
+  # alternative (one account per sandbox) is the logout/login dance this
+  # exists to avoid. `account =` in the config only picks the default.
+  local claude_root="${CLAUDE_ACCOUNTS_ROOT:-$HOME/.local/share/claude-accounts}"
+  local claude_args=()
+  if [ -d "$claude_root" ]; then
+    claude_root="$(cd "$claude_root" && pwd -P)"
+    claude_args+=(-v "$claude_root:$claude_root" -e "CLAUDE_ACCOUNTS_ROOT=$claude_root")
+    [ -z "$cfg_account" ] || [ -d "$claude_root/$cfg_account" ] ||
+      die "$cfg_file: account '$cfg_account' does not exist in $claude_root (claude-use --add $cfg_account)"
+  elif [ -n "$cfg_account" ]; then
+    die "$cfg_file: account '$cfg_account' needs $claude_root (claude-use --add $cfg_account)"
+  fi
+  [ -z "$cfg_account" ] || claude_args+=(-e "CLAUDE_ACCOUNT_DEFAULT=$cfg_account")
+
+  args=(
+    podman run --rm -d
+    --name "$container_name"
+    --label "agent-sandbox.name=$cfg_name"
+    # PID 1 of a long-lived container must reap orphans (tmux servers,
+    # agent CLIs detached from their exec); `sleep` would not. --init puts
+    # podman's catatonit there.
+    --init
+    --userns=keep-id
+    # Per-sandbox persistent HOME. Containers are --rm, so without it shell
+    # history, ~/.gitconfig, ~/.dsh (dsh plugins/sessions), tool configs and
+    # opencode's login vanish on every down/up. The volumes below are
+    # mounted over it at their subpaths (podman mounts parents first).
+    # The image's own /home/agent is empty (chmod 777), so the volume never
+    # freezes stale image content.
+    -v "agent-home-$cfg_name:/home/agent"
+    # Toolchains: per sandbox, not shared across sandboxes. They used to be
+    # one volume for everything, which let a compromised agent in project A
+    # replace a runtime or shim that later ran in project B (system-plan.md
+    # §9.6). With two sandboxes of different trust (work / personal) that
+    # channel is not worth the saved disk. They live under /shared, NOT in
+    # the home directory: nested under ~/.local/share podman created ~/.local
+    # as a root-owned mount-point parent and every tool writing there failed
+    # with EACCES (opencode, seen in the VM).
+    -v "agent-mise-$cfg_name:/shared/mise"
+    -v "agent-uv-tools-$cfg_name:/shared/uv"
+    -v "agent-npm-global-$cfg_name:/shared/npm-global"
+    -v "agent-cache-$cfg_name:/home/agent/.cache"
+    --network=bridge
+  )
+  args+=(${env_args[@]+"${env_args[@]}"} ${claude_args[@]+"${claude_args[@]}"})
+  for p in ${cfg_publish[@]+"${cfg_publish[@]}"}; do
+    # Always 127.0.0.1, never 0.0.0.0: a web UI next to an agent (dsh web, a
+    # board) must not be reachable from the LAN.
+    args+=(-p "127.0.0.1:${p%%:*}:${p#*:}")
+  done
+
+  # The projects. AGENT_MOUNTS tells the entrypoint which paths are project
+  # dirs: mise trusts their config and the start directory is validated
+  # against them.
+  for m in "${cfg_mounts[@]}"; do
+    d="${m%:ro}"
+    if [ "$m" = "$d" ]; then args+=(-v "$d:$d"); else args+=(-v "$d:$d:ro"); fi
+    mounts_env+=("$d")
+  done
+  args+=(-e "AGENT_MOUNTS=$(IFS=:; echo "${mounts_env[*]}")")
+
+  if [ "$gui" = 1 ]; then
+    # `readlink -f "${BASH_SOURCE[0]}"`, not `dirname "$0"`: $0 is the
+    # invoking name, a symlink if agent-sandbox was put on PATH through one.
+    # shellcheck disable=SC1091
+    source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/agent-sandbox-gui.sh"
+  fi
+
+  # Run from the rootfs directory instead of an image:
+  # - --rootfs DIR:O -- ":O" overlays it, so podman can create its mount
+  #   points (/etc/hosts, ...) although DIR is in the read-only store;
+  # - /nix/store read-only: every tool and symlink in the rootfs points into
+  #   it -- the host's own store, shared, not copied;
+  # - /tmp as a host directory (the rootfs is read-only): disk-backed, not
+  #   RAM -- Go caches, build dirs and pgdata took ~4 GB of tmpfs (seen
+  #   2026-10-20). Wiped on every `up`, so it stays as ephemeral as the tmpfs
+  #   it replaces. Not an anonymous volume: that one is not writable by the
+  #   keep-id user (checked: "Permission denied");
+  # - /etc/passwd and /etc/group generated here, mounted read-only:
+  #   getpwuid() must work for git/ssh/mise. Letting podman append the
+  #   keep-id user fails: the rootfs files belong to the host's root, which
+  #   is unmapped in a rootless user namespace (first run in the VM);
+  # - /agent-entrypoint is called explicitly: a rootfs has no image config.
+  resolve_rootfs
+  local ids_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agent-sandbox"
+  mkdir -p "$ids_dir"
+  local tmp_dir="${XDG_CACHE_HOME:-$HOME/.cache}/agent-sandbox/tmp-$cfg_name"
+  rm -rf "$tmp_dir"
+  mkdir -p "$tmp_dir"
+  chmod 1777 "$tmp_dir"
+  printf 'root:x:0:0:root:/root:/bin/sh\nagent:x:%s:%s:agent:/home/agent:/bin/bash\n' \
+    "$(id -u)" "$(id -g)" >"$ids_dir/passwd"
+  printf 'root:x:0:\nagent:x:%s:\nnogroup:x:65534:\n' "$(id -g)" >"$ids_dir/group"
+  args+=(
+    -v /nix/store:/nix/store:ro
+    -v "$ids_dir/passwd:/etc/passwd:ro"
+    -v "$ids_dir/group:/etc/group:ro"
+    -v "$tmp_dir:/tmp"
+  )
+  # Host language runtimes, read-only, at the same path (binstubs and
+  # shebangs hold absolute paths): mise finds them via MISE_SHARED_INSTALL_DIRS
+  # and never writes there, so nothing is downloaded twice and an agent
+  # cannot alter what later runs on the host.
+  local host_mise="${MISE_DATA_DIR:-$HOME/.local/share/mise}/installs"
+  if [ -d "$host_mise" ]; then
+    host_mise="$(cd "$host_mise" && pwd -P)"
+    args+=(-v "$host_mise:$host_mise:ro" -e "MISE_SHARED_INSTALL_DIRS=$host_mise")
+  fi
+  # The container's own command only keeps it alive; everything useful runs
+  # through `podman exec`. It still passes the entrypoint, so mise installs
+  # for the first project once, here.
+  # --rootfs goes LAST among the options, after every -v/-e: with it earlier
+  # and the host-mise -v after it, podman 5.8.9 started the container but
+  # catatonit died with "failed to exec pid1: No such file or directory", so
+  # `up` ended in "can only create exec sessions on running containers"
+  # (found 2026-10-19 on @work-rnds by bisecting the logged `podman run`:
+  # same args, only the position of --rootfs differed). Cause not pinned
+  # down; the position is the empirically working one.
+  args+=(--rootfs "$rootfs:O")
+  args+=(/agent-entrypoint sleep infinity)
+  "${args[@]}"
+
+  # Loopback proxy relay. podman copies the host's HTTP(S)_PROXY into the
+  # container by itself (--http-proxy=true by default), but a value like
+  # http://127.0.0.1:2080 (Throne) then points at the container's OWN
+  # loopback, where nothing listens: `npx` inside got ECONNREFUSED, so
+  # kandev could not download @agentclientprotocol/claude-agent-acp and
+  # every agent start failed with "ACP initialize ... peer disconnected"
+  # (found 2026-10-20 on @work-rnds). host.containers.internal reaches the
+  # host's loopback services (verified: its :2080 connects), so a socat on
+  # the same port inside the container makes the copied variable valid
+  # unchanged. Started before the autostart commands, which may need the net.
+  local px="${HTTPS_PROXY:-${HTTP_PROXY:-}}" pxport
+  if [[ "$px" =~ ^https?://(127\.0\.0\.1|localhost):([0-9]+)/?$ ]]; then
+    pxport="${BASH_REMATCH[2]}"
+    podman exec -d "$container_name" /agent-entrypoint sh -c \
+      "socat TCP-LISTEN:$pxport,fork,reuseaddr,bind=127.0.0.1 TCP:host.containers.internal:$pxport >> /home/agent/.local-state/autostart.log 2>&1"
+  fi
+
+  # autostart: boards/services inside the same container, detached; output
+  # in ~/.local-state/autostart.log inside the sandbox.
+  local cmd
+  for cmd in ${cfg_autostart[@]+"${cfg_autostart[@]}"}; do
+    podman exec -d "$container_name" /agent-entrypoint sh -c "$cmd >> /home/agent/.local-state/autostart.log 2>&1"
+  done
+}
+
+if [ "$mode" = up ]; then
+  if running; then
+    echo "agent-sandbox: already running: $container_name" >&2
+    exit 0
+  fi
+  start_container
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# enter: run a command in the sandbox (starting it if needed)
+# ---------------------------------------------------------------------------
+if running; then
+  if [ "$gui" = 1 ] || [ "$gitlab_token" = 1 ]; then
+    die "--gui/--gitlab-token are fixed when the sandbox is created; it is already running (agent-sandbox down @$cfg_name first)"
+  fi
+else
+  start_container
+fi
+
+# TTY only when both stdin and stdout are terminals: a forced -t breaks the
+# non-interactive form used from scripts (mangled output, "the input device
+# is not a TTY"). --no-tty forces the plain path even from a terminal, for
+# an orchestrator started interactively that wants clean stream-json.
 if [ "$no_tty" = 0 ] && [ -t 0 ] && [ -t 1 ]; then
   tty_args=(-it)
 else
   tty_args=(-i)
 fi
 
-# Environment passthrough is an explicit allowlist, never `--env-host`/
-# `--env-file`: the container gets exactly the variables named below and
-# nothing else from the host environment. In particular Jira/GitLab/other
-# service tokens that happen to be exported in the host shell never reach
-# an agent that reads untrusted ticket text with an open network
-# (system-plan.md §9.7). tests/agent-sandbox-test.sh asserts this.
-#
-# `-e VAR` with no `=value` forwards the host's current value into the
-# container (podman/docker convention), and only added when actually set
-# on the host so an unset var doesn't punch a hole through to an empty
-# string inside the container.
-env_args=()
-# Optional API-key auth, alternative to the OAuth-style `claude login`
-# session persisted via the agent-creds volume below.
-if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  env_args+=(-e ANTHROPIC_API_KEY)
-fi
-# Same passthrough, for DeepSeek Harness (`dsh`) -- it refuses to do
-# anything without a DeepSeek API key (see README's DeepSeek Harness
-# section).
-if [ -n "${DEEPSEEK_API_KEY:-}" ]; then
-  env_args+=(-e DEEPSEEK_API_KEY)
-fi
-# GitLab: opt-in per invocation, never implicit. Meant for a GitLab
-# *Project* Access Token (one project, Developer role, expiry, protected
-# main) once the GitLab stage is enabled — see system-plan.md §9.7 for why
-# a broader personal token must not be passed here.
-if [ "$gitlab_token" = 1 ]; then
-  if [ -z "${GITLAB_TOKEN:-}" ]; then
-    echo "agent-sandbox: --gitlab-token given but GITLAB_TOKEN is not set" >&2
-    exit 1
-  fi
-  env_args+=(-e GITLAB_TOKEN)
-fi
-
-# --publish <host>:<container>: always bound to 127.0.0.1 on the host,
-# never 0.0.0.0 — a web UI running next to an agent (dsh web, a board)
-# must not be reachable from the LAN.
-publish_args=()
-for p in ${publish[@]+"${publish[@]}"}; do
-  case "$p" in
-    [0-9]*:[0-9]*)
-      host_port="${p%%:*}"
-      ctr_port="${p#*:}"
-      case "$host_port$ctr_port" in
-        *[!0-9]*)
-          echo "agent-sandbox: --publish expects <host-port>:<container-port>: $p" >&2
-          exit 1
-          ;;
-      esac
-      publish_args+=(-p "127.0.0.1:$host_port:$ctr_port")
-      ;;
-    *)
-      echo "agent-sandbox: --publish expects <host-port>:<container-port>: $p" >&2
-      exit 1
-      ;;
-  esac
-done
-
-# ---------------------------------------------------------------------------
-# attach / exec / down / status: act on the running `up` container
-# ---------------------------------------------------------------------------
-
-require_running() {
-  if [ "$(podman container inspect -f '{{.State.Running}}' "$container_name" 2>/dev/null || true)" != true ]; then
-    echo "agent-sandbox $mode: no running container for $project_dir" \
-         "(expected $container_name) — start it with: agent-sandbox up $project_dir" >&2
-    exit 1
-  fi
-}
-
-case "$mode" in
-  status)
-    exec podman ps --filter "name=^$container_name\$" \
-      --format '{{.Names}}\t{{.Status}}\t{{index .Labels "agent-sandbox.project"}}'
-    ;;
-  down)
-    # `up` starts the container with --rm, so stopping it also removes it;
-    # the named volumes (creds, cache, mise, ...) are untouched.
-    exec podman stop "$container_name"
-    ;;
-  attach | exec)
-    require_running
-    if [ "$mode" = attach ]; then
-      exec_tty=(-it)
-    else
-      exec_tty=("${tty_args[@]}")
-      [ "$#" -gt 0 ] || { echo "agent-sandbox exec: a command is required after --" >&2; exit 1; }
-    fi
-    exec_env=()
-    [ -z "$container_workdir" ] || exec_env+=(-e "AGENT_WORKDIR=$container_workdir")
-    # `podman exec` does not run the image Entrypoint, so the command goes
-    # through it explicitly via its fixed symlink (/agent-entrypoint, see
-    # modules/nixos/packages/agent-sandbox.nix) — otherwise HOME, PATH to
-    # the npm/uv/local-bin volumes, nix-ld and mise would all be missing.
-    # The exit status of the command is podman exec's own exit status
-    # (podman itself only uses 125-127 for its own errors).
-    exec podman exec "${exec_tty[@]}" ${exec_env[@]+"${exec_env[@]}"} "$container_name" /agent-entrypoint "$@"
-    ;;
-esac
-
-# ---------------------------------------------------------------------------
-# run (one-shot) / up (long-lived): build the `podman run` invocation
-# ---------------------------------------------------------------------------
-
-if [ "$mode" = up ]; then
-  if [ "$#" -gt 0 ]; then
-    echo "agent-sandbox up: takes no command (use attach/exec afterwards)" >&2
-    exit 1
-  fi
-  if [ "$(podman container inspect -f '{{.State.Running}}' "$container_name" 2>/dev/null || true)" = true ]; then
-    echo "agent-sandbox up: already running: $container_name ($project_dir)" >&2
-    exit 0
-  fi
-  if [ "$shared_root" = 1 ]; then
-    echo "agent-sandbox up --shared-root: every project under $project_dir is visible to every" \
-         "agent in this container — per-project isolation (system-plan.md §9.2) does not apply." >&2
-  fi
-  args=(
-    podman run --rm -d
-    --name "$container_name"
-    --label "agent-sandbox.project=$project_dir"
-    # PID 1 of a long-lived container has to reap orphans (tmux servers,
-    # agent CLIs spawned by a daemon and detached from their `exec`);
-    # `sleep` below would not. `--init` puts podman's catatonit there.
-    --init
-  )
-else
-  args=(podman run --rm "${tty_args[@]}")
-fi
-
-args+=(
-  --userns=keep-id
-  -v "$project_dir:/workspace"
-  # Per-project persistent HOME. Containers are --rm, so without this
-  # everything an agent or you put in ~ outside the volumes below (shell
-  # history, ~/.gitconfig, ~/.dsh with dsh plugins/sessions, tool configs)
-  # was gone after every down/up. The shared volumes below are mounted on
-  # top of it at their subpaths (podman mounts parents first), so they
-  # stay shared between projects as before. Per project, not shared, for
-  # the same blast-radius reason as agent-creds below. The image's own
-  # /home/agent is empty (chmod 777, see agent-sandbox.nix extraCommands),
-  # so the volume never freezes stale image content; the entrypoint
-  # re-creates its symlinks idempotently on every start.
-  -v "agent-home-$project_hash:/home/agent"
-  # The three shared volumes below live under /shared, NOT inside the home
-  # directory. Nested under ~/.local/share/... (as they were until
-  # 2026-10-06) podman had to create ~/.local and ~/.local/share itself as
-  # mount-point parents, owned by the container's root instead of the user,
-  # so every tool writing ~/.local/share/<name> failed with EACCES
-  # (opencode, found in the VM). Direct children of the home volume
-  # (~/.cache, ~/.sandbox-creds) are fine -- only multi-level nesting
-  # creates the foreign parents. Without them ~/.local is created by the
-  # tool itself, as the user, in the per-project home volume.
-  #
-  # Shared across projects (system-plan.md §9.6): language runtimes
-  # installed by mise ...
-  -v "agent-mise:/shared/mise"
-  # ... `uv tool install "notebooklm-py[browser]"` (user-level installs, not
-  # project data, wasteful to repeat per project/restart) ...
-  -v "agent-uv-tools:/shared/uv"
-  # ... and `npm install -g @deepseek-ai/dsh` (DeepSeek Harness). The entry
-  # point (modules/nixos/packages/agent-sandbox.nix) points MISE_DATA_DIR,
-  # UV_TOOL_DIR/UV_TOOL_BIN_DIR and NPM_CONFIG_PREFIX at these paths.
-  -v "agent-npm-global:/shared/npm-global"
-  # (agent-local-bin, ~/.local/bin, was dropped: its only user was the
-  # Multica daemon. ~/.local/bin is now the per-project home's own dir.)
-  -v "agent-cache-$project_hash:/home/agent/.cache"
-  # Per-project (not shared) credentials volume, keyed by the same
-  # project_hash as the cache volume above. A single shared volume was
-  # rejected on purpose (README "Известные ограничения"): it would make
-  # one project's sandbox able to read every other project's Claude/
-  # opencode session, defeating the whole point of per-project blast-
-  # radius containment this script's header comment describes. Per-project
-  # still means "claude login"/"opencode auth" once per NEW project, but
-  # not on every single container restart of the SAME project -- the
-  # actual pain this was fixing. The real path->volume wiring (symlinking
-  # ~/.claude, ~/.claude.json, ~/.config/opencode into this one mount) is
-  # the entrypoint's job (modules/nixos/packages/agent-sandbox.nix),
-  # not this script's -- a single volume here keeps the podman invocation
-  # from growing one flag per credential file/dir.
-  -v "agent-creds-$project_hash:/home/agent/.sandbox-creds"
-  --network=bridge
-)
-args+=(${env_args[@]+"${env_args[@]}"} ${publish_args[@]+"${publish_args[@]}"})
-
-# Config extras (see the `@name` block above). Extra dirs are also
-# exported as AGENT_EXTRA_TRUSTED so the entrypoint lets mise read their
-# mise.toml without a trust prompt, like it does for /workspace.
-extra_trusted=()
-for d in ${cfg_mounts[@]+"${cfg_mounts[@]}"}; do
-  args+=(-v "$d:$d"); extra_trusted+=("$d")
-done
-for d in ${cfg_mounts_ro[@]+"${cfg_mounts_ro[@]}"}; do
-  args+=(-v "$d:$d:ro"); extra_trusted+=("$d")
-done
-if [ "${#extra_trusted[@]}" -gt 0 ]; then
-  args+=(-e "AGENT_EXTRA_TRUSTED=$(IFS=:; echo "${extra_trusted[*]}")")
-fi
-for e in ${cfg_env[@]+"${cfg_env[@]}"}; do
-  args+=(-e "$e")
-done
-
-[ -z "$container_workdir" ] || args+=(-e "AGENT_WORKDIR=$container_workdir")
-
-if [ "$gui" = 1 ]; then
-  # `readlink -f "${BASH_SOURCE[0]}"`, not `dirname "$0"` (final review,
-  # M2): `$0` is the invoking name, which is the *symlink* itself if the
-  # user put `agent-sandbox` on PATH via a symlink to this repo — its
-  # dirname then doesn't contain agent-sandbox-gui.sh. BASH_SOURCE[0] is
-  # this script's own path (same problem via a symlink), and
-  # `readlink -f` resolves through the symlink to the real file's
-  # directory either way.
-  # shellcheck disable=SC1091
-  source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/agent-sandbox-gui.sh"
-fi
-
-# Run from the rootfs directory instead of an image:
-# - --rootfs DIR:O -- DIR is the first positional; ":O" overlays it, so
-#   podman can create its mount points (/etc/hosts, ...) although DIR is
-#   in the read-only store; nothing written there outlives the container;
-# - /nix/store read-only: every tool and every symlink in the rootfs
-#   points into it -- the host's own store, shared, not copied;
-# - /tmp as tmpfs (the rootfs is read-only);
-# - /etc/passwd and /etc/group generated here and mounted read-only:
-#   getpwuid() must work for git/ssh/mise. Letting podman append the
-#   keep-id user (--passwd-entry) fails: the rootfs files belong to the
-#   host's root, which is unmapped in a rootless user namespace, so even
-#   the overlay copy-up is denied (first run in the VM, 2026-10-06).
-#   Shared by all sandboxes of this user; same content every run;
-# - /agent-entrypoint is called explicitly: a rootfs has no image config.
-resolve_rootfs
-ids_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agent-sandbox"
-mkdir -p "$ids_dir"
-printf 'root:x:0:0:root:/root:/bin/sh\nagent:x:%s:%s:agent:/home/agent:/bin/bash\n' \
-  "$(id -u)" "$(id -g)" > "$ids_dir/passwd"
-printf 'root:x:0:\nagent:x:%s:\nnogroup:x:65534:\n' "$(id -g)" > "$ids_dir/group"
-args+=(
-  -v /nix/store:/nix/store:ro
-  -v "$ids_dir/passwd:/etc/passwd:ro"
-  -v "$ids_dir/group:/etc/group:ro"
-  --tmpfs /tmp:rw,mode=1777
-  -w /workspace
-  --rootfs "$rootfs:O"
-)
-# Host language runtimes, read-only, at the same path (binstubs and
-# shebangs hold absolute paths): mise finds them via
-# MISE_SHARED_INSTALL_DIRS and never writes there, so nothing is
-# downloaded twice and an agent can't alter what later runs on the host.
-host_mise="${MISE_DATA_DIR:-$HOME/.local/share/mise}/installs"
-if [ -d "$host_mise" ]; then
-  host_mise="$(cd "$host_mise" && pwd -P)"
-  args+=(-v "$host_mise:$host_mise:ro" -e "MISE_SHARED_INSTALL_DIRS=$host_mise")
-fi
-if [ "$mode" = up ]; then
-  # The container's own command just keeps it alive; everything useful
-  # runs through `attach`/`exec`. It still goes through the entrypoint,
-  # so `mise install` for the project happens once here at `up` time.
-  args+=(/agent-entrypoint sleep infinity)
-  "${args[@]}"
-  # autostart (config): boards/services in the same container, detached;
-  # output in ~/.local-state/autostart.log inside the sandbox.
-  for cmd in ${cfg_autostart[@]+"${cfg_autostart[@]}"}; do
-    podman exec -d "$container_name" /agent-entrypoint sh -c "$cmd >> /home/agent/.local-state/autostart.log 2>&1"
-  done
-  exit 0
-fi
-args+=(/agent-entrypoint "$@")
-exec "${args[@]}"
+# `podman exec` does not run the image Entrypoint, so the command goes
+# through it explicitly (HOME, PATH to the toolchain volumes, nix-ld and
+# mise would be missing otherwise). The exit status of the command is podman
+# exec's own (podman uses 125-127 only for its own errors).
+exec podman exec "${tty_args[@]}" -e "AGENT_WORKDIR=$workdir" "$container_name" /agent-entrypoint "$@"
