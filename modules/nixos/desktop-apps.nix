@@ -119,15 +119,10 @@
       # Windows/macOS/телефоне — так что не требует, чтобы у собеседника
       # тоже был NixOS/Linux.
       #
-      # Не открывает сама себе firewall-порт (в отличие от kdeconnect
-      # ниже) — NixOS firewall по умолчанию deny-all на вход
-      # (`networking.firewall.enable = true`, нигде в этом репозитории не
-      # переопределено), так что входящий приём файлов от других устройств
-      # не заработает, пока порт LocalSend (по умолчанию 53317, TCP+UDP) не
-      # добавлен в `networking.firewall.allowedTCPPorts`/`allowedUDPPorts`
-      # (или per-interface) — сознательно НЕ сделано в этом коммите по
-      # прямой просьбе пользователя не трогать firewall-конфиг сейчас.
-      # Отправка файлов с этой машины наружу порт не требует.
+      # Сама firewall-порт себе не открывает (в отличие от kdeconnect ниже):
+      # 53317 TCP+UDP открыт в modules/nixos/remote-access.nix (с 2026-10-20,
+      # сначала это сознательно не делалось по просьбе не трогать firewall).
+      # Отправка файлов наружу порт не требует.
       localsend
 
       # File manager (Win+E, asked for 2026-10-06; there was none at all,

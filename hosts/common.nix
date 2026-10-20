@@ -34,6 +34,7 @@ in
     ../modules/nixos/home-manager.nix
     ../modules/nixos/nix-ld.nix
     ../modules/nixos/notebooklm-tooling.nix
+    ../modules/nixos/remote-access.nix # ssh + remote-screen (vnc) + LocalSend ports
   ];
 
   # Only present after bin/install-host has run on the machine. Without it

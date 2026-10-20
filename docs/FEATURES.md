@@ -35,7 +35,24 @@ vault, без второго пароля.
 | Два разных лока — просто заблокировать (живые обои крутятся) и заблокировать+погасить мониторы | `docs/DAILY-WORKFLOW.md` «Горячие клавиши» |
 | Скриншоты/запись экрана/перевод по хоткею (Dialect) одной кнопкой | `docs/DAILY-WORKFLOW.md` «Горячие клавиши» |
 | Живые обои (Wallpaper Engine) и видео на лок-скрине | `docs/REFERENCE.md` «Живые обои (Wallpaper Engine) и видео на экране блокировки» |
-| Удалённый стол в обе стороны (эта машина как сервер и как клиент) + интеграция с телефоном (KDE Connect) | `system-plan.md` §5.1.1/§5.1.2 |
+| Удалённый стол в обе стороны: `remote-screen` (VNC с одноразовым паролем) и Remmina; SSH по ключу с fail2ban; файлы через LocalSend, телефон через KDE Connect | `docs/DAILY-WORKFLOW.md` «Удалённый доступ и передача файлов», `modules/nixos/remote-access.nix` |
+
+## Мелочи, которые экономят время
+
+| Фишка | Что даёт |
+|---|---|
+| LocalSend | отправка/приём файлов между компьютерами и телефоном в одной сети, без облака; порт 53317 открыт (`modules/nixos/remote-access.nix`) |
+| KDE Connect | уведомления, буфер обмена и файлы с телефона по Wi-Fi |
+| Throne (TUN) | прокси одной кнопкой, см. раздел «Прокси» ниже |
+| Nautilus (Win+E) + gvfs | файловый менеджер с сетевыми папками/флешками; для терминала — yazi |
+| Скриншот/запись экрана | `grim` + `slurp` + `wf-recorder` по хоткею (`docs/DAILY-WORKFLOW.md`) |
+| Obsidian, Anki, awatcher | заметки, карточки, автоматический учёт времени по окнам |
+| Postman, Bruno | API-клиенты; Bruno — свежий апстрим-релиз (`modules/nixos/packages/bruno.nix`) |
+| LibreOffice + русский/английский словари | офисные документы без онлайн-сервисов |
+| virt-manager + libvirt | виртуалки для проверки установки (`docs/INSTALL.md`) |
+| fwupd, power-profiles-daemon, upower | обновление прошивок и режимы питания из панели |
+| Postgres/Redis на localhost | общие БД для разработки (`docs/REFERENCE.md`) |
+| Kandev на `http://127.0.0.1:38429`, dsh web на `:3080` | доски агентов из песочницы (`docs/AGENT-SANDBOX.md`) |
 
 ## Навигация и редактирование в терминале
 
