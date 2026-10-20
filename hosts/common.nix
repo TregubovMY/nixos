@@ -24,6 +24,7 @@ in
       # wants Secure Boot per system-plan.md §2/§4.
     ../modules/nixos/base.nix
     ../modules/nixos/desktop-apps.nix
+    ../modules/nixos/firefox.nix
     ../modules/nixos/hyprland.nix
     ../modules/nixos/greetd.nix
     ../modules/nixos/nix-settings.nix

@@ -64,7 +64,6 @@
       # §5.6 Коммуникация / браузер
       telegram-desktop
       google-chrome
-      firefox
 
       # §5.7 API / сеть
       postman
@@ -135,6 +134,22 @@
       # authors use. Swapping it is: another package here, the command in
       # the Win+E bind (modules/home/hyprland.nix), the desktop id below.
       nautilus
+
+      # Офисные документы (docx/xlsx/pptx/odt и т.п.) -- запрошено live
+      # 2026-10-19: до этого на системе не было ни одного офисного
+      # пакета. libreoffice-fresh, а не libreoffice(-still): свежее
+      # форматов OOXML-совместимость, а стабильность "still"-ветки для
+      # десктопа не критична. Словари hunspell -- без них проверка
+      # орфографии в LibreOffice пустая; ru + en.
+      # XML отдельной программой не открывается намеренно: это текст,
+      # его открывают VS Code / neovim.
+      libreoffice-fresh
+      hunspell
+      hunspellDicts.ru_RU
+      hunspellDicts.en_US
+      # PDF -- тоже не было просмотрщика. evince: GTK, в одной
+      # теме с Nautilus; открывает и PDF, и DjVu/PS/CBZ.
+      evince
     ];
 
     # §5.1.2 Телефон ↔ ПК (решено 2026-08-10) — module auto-provides
