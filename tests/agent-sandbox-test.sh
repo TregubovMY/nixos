@@ -212,7 +212,7 @@ done
 expect log_lacks --env-host
 expect log_lacks --env-file
 # every -e in the invocation is from the allowlist
-bad_env=$(awk 'prev == "-e" && $0 !~ /^(ANTHROPIC_API_KEY|DEEPSEEK_API_KEY|GITLAB_TOKEN|AGENT_MOUNTS=.*|RAILS_ENV=.*|WAYLAND_DISPLAY=.*|XDG_RUNTIME_DIR=.*|MISE_SHARED_INSTALL_DIRS=.*|CLAUDE_ACCOUNT.*)$/ { print } { prev = $0 }' "$(logf)")
+bad_env=$(awk 'prev == "-e" && $0 !~ /^(ANTHROPIC_API_KEY|DEEPSEEK_API_KEY|GITLAB_TOKEN|AGENT_MOUNTS=.*|RAILS_ENV=.*|WAYLAND_DISPLAY=.*|XDG_RUNTIME_DIR=.*|MISE_SHARED_INSTALL_DIRS=.*|CLAUDE_ACCOUNT.*|AGENT_SANDBOX_NAME=.*)$/ { print } { prev = $0 }' "$(logf)")
 expect [ -z "$bad_env" ]
 
 t "env allowlist: unset keys are not forwarded as empty"
@@ -446,6 +446,23 @@ expect [ "$(cu_out)" = "$croot/work" ]
 rc=$(CWD="$outside" cu bash "$claude_use" personal)
 rc=$(CWD="$outside" cu env CLAUDE_ACCOUNT_DEFAULT=work bash "$claude_use" dir)
 expect [ "$(cu_out)" = "$croot/personal" ]
+rc=$(cu bash "$claude_use" --auto)
+
+t "claude-use @sandbox: override for one sandbox only, beats the global one"
+rc=$(CWD="$outside" cu bash "$claude_use" @box personal)
+expect_rc "$rc" 0
+rc=$(CWD="$outside" cu env AGENT_SANDBOX_NAME=box CLAUDE_ACCOUNT_DEFAULT=work bash "$claude_use" dir)
+expect [ "$(cu_out)" = "$croot/personal" ]
+rc=$(CWD="$outside" cu env AGENT_SANDBOX_NAME=other CLAUDE_ACCOUNT_DEFAULT=work bash "$claude_use" dir)
+expect [ "$(cu_out)" = "$croot/work" ]
+rc=$(CWD="$outside" cu bash "$claude_use" work)
+rc=$(CWD="$outside" cu env AGENT_SANDBOX_NAME=box bash "$claude_use" dir)
+expect [ "$(cu_out)" = "$croot/personal" ]
+rc=$(cu bash "$claude_use" @box --auto)
+rc=$(CWD="$outside" cu env AGENT_SANDBOX_NAME=box bash "$claude_use" dir)
+expect [ "$(cu_out)" = "$croot/work" ]
+rc=$(cu bash "$claude_use" @box nope)
+expect_rc "$rc" 1
 rc=$(cu bash "$claude_use" --auto)
 
 t "claude-use: unknown account is an error, not a silent fallback"

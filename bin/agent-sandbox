@@ -389,6 +389,9 @@ start_container() {
     case "$cfg_account" in *[!a-z0-9_-]*) cfg_account="" ;; esac
   fi
   [ -z "$cfg_account" ] || claude_args+=(-e "CLAUDE_ACCOUNT_DEFAULT=$cfg_account")
+  # The sandbox tells claude-use who it is, so `claude-use @name <account>`
+  # (an override for this one sandbox) can be found from inside.
+  claude_args+=(-e "AGENT_SANDBOX_NAME=$cfg_name")
 
   args=(
     podman run --rm -d

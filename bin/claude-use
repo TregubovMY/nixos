@@ -21,9 +21,11 @@
 #
 # Which account is used (first match wins; `claude-use resolve`):
 #   1. $CLAUDE_ACCOUNT                  explicit, one invocation
-#   2. <root>/.override                 set by `claude-use <account>` (global, until --auto)
-#   3. $CLAUDE_ACCOUNT_DEFAULT          set by agent-sandbox from the sandbox config's `account =`
-#   4. rules file, longest matching `path = account` for $PWD, then `default = account`
+#   2. <root>/.override.<sandbox>       set by `claude-use @<sandbox> <account>`: ONE sandbox only
+#                                       (the container knows its name from $AGENT_SANDBOX_NAME)
+#   3. <root>/.override                 set by `claude-use <account>` (global, until --auto)
+#   4. $CLAUDE_ACCOUNT_DEFAULT          set by agent-sandbox from the sandbox config's `account =`
+#   5. rules file, longest matching `path = account` for $PWD, then `default = account`
 #      (~/.config/claude-accounts/rules; plain data, never sourced)
 # The override lives in <root> (not in $HOME) so a running sandbox sees it
 # too: switching on the host also switches the agents in the sandboxes.
@@ -65,6 +67,8 @@ resolve() {
   local acct="" why=""
   if [ -n "${CLAUDE_ACCOUNT:-}" ]; then
     acct="$CLAUDE_ACCOUNT"; why="\$CLAUDE_ACCOUNT"
+  elif [ -n "${AGENT_SANDBOX_NAME:-}" ] && [ -s "$root/.override.$AGENT_SANDBOX_NAME" ]; then
+    acct="$(head -n1 "$root/.override.$AGENT_SANDBOX_NAME")"; why="override for sandbox @$AGENT_SANDBOX_NAME (claude-use @$AGENT_SANDBOX_NAME --auto clears it)"
   elif [ -s "$override" ]; then
     acct="$(head -n1 "$override")"; why="override (claude-use --auto clears it)"
   elif [ -n "${CLAUDE_ACCOUNT_DEFAULT:-}" ]; then
@@ -151,6 +155,21 @@ EOF
 }
 
 case "${1:-}" in
+  @*)
+    # Per-sandbox switch: claude-use @work-rnds personal | claude-use @work-rnds --auto
+    sb="${1#@}"
+    valid_name "$sb" || die "bad sandbox name: @$sb"
+    case "${2:-}" in
+      "") die "usage: claude-use @$sb <account> | claude-use @$sb --auto" ;;
+      --auto) rm -f "$root/.override.$sb"; echo "claude-use: override for @$sb cleared" ;;
+      *)
+        account_exists "$2" || die "unknown account '$2'; existing: $(list_accounts | tr '\n' ' ')"
+        printf '%s\n' "$2" >"$root/.override.$sb"
+        echo "claude-use: sandbox @$sb now uses '$2' (new claude launches in it; the host and other sandboxes are unchanged)"
+        echo "  back to the rules: claude-use @$sb --auto"
+        ;;
+    esac
+    ;;
   "")
     IFS=$'\t' read -r acct why < <(resolve)
     echo "current: $acct  ($why)"
