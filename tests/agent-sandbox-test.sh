@@ -476,5 +476,70 @@ expect [ -f "$croot/personal/settings.json" ]
 expect [ ! -e "$tmp/home/.claude/.credentials.json" ]
 expect [ ! -e "$tmp/home/.claude.json" ]
 
+# --- which / --here / ai ----------------------------------------------------
+
+t "which prints the covering sandbox, exit 1 when none"
+rc=$(CWD="$my/app" run bash "$script" which)
+expect_rc "$rc" 0
+expect grep -qx my "$tmp/out"
+rc=$(CWD="$outside" run bash "$script" which)
+expect_rc "$rc" 1
+
+t "--here: one-off sandbox for exactly the cwd, shared volumes, no config"
+rc=$(CWD="$outside" run bash "$script" --here -- true)
+expect_rc "$rc" 0
+use run
+expect log_has "$outside:$outside"
+expect log_has "agent-home-adhoc:/home/agent"
+expect log_has "AGENT_MOUNTS=$outside"
+expect grep -q 'agent-sandbox.name=here-outside-' "$FAKE_PODMAN_LOG.run"
+use exec
+expect grep -q 'agent-sandbox-cfg-here-outside-' "$FAKE_PODMAN_LOG.exec"
+
+t "--here refuses HOME and conflicts with @name / -C / up"
+rc=$(CWD="$tmp/home" run bash "$script" --here -- true)
+expect_rc "$rc" 1
+rc=$(CWD="$outside" run bash "$script" --here @my -- true)
+expect_rc "$rc" 1
+rc=$(CWD="$outside" run bash "$script" --here -C "$outside" -- true)
+expect_rc "$rc" 1
+rc=$(CWD="$outside" run bash "$script" up --here)
+expect_rc "$rc" 1
+
+# ai: fake agent-sandbox/claude record how they were called.
+mkdir -p "$tmp/aibin"
+cat >"$tmp/aibin/agent-sandbox" <<FAKE
+#!$(command -v bash)
+echo "sandbox \$*" >>"$tmp/ai.log"
+[ "\$1" = which ] && exit "\${FAKE_WHICH:-1}"
+exit 0
+FAKE
+cat >"$tmp/aibin/claude" <<FAKE
+#!$(command -v bash)
+echo "host account=\${CLAUDE_ACCOUNT:-} \$*" >>"$tmp/ai.log"
+FAKE
+chmod +x "$tmp/aibin/"*
+ai() {
+  rm -f "$tmp/ai.log"
+  (cd "$tmp" && env -i PATH="$tmp/aibin:$PATH" HOME="$tmp/home" FAKE_WHICH="${FAKE_WHICH:-1}" \
+    bash "$repo_root/bin/ai" "$@") >/dev/null 2>&1 || true
+}
+
+t "ai: sandbox if one covers the folder, else host"
+FAKE_WHICH=0 ai --continue
+expect grep -qx 'sandbox -- claude --continue' "$tmp/ai.log"
+FAKE_WHICH=1 ai --continue
+expect grep -qx 'host account= --continue' "$tmp/ai.log"
+
+t "ai --host / --sandbox / --account"
+FAKE_WHICH=0 ai --host -c
+expect grep -qx 'host account= -c' "$tmp/ai.log"
+FAKE_WHICH=1 ai --sandbox -c
+expect grep -qx 'sandbox --here -- claude -c' "$tmp/ai.log"
+FAKE_WHICH=0 ai --account work --sandbox x
+expect grep -qx 'sandbox -- env CLAUDE_ACCOUNT=work claude x' "$tmp/ai.log"
+FAKE_WHICH=1 ai --account work y
+expect grep -qx 'host account=work y' "$tmp/ai.log"
+
 echo "agent-sandbox tests: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

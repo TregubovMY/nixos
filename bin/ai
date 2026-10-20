@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# ai -- start claude-code in the right place with one command.
+#
+#   ai [claude args...]      sandbox if one covers the current directory, else directly on the host
+#   ai --host    [args...]   directly on the host, whatever covers the directory
+#   ai --sandbox [args...]   in a sandbox: the configured one that covers the directory, otherwise a
+#                            one-off sandbox for exactly this folder (agent-sandbox --here)
+#   ai --account NAME ...    run this one invocation under Claude account NAME (claude-use)
+#
+# Sessions are the same wherever it runs: claude-code keys transcripts by
+# working directory, every sandbox mounts projects at their host paths, and
+# all accounts share one projects/ tree (bin/claude-use). So `ai --host` in a
+# folder, later `ai --sandbox` there, later `ai` in a configured sandbox all
+# see the same conversations (`ai --continue`, `ai --resume`).
+#
+# Our options must come first; everything after them goes to claude verbatim.
+# Long options only on purpose: claude has many short ones (-c, -p, -r, ...).
+set -euo pipefail
+
+where=auto
+account=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --host) where=host ;;
+    --sandbox) where=sandbox ;;
+    --account)
+      [ "$#" -ge 2 ] || { echo "ai: --account needs a name" >&2; exit 2; }
+      account="$2"; shift
+      ;;
+    -h | --help)
+      sed -n '2,/^set -euo/p' "$0" | sed -e '$d' -e 's/^# \{0,1\}//' >&2
+      exit 0
+      ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+  shift
+done
+
+env_args=()
+[ -z "$account" ] || env_args=(env "CLAUDE_ACCOUNT=$account")
+
+if [ "$where" = auto ]; then
+  if agent-sandbox which >/dev/null 2>&1; then where=sandbox; else where=host; fi
+fi
+
+case "$where" in
+  host)
+    exec "${env_args[@]}" claude "$@"
+    ;;
+  sandbox)
+    if agent-sandbox which >/dev/null 2>&1; then
+      exec agent-sandbox -- "${env_args[@]}" claude "$@"
+    fi
+    echo "ai: no sandbox config covers $PWD -- starting a one-off sandbox for this folder" >&2
+    exec agent-sandbox --here -- "${env_args[@]}" claude "$@"
+    ;;
+esac

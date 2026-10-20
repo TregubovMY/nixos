@@ -12,6 +12,7 @@
 pkgs.runCommand "claude-accounts" { } ''
   mkdir -p $out/bin
   install -m755 ${../../../bin/claude-use} $out/bin/claude-use
+  install -m755 ${../../../bin/ai} $out/bin/ai
   patchShebangs $out/bin
 
   cat > $out/bin/claude <<'EOF'

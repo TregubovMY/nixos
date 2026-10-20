@@ -84,6 +84,11 @@
       # claude-code in the sandbox that covers the current directory, started
       # right here (bin/agent-sandbox finds the sandbox by cwd).
       sclaude = "agent-sandbox -- claude";
+      # ai (bin/ai): claude where it belongs -- in the sandbox that covers the
+      # folder, else on the host. aih forces the host, ais a sandbox (a one-off
+      # one for any folder). Sessions are shared in all cases.
+      aih = "ai --host";
+      ais = "ai --sandbox";
       ".." = "cd ..";
       "..." = "cd ../..";
       gs = "git status";

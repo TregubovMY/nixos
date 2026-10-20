@@ -19,6 +19,8 @@
 #   agent-sandbox up [@name]                 start it (detached), run its autostart commands
 #   agent-sandbox down [@name]               stop it (volumes with data stay)
 #   agent-sandbox status                     list running sandboxes
+#   agent-sandbox which                      name of the sandbox covering the cwd (exit 1: none)
+#   agent-sandbox --here [-- command...]     one-off sandbox for exactly the cwd, no config needed
 set -euo pipefail
 
 usage_text="Usage:
@@ -27,11 +29,15 @@ usage_text="Usage:
   agent-sandbox up [options] [@name]                start it in the background
   agent-sandbox down [@name]                        stop it
   agent-sandbox status                              list running sandboxes
+  agent-sandbox which                               print the sandbox that covers the current directory
+                                                    (exit 1 if none)
 
 @name: ~/.config/agent-sandbox/projects/<name>.conf (see the comment in this script).
 Without @name the sandbox whose directories contain the current directory is used.
 
 Options:
+  --here            a sandbox for exactly the current directory, no config file (any folder;
+                    sessions stay shared with the host: same path, same account tree)
   -C <dir>          start in <dir> (a host path inside the sandbox) instead of the cwd
   --no-tty          never allocate a TTY (scripts/orchestrators)
   --gui             Wayland + GPU passthrough (fixed when the sandbox is created)
@@ -49,7 +55,7 @@ die() { echo "agent-sandbox: $*" >&2; exit 1; }
 
 mode=enter
 case "${1:-}" in
-  up | down | status)
+  up | down | status | which)
     mode="$1"
     shift
     ;;
@@ -58,6 +64,7 @@ esac
 gui=0
 no_tty=0
 gitlab_token=0
+here_mode=0
 start_dir=""
 target=""
 
@@ -66,6 +73,7 @@ while [ "$#" -gt 0 ]; do
     --gui) gui=1 ;;
     --no-tty) no_tty=1 ;;
     --gitlab-token) gitlab_token=1 ;;
+    --here) here_mode=1 ;;
     -C)
       [ "$#" -ge 2 ] || usage
       start_dir="$2"
@@ -96,12 +104,13 @@ fi
 
 # Reject options that make no sense for the mode instead of ignoring them.
 case "$mode" in
-  down | status)
-    if [ "$gui" = 1 ] || [ "$no_tty" = 1 ] || [ "$gitlab_token" = 1 ] || [ -n "$start_dir" ]; then
+  down | status | which)
+    if [ "$here_mode" = 1 ] || [ "$gui" = 1 ] || [ "$no_tty" = 1 ] || [ "$gitlab_token" = 1 ] || [ -n "$start_dir" ]; then
       die "$mode takes no options"
     fi
     ;;
   up)
+    [ "$here_mode" = 0 ] || die "up: --here is for running a command (the sandbox is created on first use)"
     [ -z "$start_dir" ] || die "up: -C applies to running a command, not to starting"
     [ "$no_tty" = 0 ] || die "up: --no-tty applies to running a command"
     ;;
@@ -238,6 +247,25 @@ config_match_len() {
 # The longest matching mount wins (a sandbox for ~/code/work/rnds beats one
 # that lists ~/code/work).
 here="$(pwd -P)"
+if [ "$here_mode" = 1 ]; then
+  [ -z "$target" ] || die "--here and @name exclude each other"
+  [ -z "$start_dir" ] || die "--here: -C makes no sense (the directory IS the cwd)"
+  # One-off sandbox for exactly this directory, no config file. Why it exists:
+  # any folder (this repo, a clone you just made) must be openable with an
+  # agent without first editing a config. Same trust model as a config with a
+  # single `rw =` line; the checks of cfg_path (not / or $HOME) apply.
+  # Name: basename + hash of the path, so two folders called "app" differ and
+  # the same folder always lands in the same container.
+  cfg_file="--here"
+  cfg_mounts=("$(cfg_path "$here")")
+  cfg_account=""; cfg_env=(); cfg_autostart=(); cfg_publish=()
+  hash="$(printf '%s' "$here" | sha256sum | cut -c1-8)"
+  base="$(basename "$here" | tr 'A-Z.' 'a-z-' | tr -c 'a-z0-9_\n-' '-' | cut -c1-24)"
+  cfg_name="here-${base#[-_]}-$hash"
+  # One shared set of volumes for all one-off sandboxes: home, toolchains and
+  # npm are downloaded once, not per folder.
+  vol_name="adhoc"
+else
 if [ -z "$target" ]; then
   best_len=0
   for f in "$conf_dir"/*.conf; do
@@ -246,9 +274,15 @@ if [ -z "$target" ]; then
     len="$( (load_config "$n" && config_match_len "$here") 2>/dev/null || true)"
     if [ -n "$len" ] && [ "$len" -gt "$best_len" ]; then best_len="$len"; target="$n"; fi
   done
-  [ -n "$target" ] || die "no sandbox config covers $here -- pick one with @name, or list this directory in a config under $conf_dir"
+  if [ -z "$target" ]; then
+    [ "$mode" != which ] || exit 1
+    die "no sandbox config covers $here -- pick one with @name, list this directory in a config under $conf_dir, or use --here"
+  fi
 fi
 load_config "$target"
+vol_name="$cfg_name"
+fi
+if [ "$mode" = which ]; then echo "$cfg_name"; exit 0; fi
 
 container_name="agent-sandbox-cfg-$cfg_name"
 
@@ -345,6 +379,15 @@ start_container() {
   elif [ -n "$cfg_account" ]; then
     die "$cfg_file: account '$cfg_account' needs $claude_root (claude-use --add $cfg_account)"
   fi
+  # A --here sandbox has no config to say `account =`, and the rules file
+  # (~/.config/claude-accounts/rules) is not visible inside the container, so
+  # resolve the account HERE from the folder (cwd = the mounted folder) and
+  # hand the result in, exactly as `account =` would. Without this the
+  # sandbox answered "no account selected" and claude asked to log in.
+  if [ "$here_mode" = 1 ] && [ -z "$cfg_account" ] && command -v claude-use >/dev/null 2>&1; then
+    cfg_account="$(claude-use resolve 2>/dev/null | cut -f1 || true)"
+    case "$cfg_account" in *[!a-z0-9_-]*) cfg_account="" ;; esac
+  fi
   [ -z "$cfg_account" ] || claude_args+=(-e "CLAUDE_ACCOUNT_DEFAULT=$cfg_account")
 
   args=(
@@ -362,7 +405,7 @@ start_container() {
     # mounted over it at their subpaths (podman mounts parents first).
     # The image's own /home/agent is empty (chmod 777), so the volume never
     # freezes stale image content.
-    -v "agent-home-$cfg_name:/home/agent"
+    -v "agent-home-$vol_name:/home/agent"
     # Toolchains: per sandbox, not shared across sandboxes. They used to be
     # one volume for everything, which let a compromised agent in project A
     # replace a runtime or shim that later ran in project B (system-plan.md
@@ -371,10 +414,10 @@ start_container() {
     # the home directory: nested under ~/.local/share podman created ~/.local
     # as a root-owned mount-point parent and every tool writing there failed
     # with EACCES (opencode, seen in the VM).
-    -v "agent-mise-$cfg_name:/shared/mise"
-    -v "agent-uv-tools-$cfg_name:/shared/uv"
-    -v "agent-npm-global-$cfg_name:/shared/npm-global"
-    -v "agent-cache-$cfg_name:/home/agent/.cache"
+    -v "agent-mise-$vol_name:/shared/mise"
+    -v "agent-uv-tools-$vol_name:/shared/uv"
+    -v "agent-npm-global-$vol_name:/shared/npm-global"
+    -v "agent-cache-$vol_name:/home/agent/.cache"
     --network=bridge
   )
   args+=(${env_args[@]+"${env_args[@]}"} ${claude_args[@]+"${claude_args[@]}"})
@@ -419,7 +462,7 @@ start_container() {
   resolve_rootfs
   local ids_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agent-sandbox"
   mkdir -p "$ids_dir"
-  local tmp_dir="${XDG_CACHE_HOME:-$HOME/.cache}/agent-sandbox/tmp-$cfg_name"
+  local tmp_dir="${XDG_CACHE_HOME:-$HOME/.cache}/agent-sandbox/tmp-$vol_name"
   rm -rf "$tmp_dir"
   mkdir -p "$tmp_dir"
   chmod 1777 "$tmp_dir"
