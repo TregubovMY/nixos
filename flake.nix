@@ -216,6 +216,7 @@
                 gawk
                 gnugrep
                 shellcheck
+                jq
               ];
             }
             ''

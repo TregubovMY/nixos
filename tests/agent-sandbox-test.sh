@@ -465,6 +465,24 @@ rc=$(cu bash "$claude_use" @box nope)
 expect_rc "$rc" 1
 rc=$(cu bash "$claude_use" --auto)
 
+t "claude-use sync: base settings win for their keys, other keys stay, idempotent"
+echo '{"attribution":{"commit":"","pr":""},"model":"new"}' >"$tmp/base.json"
+echo '{"model":"old","theme":"dark","permissions":{"allow":["Bash(ls)"]}}' >"$croot/work/settings.json"
+rc=$(cu env CLAUDE_BASE_SETTINGS="$tmp/base.json" bash "$claude_use" sync "$croot/work")
+expect_rc "$rc" 0
+expect [ "$(jq -r '.model' "$croot/work/settings.json")" = new ]
+expect [ "$(jq -r '.theme' "$croot/work/settings.json")" = dark ]
+expect [ "$(jq -r '.permissions.allow[0]' "$croot/work/settings.json")" = "Bash(ls)" ]
+expect [ "$(jq -r '.attribution.commit' "$croot/work/settings.json")" = "" ]
+before=$(stat -c %Y "$croot/work/settings.json")
+rc=$(cu env CLAUDE_BASE_SETTINGS="$tmp/base.json" bash "$claude_use" sync "$croot/work")
+expect [ "$(stat -c %Y "$croot/work/settings.json")" = "$before" ]
+echo 'not json' >"$croot/work/settings.json"
+rc=$(cu env CLAUDE_BASE_SETTINGS="$tmp/base.json" bash "$claude_use" sync "$croot/work")
+expect_rc "$rc" 0
+expect [ "$(cat "$croot/work/settings.json")" = "not json" ]
+echo '{}' >"$croot/work/settings.json"
+
 t "claude-use: unknown account is an error, not a silent fallback"
 rc=$(cu bash "$claude_use" nope)
 expect_rc "$rc" 1

@@ -154,6 +154,29 @@ EOF
   echo "claude-use: imported. What is left in $old (caches, telemetry, backups) is not needed any more."
 }
 
+# Merge the declarative base settings ($CLAUDE_BASE_SETTINGS, a JSON file the
+# `claude` wrapper points at; modules/nixos/packages/claude-accounts.nix) into
+# an account's settings.json. The base WINS for the keys it names (that is the
+# point of a common section: attribution, default model, permission mode);
+# every other key of the account's file is kept. Written only when something
+# changes, via temp file + rename like claude-code itself does.
+sync_settings() {
+  local dir="$1" base="${CLAUDE_BASE_SETTINGS:-}" target merged tmp
+  [ -n "$base" ] && [ -f "$base" ] || return 0
+  command -v jq >/dev/null 2>&1 || { echo "claude-use: jq not found, base settings not applied" >&2; return 0; }
+  target="$dir/settings.json"
+  if [ ! -s "$target" ]; then
+    jq -S . "$base" >"$target.tmp.$$" && mv "$target.tmp.$$" "$target"
+    return 0
+  fi
+  merged="$(jq -S -s '.[0] * .[1]' "$target" "$base" 2>/dev/null)" ||
+    { echo "claude-use: $target is not valid JSON, base settings not applied" >&2; return 0; }
+  if [ "$merged" != "$(jq -S . "$target")" ]; then
+    tmp="$target.tmp.$$"
+    printf '%s\n' "$merged" >"$tmp" && mv "$tmp" "$target"
+  fi
+}
+
 case "${1:-}" in
   @*)
     # Per-sandbox switch: claude-use @work-rnds personal | claude-use @work-rnds --auto
@@ -176,6 +199,10 @@ case "${1:-}" in
     echo "accounts: $(list_accounts | tr '\n' ' ')"
     ;;
   resolve) resolve ;;
+  sync)
+    IFS=$'\t' read -r acct _ < <(resolve)
+    sync_settings "${2:-$root/$acct}"
+    ;;
   dir)
     IFS=$'\t' read -r acct _ < <(resolve)
     printf '%s\n' "$root/$acct"
