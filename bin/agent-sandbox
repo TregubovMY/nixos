@@ -483,6 +483,9 @@ start_container() {
   local ids_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agent-sandbox"
   mkdir -p "$ids_dir"
   local tmp_dir="${XDG_CACHE_HOME:-$HOME/.cache}/agent-sandbox/tmp-$vol_name"
+  # Go's module cache is read-only (0444 files, 0555 dirs) by design, so a
+  # plain rm -rf fails with "Permission denied" on the previous run's gopath.
+  chmod -R u+w "$tmp_dir" 2>/dev/null || true
   rm -rf "$tmp_dir"
   mkdir -p "$tmp_dir"
   chmod 1777 "$tmp_dir"

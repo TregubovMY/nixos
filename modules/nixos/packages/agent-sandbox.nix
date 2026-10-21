@@ -539,6 +539,8 @@ let
     # `unset GOROOT` and a hand-built PATH to /home/max/.local/share/mise/...).
     # `go` finds its own root from the binary's location.
     export MISE_GO_SET_GOROOT=false
+    # New module-cache files writable, so /tmp (wiped on `up`) can be removed.
+    export GOFLAGS="-modcacherw''${GOFLAGS:+ $GOFLAGS}"
     unset GOROOT
     # `gofmt` and other secondary binaries of host-provided installs had no
     # shim ("gofmt: command not found" although go was there): shims are
