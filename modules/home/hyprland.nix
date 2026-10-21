@@ -740,14 +740,51 @@ hl.bind("SUPER + ALT + L", hl.dsp.exec_cmd("sh -c 'sleep 1; dms ipc call lock lo
 local altTabWindows = {}
 local altTabIndex = 1
 
+-- Visible feedback (2026-10-21: the blind switcher "does nothing" to the eye).
+-- A DMS toast lists the windows and marks the selected one; it is replaced on
+-- every step (same category) and dismissed on confirm/cancel. No real focus
+-- moves while cycling, as before.
+local function shq(s)
+  local q = string.char(39)
+  return q .. (tostring(s):gsub(q, q .. string.char(92) .. q .. q)) .. q
+end
+
+local function altTabLabel(w)
+  local name = (w.class or w.initial_class or "?") .. " - " .. (w.title or "")
+  if #name > 70 then
+    name = name:sub(1, 70)
+  end
+  return name
+end
+
+local function altTabShow()
+  if #altTabWindows == 0 then
+    return
+  end
+  local lines = {}
+  for i, w in ipairs(altTabWindows) do
+    lines[#lines + 1] = (i == altTabIndex and "> " or "  ") .. altTabLabel(w)
+  end
+  local head = altTabIndex .. "/" .. #altTabWindows .. "  " .. altTabLabel(altTabWindows[altTabIndex])
+  hl.dispatch(hl.dsp.exec_cmd(
+    "dms ipc call toast infoWith " .. shq(head) .. " " .. shq(table.concat(lines, string.char(10))) .. " " .. shq("") .. " altab"
+  ))
+end
+
+local function altTabHide()
+  hl.dispatch(hl.dsp.exec_cmd("dms ipc call toast dismiss altab"))
+end
+
 local function altTabStep(delta)
   if #altTabWindows == 0 then
     return
   end
   altTabIndex = ((altTabIndex - 1 + delta) % #altTabWindows) + 1
+  altTabShow()
 end
 
 local function altTabConfirm()
+  altTabHide()
   local w = altTabWindows[altTabIndex]
   if w then
     hl.dispatch(hl.dsp.focus({ window = "address:" .. w.address }))
@@ -790,6 +827,7 @@ hl.define_submap("windowswitch", function()
   -- 8s timer above is the second, belt-and-suspenders fallback for the
   -- same reason).
   hl.bind("Escape", function()
+    altTabHide()
     hl.dispatch(hl.dsp.submap("reset"))
   end)
 end)
