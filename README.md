@@ -11,6 +11,7 @@ Boot, рабочий стол Hyprland + DankMaterialShell, home-manager, и п�
 | [docs/DAILY-WORKFLOW.md](docs/DAILY-WORKFLOW.md) | как пользоваться день в день: редактор, файловый менеджер, горячие клавиши, растущий FAQ |
 | [docs/AI-AGENTS.md](docs/AI-AGENTS.md) | работа с AI-агентами — прямо на машине и в песочнице |
 | [docs/AGENT-SANDBOX.md](docs/AGENT-SANDBOX.md) | песочница агентов — команды, конфиг, шпаргалка |
+| [docs/REQUESTS.md](docs/REQUESTS.md) | журнал просьб и косяков: что просили, статус, где сделано — для переноса на другую машину |
 | [docs/FEATURES.md](docs/FEATURES.md) | фишки системы — что повторить на другой машине/ОС, чтобы не потерять удобство |
 | [docs/REFERENCE.md](docs/REFERENCE.md) | подробности и история решений по каждому компоненту |
 | [system-plan.md](system-plan.md) | архитектура и почему так |
