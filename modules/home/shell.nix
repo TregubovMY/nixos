@@ -10,7 +10,19 @@
     enable = true;
     autosuggestion.enable = true;
     syntaxHighlighting.enable = true;
-    historySubstringSearch.enable = true;
+    historySubstringSearch = {
+      enable = true;
+      # Up/Down search the history for what is already typed. home-manager's
+      # default binds only "^[[A"/"^[[B" (normal cursor mode), but zsh puts
+      # the terminal into application cursor mode (terminfo smkx) while the
+      # line editor runs, and then Ghostty sends "^[OA"/"^[OB" -- the binding
+      # silently never fired ("поиск по командам сломался", 2026-10-20). Bind
+      # both forms. Not verified live: written in a sandbox without the host
+      # session; if Up still just walks the history, run `cat -v` and press Up
+      # to see which sequence your terminal sends.
+      searchUpKey = [ "^[[A" "^[OA" ];
+      searchDownKey = [ "^[[B" "^[OB" ];
+    };
     # Ctrl+Left/Right = word jumps. Ghostty sends xterm-style
     # "\e[1;5D"/"\e[1;5C"; zsh's emacs keymap has no binding for them, so
     # the tail was typed literally (";5C", reported live). forward-word is
@@ -97,6 +109,17 @@
       gl = "git pull";
       gd = "git diff";
     };
+  };
+
+  # fzf key bindings for zsh: Ctrl+R = fuzzy search of the whole command history
+  # (type a few letters of any part of the command, Enter inserts it), Ctrl+T =
+  # pick a file, Alt+C = cd into a directory. fzf was already installed
+  # (base.nix, used by zoxide's `zi`); this only adds the zsh integration.
+  # Works in the English layout only: Ctrl+Cyrillic reaches the terminal as no
+  # control code (see docs/DAILY-WORKFLOW.md, "Русская раскладка").
+  programs.fzf = {
+    enable = true;
+    enableZshIntegration = true;
   };
 
   programs.eza = {
