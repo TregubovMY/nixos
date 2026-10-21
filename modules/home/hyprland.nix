@@ -739,40 +739,17 @@ hl.bind("SUPER + ALT + L", hl.dsp.exec_cmd("sh -c 'sleep 1; dms ipc call lock lo
 --    fully root-caused.
 local altTabWindows = {}
 local altTabIndex = 1
+local altTabOrigin = nil
 
--- Visible feedback (2026-10-21: the blind switcher "does nothing" to the eye).
--- A DMS toast lists the windows and marks the selected one; it is replaced on
--- every step (same category) and dismissed on confirm/cancel. No real focus
--- moves while cycling, as before.
-local function shq(s)
-  local q = string.char(39)
-  return q .. (tostring(s):gsub(q, q .. string.char(92) .. q .. q)) .. q
-end
-
-local function altTabLabel(w)
-  local name = (w.class or w.initial_class or "?") .. " - " .. (w.title or "")
-  if #name > 70 then
-    name = name:sub(1, 70)
+-- Instant switching (2026-10-21): the toast with the window list was dropped
+-- (spawning `dms ipc` on every step made it laggy). Focus now moves on every
+-- step, in-process, so the window itself is the feedback; Escape returns to
+-- the window you started from. The list is a snapshot taken when Win+grave is
+-- pressed, most recently used first, so repeated steps walk it in order.
+local function altTabFocus(w)
+  if w then
+    hl.dispatch(hl.dsp.focus({ window = "address:" .. w.address }))
   end
-  return name
-end
-
-local function altTabShow()
-  if #altTabWindows == 0 then
-    return
-  end
-  local lines = {}
-  for i, w in ipairs(altTabWindows) do
-    lines[#lines + 1] = (i == altTabIndex and "> " or "  ") .. altTabLabel(w)
-  end
-  local head = altTabIndex .. "/" .. #altTabWindows .. "  " .. altTabLabel(altTabWindows[altTabIndex])
-  hl.dispatch(hl.dsp.exec_cmd(
-    "dms ipc call toast infoWith " .. shq(head) .. " " .. shq(table.concat(lines, string.char(10))) .. " " .. shq("") .. " altab"
-  ))
-end
-
-local function altTabHide()
-  hl.dispatch(hl.dsp.exec_cmd("dms ipc call toast dismiss altab"))
 end
 
 local function altTabStep(delta)
@@ -780,15 +757,7 @@ local function altTabStep(delta)
     return
   end
   altTabIndex = ((altTabIndex - 1 + delta) % #altTabWindows) + 1
-  altTabShow()
-end
-
-local function altTabConfirm()
-  altTabHide()
-  local w = altTabWindows[altTabIndex]
-  if w then
-    hl.dispatch(hl.dsp.focus({ window = "address:" .. w.address }))
-  end
+  altTabFocus(altTabWindows[altTabIndex])
 end
 
 hl.bind("SUPER + grave", function()
@@ -797,11 +766,11 @@ hl.bind("SUPER + grave", function()
     return a.focus_history_id < b.focus_history_id
   end)
   altTabIndex = 1
+  altTabOrigin = altTabWindows[1]
   altTabStep(1)
   hl.dispatch(hl.dsp.submap("windowswitch"))
   hl.timer(function()
     if hl.get_current_submap() == "windowswitch" then
-      altTabConfirm()
       hl.dispatch(hl.dsp.submap("reset"))
     end
   end, { timeout = 8000, type = "oneshot" })
@@ -817,7 +786,6 @@ hl.define_submap("windowswitch", function()
     hl.bind("SUPER + SHIFT + " .. k, function() altTabStep(-1) end, { repeating = true })
   end
   hl.bind("SUPER + SUPER_L", function()
-    altTabConfirm()
     hl.dispatch(hl.dsp.submap("reset"))
   end, { release = true })
   -- Cancel: no confirm call, nothing gets focused -- just back to
@@ -827,7 +795,7 @@ hl.define_submap("windowswitch", function()
   -- 8s timer above is the second, belt-and-suspenders fallback for the
   -- same reason).
   hl.bind("Escape", function()
-    altTabHide()
+    altTabFocus(altTabOrigin)
     hl.dispatch(hl.dsp.submap("reset"))
   end)
 end)
