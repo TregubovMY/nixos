@@ -42,6 +42,12 @@
 # NIXOS-MANAGED KEYS START -- managed by home-manager activation
 # (modules/home/ghostty.nix), don't edit between START/END by hand.
 keybind = ctrl+v=paste_from_clipboard
+keybind = ctrl+key_v=paste_from_clipboard
+keybind = ctrl+shift+key_c=copy_to_clipboard
+keybind = ctrl+shift+key_v=paste_from_clipboard
+keybind = ctrl+shift+key_t=new_tab
+keybind = ctrl+shift+key_w=close_surface
+keybind = ctrl+shift+key_n=new_window
 # NIXOS-MANAGED KEYS END
 GHOSTTY
       mv -f "$TMP" "$CONF"

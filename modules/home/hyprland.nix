@@ -170,6 +170,29 @@
     gtk.enable = false;
   };
 
+  # GTK dark mode and icons (reported 2026-10-21): the file chooser of
+  # browsers/VS Code (xdg-desktop-portal-gtk, GTK3) was white, and Nautilus
+  # showed "missing icon" squares for Trash/Starred. Causes, found on the
+  # machine: gsettings icon-theme was "Adwaita" but no Adwaita icon theme is
+  # installed (only Papirus + hicolor), and GTK3 does not follow the
+  # color-scheme=prefer-dark that DMS sets (only libadwaita/GTK4 does) -- it
+  # needs gtk-application-prefer-dark-theme in settings.ini, which did not
+  # exist. gtk.enable stays off (see pointerCursor above: DMS writes
+  # settings.ini), so the two keys are merged into the plain file instead.
+  dconf.settings."org/gnome/desktop/interface".icon-theme = "Papirus-Dark";
+  home.activation.gtkDarkIcons = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+    for dir in gtk-3.0 gtk-4.0; do
+      f="$HOME/.config/$dir/settings.ini"
+      mkdir -p "$HOME/.config/$dir"
+      [ -f "$f" ] || printf '[Settings]\n' > "$f"
+      grep -q '^\[Settings\]' "$f" || sed -i '1i [Settings]' "$f"
+      ${pkgs.gnused}/bin/sed -i \
+        -e '/^gtk-application-prefer-dark-theme=/d' \
+        -e '/^gtk-icon-theme-name=/d' "$f"
+      ${pkgs.gnused}/bin/sed -i '/^\[Settings\]/a gtk-application-prefer-dark-theme=1\ngtk-icon-theme-name=Papirus-Dark' "$f"
+    done
+  '';
+
   # Session environment variables for the UWSM-managed session
   # (programs.hyprland.withUWSM = true, modules/nixos/hyprland.nix).
   # Found live 2026-10-19 while chasing "cursor is Hyprland's own
@@ -525,6 +548,14 @@ hl.config({
     kb_layout = "us,ru",
     kb_options = "grp:caps_toggle",
     resolve_binds_by_sym = false,
+    -- follow_mouse: DMS ships 0 (core/internal/config/embedded/hyprland.lua).
+    -- With 0 the pointer focus stays tied to the keyboard-focused window, so
+    -- the mouse wheel scrolled the FOCUSED window even with the cursor over
+    -- another one (reported 2026-10-20). 2 detaches pointer focus from
+    -- keyboard focus: the wheel goes to the window under the cursor, typing
+    -- still goes to the window you last clicked (no focus stealing on hover,
+    -- which is why 1 was not chosen). Not verified live.
+    follow_mouse = 2,
   },
 })
 -- NIXOS-MANAGED INPUT BLOCK END
@@ -649,9 +680,26 @@ hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))
 --   proceed straight to powering the outputs off -- confirmed live, both
 --   firing on one keypress ends up locked-with-outputs-off either way.
 hl.bind("SUPER + L", hl.dsp.exec_cmd("dms ipc call lock lock"))
-hl.bind("SUPER + ALT + L", hl.dsp.exec_cmd("dms ipc call lock lockAndOutputsOff"))
+-- Delay of 1s before powering the outputs off (reported 2026-10-20: "win+alt+l
+-- is the same as win+l, or sometimes does not turn the screen off"). Cause
+-- found in DMS's Modules/Lock/Lock.qml (read directly): after the monitors go
+-- off, the FIRST further input (a key press -- including auto-repeat of L
+-- while it is still held -- or any mouse move) arms the wake-up, and the next
+-- one switches the monitors back on (lockWakeDebounce, 200 ms). Firing the
+-- power-off the instant the combo is pressed therefore races with your own
+-- fingers. Waiting 1s lets the keys go up first. Not verified live.
+hl.bind("SUPER + ALT + L", hl.dsp.exec_cmd("sh -c 'sleep 1; dms ipc call lock lockAndOutputsOff'"))
 
--- Win+Tab window switcher. Re-added at the user's request after a
+-- 2026-10-21: this switcher moved from Win+Tab to ALT+Tab. DMS already binds
+-- SUPER+TAB to its overview (all windows, `dms ipc call hypr toggleOverview`,
+-- dms/binds.lua), and this file bound SUPER+Tab too (hyprctl binds showed both,
+-- modmask 64): one press opened the overview AND entered the submap below, the
+-- overview took the keyboard and Tab went to the wrong place -- the "crooked"
+-- behaviour. Win+Tab is now only DMS's overview (mouse/arrows pick a window or
+-- workspace; it has no Tab cycling), Win+` (grave, the key above Tab) is the
+-- blind quick switcher; Alt+Tab is left alone (the browser uses it).
+--
+-- Window switcher. Re-added at the user's request after a
 -- round trip (removed once as "works strangely"; see git history,
 -- commit e8a3b7c, for the original two-false-starts story: DMS's
 -- factory "SUPER + TAB" has a casing bug that silently no-ops it, and
@@ -706,7 +754,7 @@ local function altTabConfirm()
   end
 end
 
-hl.bind("SUPER + Tab", function()
+hl.bind("SUPER + grave", function()
   altTabWindows = hl.get_windows()
   table.sort(altTabWindows, function(a, b)
     return a.focus_history_id < b.focus_history_id
@@ -722,8 +770,15 @@ hl.bind("SUPER + Tab", function()
   end, { timeout = 8000, type = "oneshot" })
 end)
 hl.define_submap("windowswitch", function()
-  hl.bind("Tab", function() altTabStep(1) end, { repeating = true })
-  hl.bind("SHIFT + Tab", function() altTabStep(-1) end, { repeating = true })
+  -- Super is held the whole time, so every key is listed with SUPER too
+  -- (Hyprland matches modifiers exactly). Inside the submap both ` and Tab
+  -- step through the windows; Shift goes backwards.
+  for _, k in ipairs({ "grave", "Tab" }) do
+    hl.bind(k, function() altTabStep(1) end, { repeating = true })
+    hl.bind("SUPER + " .. k, function() altTabStep(1) end, { repeating = true })
+    hl.bind("SHIFT + " .. k, function() altTabStep(-1) end, { repeating = true })
+    hl.bind("SUPER + SHIFT + " .. k, function() altTabStep(-1) end, { repeating = true })
+  end
   hl.bind("SUPER + SUPER_L", function()
     altTabConfirm()
     hl.dispatch(hl.dsp.submap("reset"))
