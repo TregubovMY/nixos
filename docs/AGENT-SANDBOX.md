@@ -157,6 +157,7 @@ agent-sandbox -- claude doctor                              # строка Auto-
 Канал обновлений — `latest` (`autoUpdatesChannel` в общем блоке; `stable` — на неделю
 старше, без релизов с крупными регрессиями). На хосте ничего не меняется:
 там по-прежнему nix-пакет. Бинарь динамический, работает через `nix-ld`.
+На хосте то же самое делает активация home-manager (`claudeCodeNpm` в `modules/home/mise.nix`): при `nixos-rebuild switch` ставит Claude Code в `~/.npm-global` через npm из mise, если его там нет; дальше он обновляется сам. Нет сети — остаётся nix-пакет.
 Откат: `npm install -g @anthropic-ai/claude-code@2.1.300`. Версия больше не
 закреплена в `flake.lock` — цена самообновления. Убрать: `npm uninstall -g
 @anthropic-ai/claude-code`.

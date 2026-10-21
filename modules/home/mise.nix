@@ -133,6 +133,22 @@ in
     fi
   '';
 
+  # Claude Code from npm (2026-10-21): the Nix package is immutable and
+  # lags npm (2.1.300 vs 2.1.306), while an npm install into a writable
+  # prefix updates itself (autoUpdatesChannel=latest, modules/nixos/packages/
+  # claude-accounts.nix). The `claude` wrapper prefers ~/.npm-global/bin/claude
+  # and falls back to the Nix package, so a failure here only leaves the
+  # older version. Node comes from mise (the bootstrap above), npm via
+  # `mise exec`. Idempotent: skipped once installed -- updates are Claude
+  # Code's own job after that. Never fails the switch (offline, mise down).
+  home.activation.claudeCodeNpm = lib.hm.dag.entryAfter [ "miseGlobalTools" ] ''
+    if [ ! -x "$HOME/.npm-global/bin/claude" ]; then
+      run ${pkgs.mise}/bin/mise exec node@lts -- \
+        npm install -g --prefix "$HOME/.npm-global" @anthropic-ai/claude-code \
+        || echo "claudeCodeNpm: npm install failed, the Nix claude-code stays in use" >&2
+    fi
+  '';
+
   # Adding the libraries above to home.packages only gets their headers/
   # .so/.pc files symlinked into the user's profile directory -- it does
   # NOT make gcc/pkg-config look there. The nixpkgs gcc wrapper's search
