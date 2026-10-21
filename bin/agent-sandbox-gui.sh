@@ -18,6 +18,12 @@ args+=(
   --device /dev/dri
   -e "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
   -e "XDG_RUNTIME_DIR=/run/user/host"
+  # A tmpfs for the socket's mount point: /run/user/host exists in the rootfs
+  # (agent-sandbox.nix) but is read-only there, and crun must create the
+  # socket file inside it. U=true: owned by the container user (keep-id, i.e.
+  # you); 0700 like a real XDG_RUNTIME_DIR. --mount, not --tmpfs: the latter
+  # has no uid=/gid= ("unknown mount option uid=1000").
+  --mount "type=tmpfs,destination=/run/user/host,tmpfs-mode=0700,U=true"
   -v "$wayland_socket:/run/user/host/$WAYLAND_DISPLAY"
   # `/dev/dri/*` nodes are owned root:video, mode 0660 — device access
   # needs group membership, not just the node being present in the

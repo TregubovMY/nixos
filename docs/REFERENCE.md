@@ -67,7 +67,7 @@ bin/agent-sandbox @work -- claude    # явный выбор из любой п�
 bin/agent-sandbox -C ~/code/my/app/.worktrees/feature/KEY-1-slug -- claude
 bin/agent-sandbox --no-tty @work -- claude -p "..." --output-format stream-json
 bin/agent-sandbox up @work           # явно поднять в фоне + autostart
-bin/agent-sandbox status             # все поднятые песочницы
+bin/agent-sandbox list               # все поднятые песочницы
 bin/agent-sandbox down @work         # остановить (volume'ы остаются)
 ```
 
@@ -225,7 +225,7 @@ Wayland-сессии команда сразу завершится с поня�
 - **Модель «группа проектов по хостовым путям» (2026-10-19) проверена
   только тестами обёртки** (фейковый podman, `tests/agent-sandbox-test.sh`)
   и статически, живьём с podman — нет. Перед тем как полагаться на неё,
-  один раз прогнать руками: `agent-sandbox up` → `status` →
+  один раз прогнать руками: `agent-sandbox up` → `list` →
   `agent-sandbox --no-tty -- false; echo $?` (ожидается 1) → `pwd` внутри
   (должен совпасть с хостовым) → `down`. Отдельно
   проверить, что `--init` работает с установленным podman (нужен

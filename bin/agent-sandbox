@@ -17,8 +17,9 @@
 #                                            directory you are in; @name is guessed
 #                                            from the cwd when omitted
 #   agent-sandbox up [@name]                 start it (detached), run its autostart commands
-#   agent-sandbox down [@name]               stop it (volumes with data stay)
-#   agent-sandbox status                     list running sandboxes
+#   agent-sandbox down [@name | --here]      stop it (volumes with data stay); a one-off sandbox
+#                                            is @here-<folder>-<hash> (see `list`) or --here in its folder
+#   agent-sandbox list                       list running sandboxes
 #   agent-sandbox which                      name of the sandbox covering the cwd (exit 1: none)
 #   agent-sandbox --here [-- command...]     one-off sandbox for exactly the cwd, no config needed
 set -euo pipefail
@@ -27,8 +28,8 @@ usage_text="Usage:
   agent-sandbox [options] [@name] [-- command...]   run a command (default: shell) in the sandbox,
                                                     starting it first if it is not running
   agent-sandbox up [options] [@name]                start it in the background
-  agent-sandbox down [@name]                        stop it
-  agent-sandbox status                              list running sandboxes
+  agent-sandbox down [@name | --here]               stop it (@here-<folder>-<hash> from 'list', or --here in the folder)
+  agent-sandbox list                                list running sandboxes
   agent-sandbox which                               print the sandbox that covers the current directory
                                                     (exit 1 if none)
 
@@ -55,7 +56,7 @@ die() { echo "agent-sandbox: $*" >&2; exit 1; }
 
 mode=enter
 case "${1:-}" in
-  up | down | status | which)
+  up | down | list | which)
     mode="$1"
     shift
     ;;
@@ -104,8 +105,8 @@ fi
 
 # Reject options that make no sense for the mode instead of ignoring them.
 case "$mode" in
-  down | status | which)
-    if [ "$here_mode" = 1 ] || [ "$gui" = 1 ] || [ "$no_tty" = 1 ] || [ "$gitlab_token" = 1 ] || [ -n "$start_dir" ]; then
+  down | list | which)
+    if { [ "$here_mode" = 1 ] && [ "$mode" != down ]; } || [ "$gui" = 1 ] || [ "$no_tty" = 1 ] || [ "$gitlab_token" = 1 ] || [ -n "$start_dir" ]; then
       die "$mode takes no options"
     fi
     ;;
@@ -123,7 +124,7 @@ fi
 # final exec far below.
 command -v podman >/dev/null 2>&1 || die "podman not found on PATH (modules/nixos/podman.nix)"
 
-if [ "$mode" = status ]; then
+if [ "$mode" = list ]; then
   exec podman ps --filter label=agent-sandbox.name \
     --format '{{.Names}}\t{{.Status}}\t{{index .Labels "agent-sandbox.name"}}'
 fi
@@ -295,7 +296,14 @@ if [ -z "$target" ]; then
     die "no sandbox config covers $here -- pick one with @name, list this directory in a config under $conf_dir, or use --here"
   fi
 fi
-load_config "$target"
+# `down @here-<folder>-<hash>`: a one-off sandbox has no config file, its
+# name (shown by `list`) is all there is to stop it by.
+if [ "$mode" = down ] && [ ! -f "$conf_dir/$target.conf" ] && [[ "$target" == here-* ]]; then
+  case "$target" in *[!a-z0-9_-]*) die "bad sandbox name: @$target" ;; esac
+  cfg_name="$target"
+else
+  load_config "$target"
+fi
 vol_name="$cfg_name"
 fi
 if [ "$mode" = which ]; then echo "$cfg_name"; exit 0; fi

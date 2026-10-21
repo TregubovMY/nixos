@@ -56,12 +56,12 @@ agent-sandbox -C ~/code/my/other -- claude   # стартовать в друг�
 ```
 
 Песочница сама поднимается, если не запущена. Если папка входит в несколько
-конфигов, выигрывает тот, чей путь длиннее. `up`/`down`/`status` нужны только
+конфигов, выигрывает тот, чей путь длиннее. `up`/`down`/`list` нужны только
 чтобы явно запустить (например с `autostart`) или остановить:
 
 ```bash
 agent-sandbox up @work        # поднять в фоне + autostart-команды
-agent-sandbox status          # какие поднятые
+agent-sandbox list            # какие поднятые
 agent-sandbox down @work      # остановить (volume'ы с данными остаются)
 ```
 
@@ -138,13 +138,33 @@ kandev есть признаки настройки `worktree.base_path`/`worktr
 `nixos-rebuild switch`; новый аккаунт получает его при первом запуске.
 Уже запущенный `claude` настройки не перечитывает — перезапустить.
 
+### Браузер для агента (Playwright MCP)
+
+Во все аккаунты (хост и песочницы) `claude-use sync` при каждом запуске `claude`
+прописывает MCP-сервер `playwright` в `.claude.json` аккаунта (описание — `baseMcp`
+в `modules/nixos/packages/claude-accounts.nix`). Остальные серверы аккаунта не
+трогаются. Агент получает инструменты `browser_navigate`, `browser_snapshot`,
+`browser_click` и т. д.; браузер — Chromium из nixpkgs.
+
+- По умолчанию окно не показывается (headless): так работает любая песочница.
+- Видимое окно на рабочем столе: создать песочницу с `--gui` (флаг фиксируется при
+  создании, поэтому запущенную сначала остановить: `agent-sandbox down @имя`; нужна
+  живая сессия Hyprland): `agent-sandbox --gui @имя -- claude` или, без конфига,
+  `agent-sandbox --here --gui -- claude`. `ai`/`ais` флаг `--gui` не передают.
+  Лаунчер видит `WAYLAND_DISPLAY` и сам запускает Chromium с окном;
+  `PLAYWRIGHT_MCP_HEADLESS=1` оставляет headless и в этом случае.
+- `--no-sandbox` добавляется только внутри песочницы (вложенный sandbox Chromium
+  в rootless podman не работает; границей служит контейнер).
+
 ### Claude Code через npm: самообновление в песочнице
 
 Nix-пакет `claude-code` неизменяем и обновляется только через `nix flake update`.
 В песочнице есть записываемый том `npm-global` (`/shared/npm-global`, тот же, что у
 `dsh`). При `agent-sandbox up` команда `agent-install` кладёт туда Claude Code и dsh
 (`0.2.0-rc.2`), если их ещё нет; что ставить — ключ конфига `install = claude dsh`
-(по умолчанию оба, `install = none` — ничего). Claude Code обновляется сам. Вручную:
+(по умолчанию оба, `install = none` — ничего). Claude Code при каждом запуске
+`agent-install` обновляется до `@latest` (сбой обновления, например без сети, только
+предупреждает); dsh остаётся на закреплённой версии. Вручную:
 
 ```bash
 agent-sandbox -- agent-install                              # повторить установку
@@ -190,7 +210,8 @@ agent-sandbox -- claude doctor                              # строка Auto-
 `ais` (или `agent-sandbox --here`): создаётся контейнер ровно на эту папку,
 без редактирования конфига. Один раз скачанные языки и npm общие у всех
 таких контейнеров (том `adhoc`), сам контейнер на папку свой и живёт до
-`agent-sandbox down`. `agent-sandbox status` показывает их как `here-<папка>-<хэш>`.
+`agent-sandbox down`. `agent-sandbox list` показывает их как `here-<папка>-<хэш>`;
+остановить: `agent-sandbox down @here-<папка>-<хэш>` или `agent-sandbox down --here` в самой папке.
 Нельзя `~` и `/` целиком. Аккаунт берётся из правил хоста по этой папке.
 
 **Сессии общие всегда.** claude хранит беседы по пути рабочей папки, а все
@@ -324,8 +345,8 @@ opencode auth        # opencode хранит логин в home-volume песо�
 |---|---|
 | `agent-sandbox [@имя] [-- cmd]` | выполнить cmd (по умолчанию shell) в песочнице; поднимет её, если не запущена |
 | `agent-sandbox up [@имя]` | поднять в фоне + `autostart` |
-| `agent-sandbox down [@имя]` | остановить |
-| `agent-sandbox status` | какие песочницы подняты |
+| `agent-sandbox down [@имя \| --here]` | остановить (одноразовую — `@here-<папка>-<хэш>` или `--here` в её папке) |
+| `agent-sandbox list` | какие песочницы подняты |
 | `-C <папка>` | стартовать в этой папке (внутри песочницы) вместо cwd |
 | `--no-tty` | без TTY (скрипты/оркестраторы) |
 | `--gui` | видимое окно на десктопе — нужна живая Hyprland-сессия; фиксируется при создании |

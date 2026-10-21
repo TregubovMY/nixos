@@ -114,8 +114,10 @@ let
       # the pinned files in ./dsh-plugins (core, extra, claude-sdk).
       # agent-install: what `install =` in the sandbox config asks for (env
       # AGENT_INSTALL, bin/agent-sandbox runs this on `up`): Claude Code and
-      # dsh into the npm-global volume if missing. Idempotent; Claude Code
-      # then updates itself (writable prefix), dsh stays on the pinned rc.
+      # dsh into the npm-global volume if missing. Idempotent. Claude Code
+      # is brought to @latest on every run (the in-container self-update did
+      # not keep the shared volume current); a failed update, e.g. offline,
+      # only warns. dsh stays on the pinned rc.
       (writeShellApplication {
         name = "agent-install";
         text = ''
@@ -124,8 +126,12 @@ let
           rc=0
           case "$want" in *" claude "*)
             if [ ! -x "$prefix/bin/claude" ]; then
-              echo "==> installing Claude Code (npm -g, shared volume; updates itself)"
+              echo "==> installing Claude Code (npm -g, shared volume)"
               npm install -g @anthropic-ai/claude-code || rc=1
+            else
+              echo "==> updating Claude Code (npm -g, shared volume)"
+              npm install -g @anthropic-ai/claude-code@latest ||
+                echo "agent-install: Claude Code update failed, keeping the installed version" >&2
             fi ;;
           esac
           case "$want" in *" dsh "*)
@@ -693,6 +699,11 @@ let
     touch $out/run/.containerenv
     # ...and for --init (agent-sandbox up): podman mounts catatonit here.
     touch $out/run/podman-init
+    # --gui: the Wayland socket is bind-mounted at /run/user/host/<socket>
+    # (bin/agent-sandbox-gui.sh). crun cannot mkdir /run/user in the
+    # root-owned store directory ("mkdir `/run/user`: Permission denied"), so
+    # the parent exists here; a tmpfs is mounted over it for the socket file.
+    mkdir -p $out/run/user/host
   '';
 in
 {

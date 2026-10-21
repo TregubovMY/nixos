@@ -212,7 +212,7 @@ done
 expect log_lacks --env-host
 expect log_lacks --env-file
 # every -e in the invocation is from the allowlist
-bad_env=$(awk 'prev == "-e" && $0 !~ /^(ANTHROPIC_API_KEY|DEEPSEEK_API_KEY|GITLAB_TOKEN|AGENT_MOUNTS=.*|RAILS_ENV=.*|WAYLAND_DISPLAY=.*|XDG_RUNTIME_DIR=.*|MISE_SHARED_INSTALL_DIRS=.*|CLAUDE_ACCOUNT.*|AGENT_SANDBOX_NAME=.*)$/ { print } { prev = $0 }' "$(logf)")
+bad_env=$(awk 'prev == "-e" && $0 !~ /^(ANTHROPIC_API_KEY|DEEPSEEK_API_KEY|GITLAB_TOKEN|AGENT_MOUNTS=.*|RAILS_ENV=.*|WAYLAND_DISPLAY=.*|XDG_RUNTIME_DIR=.*|MISE_SHARED_INSTALL_DIRS=.*|CLAUDE_ACCOUNT.*|AGENT_SANDBOX_NAME=.*|AGENT_INSTALL=.*)$/ { print } { prev = $0 }' "$(logf)")
 expect [ -z "$bad_env" ]
 
 t "env allowlist: unset keys are not forwarded as empty"
@@ -230,6 +230,16 @@ rc=$(CWD="$my" run bash "$script" --gitlab-token -- true)
 expect_rc "$rc" 1
 expect [ ! -f "$(logf)" ]
 
+t "--gui: wayland socket goes onto a tmpfs-backed /run/user/host"
+xdg="$tmp/xdg"; mkdir -p "$xdg"
+python3 -c 'import socket,sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$xdg/wayland-test"
+rc=$(CWD="$my" run XDG_RUNTIME_DIR="$xdg" WAYLAND_DISPLAY=wayland-test bash "$script" --gui -- true)
+expect_rc "$rc" 0
+expect log_seq --mount "type=tmpfs,destination=/run/user/host,tmpfs-mode=0700,U=true"
+expect log_lacks --tmpfs
+expect log_seq -v "$xdg/wayland-test:/run/user/host/wayland-test"
+expect log_seq -e XDG_RUNTIME_DIR=/run/user/host
+
 t "--gui on an already running sandbox is refused"
 rc=$(CWD="$my" FAKE_RUNNING=true run bash "$script" --gui -- true)
 expect_rc "$rc" 1
@@ -243,7 +253,7 @@ expect_rc "$rc" 0
 expect log_seq -v "$mise_inst:$mise_inst:ro"
 expect log_seq -e "MISE_SHARED_INSTALL_DIRS=$mise_inst"
 
-# --- up / down / status -----------------------------------------------------
+# --- up / down / list -----------------------------------------------------
 
 t "up starts a named, labelled, detached container"
 rc=$(CWD="$my" run bash "$script" up)
@@ -283,12 +293,31 @@ expect log_seq stop agent-sandbox-cfg-my
 rc=$(run bash "$script" down @work)
 expect log_seq stop agent-sandbox-cfg-work
 
-t "down/status take no options"
+t "down/list take no options (down accepts only --here)"
 rc=$(CWD="$my" run bash "$script" down --gui)
 expect_rc "$rc" 1
 
-t "status lists labelled containers"
-rc=$(run bash "$script" status)
+t "down @here-<folder>-<hash> stops a one-off sandbox without a config"
+rc=$(run bash "$script" down @here-bakpack-bf1b31eb)
+expect_rc "$rc" 0
+use stop
+expect log_seq stop agent-sandbox-cfg-here-bakpack-bf1b31eb
+rc=$(run bash "$script" down @here-Bad.name)
+expect_rc "$rc" 1
+rc=$(run bash "$script" down @nope)
+expect_rc "$rc" 1
+
+t "down --here stops the one-off sandbox of the current folder"
+rc=$(CWD="$my" run bash "$script" down --here)
+expect_rc "$rc" 0
+use stop
+myhash=$(printf '%s' "$(cd "$my" && pwd -P)" | sha256sum | cut -c1-8)
+expect log_seq stop "agent-sandbox-cfg-here-my-$myhash"
+rc=$(CWD="$my" run bash "$script" list --here)
+expect_rc "$rc" 1
+
+t "list lists labelled containers"
+rc=$(run bash "$script" list)
 expect_rc "$rc" 0
 use ps
 expect log_has ps
@@ -481,6 +510,19 @@ echo 'not json' >"$croot/work/settings.json"
 rc=$(cu env CLAUDE_BASE_SETTINGS="$tmp/base.json" bash "$claude_use" sync "$croot/work")
 expect_rc "$rc" 0
 expect [ "$(cat "$croot/work/settings.json")" = "not json" ]
+t "claude-use sync: base MCP servers are set in .claude.json, other keys and servers stay, idempotent"
+echo '{"mcpServers":{"playwright":{"type":"stdio","command":"/x/pw"}}}' >"$tmp/mcp.json"
+echo '{"theme":"dark","mcpServers":{"mine":{"command":"m"}}}' >"$croot/work/.claude.json"
+rc=$(cu env CLAUDE_BASE_MCP="$tmp/mcp.json" bash "$claude_use" sync "$croot/work")
+expect_rc "$rc" 0
+expect [ "$(jq -r '.mcpServers.playwright.command' "$croot/work/.claude.json")" = /x/pw ]
+expect [ "$(jq -r '.mcpServers.mine.command' "$croot/work/.claude.json")" = m ]
+expect [ "$(jq -r '.theme' "$croot/work/.claude.json")" = dark ]
+before=$(stat -c %Y "$croot/work/.claude.json")
+rc=$(cu env CLAUDE_BASE_MCP="$tmp/mcp.json" bash "$claude_use" sync "$croot/work")
+expect [ "$(stat -c %Y "$croot/work/.claude.json")" = "$before" ]
+rm -f "$croot/work/.claude.json"
+
 echo '{}' >"$croot/work/settings.json"
 
 t "claude-use: unknown account is an error, not a silent fallback"

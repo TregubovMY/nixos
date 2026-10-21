@@ -177,6 +177,27 @@ sync_settings() {
   fi
 }
 
+# Register the declarative MCP servers ($CLAUDE_BASE_MCP, JSON with a
+# `mcpServers` object) in the account's .claude.json (user scope; settings.json
+# has no place for server definitions). Only the named servers are set, the
+# account's other servers and keys stay; written only when something changes.
+sync_mcp() {
+  local dir="$1" base="${CLAUDE_BASE_MCP:-}" target merged tmp
+  [ -n "$base" ] && [ -f "$base" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  target="$dir/.claude.json"
+  if [ ! -s "$target" ]; then
+    jq -S . "$base" >"$target.tmp.$$" && mv "$target.tmp.$$" "$target"
+    return 0
+  fi
+  merged="$(jq -S -s '.[0] * {mcpServers: ((.[0].mcpServers // {}) * .[1].mcpServers)}' "$target" "$base" 2>/dev/null)" ||
+    { echo "claude-use: $target is not valid JSON, base MCP servers not applied" >&2; return 0; }
+  if [ "$merged" != "$(jq -S . "$target")" ]; then
+    tmp="$target.tmp.$$"
+    printf '%s\n' "$merged" >"$tmp" && mv "$tmp" "$target"
+  fi
+}
+
 case "${1:-}" in
   @*)
     # Per-sandbox switch: claude-use @work-rnds personal | claude-use @work-rnds --auto
@@ -202,6 +223,7 @@ case "${1:-}" in
   sync)
     IFS=$'\t' read -r acct _ < <(resolve)
     sync_settings "${2:-$root/$acct}"
+    sync_mcp "${2:-$root/$acct}"
     ;;
   dir)
     IFS=$'\t' read -r acct _ < <(resolve)

@@ -75,7 +75,7 @@
         done
 
         if (( CURRENT == 2 )); then
-          compadd -- up down status "''${names[@]}"
+          compadd -- up down list "''${names[@]}"
           return
         fi
 

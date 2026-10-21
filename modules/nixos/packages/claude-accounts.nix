@@ -19,6 +19,33 @@ let
   # - model: Sonnet 5.5 by default.
   # - permissions.defaultMode "auto": auto mode (a classifier approves routine
   #   actions, asks on risky ones) instead of prompting for each.
+  # Browser for the agent (playwright MCP), registered in every account by
+  # claude-use sync (CLAUDE_BASE_MCP). Same on the host and in the sandbox:
+  # - Chromium from nixpkgs (the NixOS-compatible build), not Playwright's own
+  #   download;
+  # - headless unless a Wayland session is passed in (a sandbox started with
+  #   `agent-sandbox --gui` / a host Hyprland session) -> a visible window;
+  #   PLAYWRIGHT_MCP_HEADLESS=1 forces headless even then;
+  # - --no-sandbox only inside agent-sandbox: Chromium's own sandbox cannot
+  #   nest in rootless podman (the container is the boundary there).
+  playwrightMcp = pkgs.writeShellScript "playwright-mcp-launcher" ''
+    args=(--executable-path ${pkgs.chromium}/bin/chromium)
+    [ -z "''${AGENT_SANDBOX_NAME:-}" ] || args+=(--no-sandbox)
+    if [ -n "''${WAYLAND_DISPLAY:-}" ] && [ -z "''${PLAYWRIGHT_MCP_HEADLESS:-}" ]; then
+      export NIXOS_OZONE_WL=1
+    else
+      args+=(--headless)
+    fi
+    exec ${pkgs.playwright-mcp}/bin/playwright-mcp "''${args[@]}" "$@"
+  '';
+  baseMcp = pkgs.writeText "claude-base-mcp.json" (builtins.toJSON {
+    mcpServers.playwright = {
+      type = "stdio";
+      command = "${playwrightMcp}";
+      args = [ ];
+    };
+  });
+
   baseSettings = pkgs.writeText "claude-base-settings.json" (builtins.toJSON {
     attribution = {
       commit = "";
@@ -31,29 +58,31 @@ let
     autoUpdatesChannel = "latest";
     # Permissions (2026-10-21). The sandbox (agent-sandbox) is the real
     # boundary; these rules are the second line and apply in EVERY mode,
-    # bypass included (deny always wins). allow = routine commands, so auto
-    # mode / prompts are not needed for them; deny = what an agent must not
-    # do even inside the sandbox (publishing is the user's job, no ssh there).
+    # bypass included (deny always wins). allow = only universal local git
+    # operations (read-only commands need no rule, language tools belong in
+    # the project's .claude/settings.json; the rest goes through auto mode);
+    # deny = what an agent must not do even inside the sandbox; ask = publishing and destructive/container
+    # commands, only after the user confirms (no ssh in the sandbox).
     # Arrays are replaced, not merged, by claude-use sync: this list wins
     # over an account's own permissions.allow/deny.
     permissions = {
       defaultMode = "auto";
       allow = [
-        "Bash(git status:*)" "Bash(git diff:*)" "Bash(git log:*)" "Bash(git show:*)"
-        "Bash(git branch:*)" "Bash(git add:*)" "Bash(git commit:*)" "Bash(git stash:*)"
-        "Bash(git switch:*)" "Bash(git checkout:*)" "Bash(git worktree list:*)"
-        "Bash(ls:*)" "Bash(rg:*)" "Bash(grep:*)" "Bash(find:*)" "Bash(wc:*)" "Bash(sed -n:*)"
-        "Bash(scripts/checks:*)" "Bash(make:*)" "Bash(go test:*)" "Bash(go build:*)"
-        "Bash(go vet:*)" "Bash(gofmt:*)" "Bash(bundle exec rspec:*)" "Bash(bundle exec rubocop:*)"
-        "Bash(npm test:*)" "Bash(npm run:*)" "Bash(openspec:*)"
+        "Bash(git add:*)" "Bash(git commit:*)" "Bash(git stash:*)"
+        "Bash(git switch:*)" "Bash(git checkout:*)" "Bash(git branch:*)"
+        "Bash(openspec:*)"
+      ];
+      # ask = allowed only after the user confirms each time (deny > ask > allow).
+      ask = [
+        "Bash(git push:*)" "Bash(git reset --hard:*)" "Bash(git clean:*)"
+        "Bash(git worktree remove:*)" "Bash(podman:*)" "Bash(docker:*)"
       ];
       deny = [
         "Read(~/.ssh/**)" "Read(./.env)" "Read(./.env.*)" "Read(./**/.env)" "Read(./**/.env.*)"
         "Read(./**/*.pem)" "Read(./**/*.key)" "Read(./secrets/**)"
         "Edit(~/.config/agent-sandbox/**)" "Edit(~/.local/share/claude-accounts/*/.credentials.json)"
-        "Bash(git push:*)" "Bash(git reset --hard:*)" "Bash(git clean:*)"
-        "Bash(git worktree remove:*)" "Bash(git config --global:*)"
-        "Bash(sudo:*)" "Bash(nixos-rebuild:*)" "Bash(podman:*)" "Bash(docker:*)"
+        "Bash(git config --global:*)"
+        "Bash(sudo:*)" "Bash(nixos-rebuild:*)"
         "Bash(rm -rf /:*)" "Bash(rm -rf ~:*)" "Bash(rm -rf $HOME:*)" "Bash(chmod -R 777:*)"
       ];
     };
@@ -74,9 +103,9 @@ let
       keybindings-help = "off";
       fewer-permission-prompts = "off";
       loop = "off";
-      schedule = "off";
-      claude-in-chrome = "off";
       plugin-authoring = "off";
+      schedule = "user-invocable-only";
+      claude-in-chrome = "user-invocable-only";
       code-review = "user-invocable-only";
       simplify = "user-invocable-only";
       security-review = "user-invocable-only";
@@ -96,7 +125,7 @@ pkgs.runCommand "claude-accounts" { } ''
   #!${pkgs.bash}/bin/bash
   CLAUDE_CONFIG_DIR="$(@out@/bin/claude-use dir)" || exit 1
   export CLAUDE_CONFIG_DIR
-  CLAUDE_BASE_SETTINGS=@base@ PATH=@jq@/bin:$PATH @out@/bin/claude-use sync "$CLAUDE_CONFIG_DIR" || true
+  CLAUDE_BASE_SETTINGS=@base@ CLAUDE_BASE_MCP=@mcp@ PATH=@jq@/bin:$PATH @out@/bin/claude-use sync "$CLAUDE_CONFIG_DIR" || true
   # npm install (sandbox: $NPM_CONFIG_PREFIX, a writable volume -> Claude Code
   # self-updates) wins over the immutable Nix store binary; absent -> Nix one.
   npm_claude="''${NPM_CONFIG_PREFIX:-$HOME/.npm-global}/bin/claude"
@@ -107,6 +136,7 @@ pkgs.runCommand "claude-accounts" { } ''
     --replace-fail @out@ $out \
     --replace-fail @claude@ ${claudeCode}/bin/claude \
     --replace-fail @base@ ${baseSettings} \
+    --replace-fail @mcp@ ${baseMcp} \
     --replace-fail @jq@ ${pkgs.jq}
   chmod +x $out/bin/claude
 ''
