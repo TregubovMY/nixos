@@ -81,6 +81,9 @@ let
   # cost of the old buildLayeredImage (2026-10-06 redesign).
   # extraOutputsToInstall "dev": the headers/pkg-config files of the
   # libraries below (ruby-build needs them, see CPATH in the entrypoint).
+  # The `claude` wrapper on its own so the entrypoint can put it FIRST in
+  # PATH (see "claude via npm" below).
+  claudeAccounts = pkgs.callPackage ./claude-accounts.nix { };
   tools = pkgs.buildEnv {
     name = "agent-sandbox-tools";
     extraOutputsToInstall = [ "dev" ];
@@ -109,6 +112,31 @@ let
       # sandbox's dsh profile (the profile, ~/.dsh, lives in the per-config
       # home volume, so this is done once per sandbox config). Lists are
       # the pinned files in ./dsh-plugins (core, extra, claude-sdk).
+      # agent-install: what `install =` in the sandbox config asks for (env
+      # AGENT_INSTALL, bin/agent-sandbox runs this on `up`): Claude Code and
+      # dsh into the npm-global volume if missing. Idempotent; Claude Code
+      # then updates itself (writable prefix), dsh stays on the pinned rc.
+      (writeShellApplication {
+        name = "agent-install";
+        text = ''
+          want=" ''${AGENT_INSTALL:-claude dsh} "
+          prefix="''${NPM_CONFIG_PREFIX:-/shared/npm-global}"
+          rc=0
+          case "$want" in *" claude "*)
+            if [ ! -x "$prefix/bin/claude" ]; then
+              echo "==> installing Claude Code (npm -g, shared volume; updates itself)"
+              npm install -g @anthropic-ai/claude-code || rc=1
+            fi ;;
+          esac
+          case "$want" in *" dsh "*)
+            if [ ! -x "$prefix/bin/dsh" ]; then
+              echo "==> installing dsh 0.2.0-rc.2 (npm -g, shared volume)"
+              npm install -g @deepseek-ai/dsh@0.2.0-rc.2 || rc=1
+            fi ;;
+          esac
+          exit "$rc"
+        '';
+      })
       (writeShellApplication {
         name = "dsh-setup";
         text = ''
@@ -160,7 +188,13 @@ let
         cacert
         # claude-code behind the account-switching wrapper (claude-accounts.nix):
         # `claude` picks CLAUDE_CONFIG_DIR per account, `claude-use` switches it.
-        (callPackage ./claude-accounts.nix { })
+        claudeAccounts
+        # Found in a kandev run (2026-10-20): the agent hunted /nix/store for
+        # a postgres to run integration tests (initdb/pg_ctl/psql), and had
+        # no `file`. Server + client both, same store paths as the host.
+        postgresql
+        file
+        tzdata
         opencode
         chromium
         # notebooklm-py's own runtime deps -- see the entrypoint's
@@ -498,6 +532,32 @@ let
     # below. `mise exec` still prepends the exact versions for the commands
     # that go through it, so this only adds coverage.
     export PATH="$MISE_DATA_DIR/shims:$PATH"
+    # Go: mise's go plugin exports GOROOT of the version it resolved for the
+    # directory the container was started in (the host's 1.26.9), which then
+    # broke every other Go the shims resolve (a project pinning 1.27.3 got
+    # "compile: version mismatch"; the agent worked around it with
+    # `unset GOROOT` and a hand-built PATH to /home/max/.local/share/mise/...).
+    # `go` finds its own root from the binary's location.
+    export MISE_GO_SET_GOROOT=false
+    unset GOROOT
+    # `gofmt` and other secondary binaries of host-provided installs had no
+    # shim ("gofmt: command not found" although go was there): shims are
+    # created by `reshim`, which nothing ran for the read-only installs.
+    mise reshim >/dev/null 2>&1 || true
+    # tzdata for tools that read TZDIR rather than /usr/share/zoneinfo.
+    export TZDIR=${pkgs.tzdata}/share/zoneinfo
+    # Host git identity (generated, mounted by bin/agent-sandbox); no ssh in
+    # here, so say so clearly instead of "cannot run ssh: No such file".
+    export GIT_CONFIG_SYSTEM=/etc/agent-gitconfig
+    export GIT_SSH_COMMAND='echo "ssh is not available in the sandbox: fetch/pull/push are done by the user on the host" >&2; false'
+    # claude via npm: `npm install -g @anthropic-ai/claude-code` lands in
+    # $NPM_CONFIG_PREFIX/bin (a persistent volume, writable, so Claude Code
+    # self-updates; autoUpdatesChannel=stable in claude-accounts.nix). That
+    # dir is on PATH ahead of the Nix wrapper, so a bare `claude` (and kandev's
+    # CLAUDE_CODE_EXECUTABLE=$(command -v claude)) would skip the account
+    # selection. Put the wrapper first again; it execs the npm binary when
+    # present, else the Nix one.
+    export PATH="${claudeAccounts}/bin:$PATH"
     # Fallback for directories with no mise config (a worktree whose
     # mise.toml is untracked, e.g. crypton's: only go.mod is checked out).
     # Major/minor prefixes, not exact pins: they match whatever the host's
@@ -611,6 +671,13 @@ let
     ln -s ${pkgs.bashInteractive}/bin/bash $out/bin/bash
     ln -s ${pkgs.coreutils}/bin/env $out/usr/bin/env
     ln -s ${entrypoint} $out/agent-entrypoint
+    # No tzdata anywhere in a bare rootfs: Ruby's tzinfo (Rails) failed with
+    # "no zoneinfo" in a kandev run (2026-10-20) and the agent patched it
+    # with a TracePoint hack. Plain FHS path, same store tzdata as TZDIR.
+    mkdir -p $out/usr/share
+    ln -s ${pkgs.tzdata}/share/zoneinfo $out/usr/share/zoneinfo
+    # Mount point for the generated git identity (bin/agent-sandbox).
+    touch $out/etc/agent-gitconfig
     ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-certificates.crt
     echo "root:x:0:0:root:/root:/bin/sh" > $out/etc/passwd
     printf 'root:x:0:\nusers:x:100:\nnogroup:x:65534:\n' > $out/etc/group

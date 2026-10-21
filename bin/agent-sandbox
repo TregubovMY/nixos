@@ -138,6 +138,10 @@ fi
 #   publish   = 3080:3080          like docker -p, but 127.0.0.1 only (repeatable)
 #   env       = RAILS_ENV=dev      literal variable (repeatable; NOT for secrets)
 #   autostart = kandev start ...   command started in the background by `up` (repeatable)
+#   install   = claude dsh         what `up` installs into the sandbox's npm volume when missing
+#                                  (claude = Claude Code, self-updating; dsh = DeepSeek Harness);
+#                                  default "claude dsh", "none" to skip. No ssh in the sandbox:
+#                                  fetch/pull/push run on the host.
 # The first rw/ro is where a shell starts when the cwd is outside all of them.
 #
 # Why the file is outside the projects and not a dotfile in one: project
@@ -156,6 +160,7 @@ cfg_account=""
 cfg_env=()
 cfg_autostart=()
 cfg_publish=()
+cfg_install="claude dsh"
 
 cfg_path() { # expand a leading ~ and resolve to a physical dir, or die
   local p="$1"
@@ -181,8 +186,8 @@ load_config() { # load_config <name> -> fills the cfg_* globals
   esac
   cfg_file="$conf_dir/$cfg_name.conf"
   [ -f "$cfg_file" ] || die "no config $cfg_file"
-  cfg_mounts=(); cfg_account=""; cfg_env=(); cfg_autostart=(); cfg_publish=()
-  local line lineno=0 key val
+  cfg_mounts=(); cfg_account=""; cfg_env=(); cfg_autostart=(); cfg_publish=(); cfg_install="claude dsh"
+  local line lineno=0 key val w
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
     line="${line%%#*}"
@@ -211,6 +216,17 @@ load_config() { # load_config <name> -> fills the cfg_* globals
         cfg_publish+=("$val")
         ;;
       autostart) cfg_autostart+=("$val") ;;
+      install)
+        case "$val" in
+          none) cfg_install="" ;;
+          *)
+            for w in $val; do
+              case "$w" in claude | dsh) ;; *) die "$cfg_file:$lineno: install expects 'claude', 'dsh' or 'none', got '$w'" ;; esac
+            done
+            cfg_install="$val"
+            ;;
+        esac
+        ;;
       env)
         case "$val" in
           [A-Za-z_]*=*) cfg_env+=("$val") ;;
@@ -258,7 +274,7 @@ if [ "$here_mode" = 1 ]; then
   # the same folder always lands in the same container.
   cfg_file="--here"
   cfg_mounts=("$(cfg_path "$here")")
-  cfg_account=""; cfg_env=(); cfg_autostart=(); cfg_publish=()
+  cfg_account=""; cfg_env=(); cfg_autostart=(); cfg_publish=(); cfg_install="claude dsh"
   hash="$(printf '%s' "$here" | sha256sum | cut -c1-8)"
   base="$(basename "$here" | tr 'A-Z.' 'a-z-' | tr -c 'a-z0-9_\n-' '-' | cut -c1-24)"
   cfg_name="here-${base#[-_]}-$hash"
@@ -362,6 +378,7 @@ start_container() {
     env_args+=(-e GITLAB_TOKEN)
   fi
   for e in ${cfg_env[@]+"${cfg_env[@]}"}; do env_args+=(-e "$e"); done
+  env_args+=(-e "AGENT_INSTALL=$cfg_install")
 
   # Claude accounts (bin/claude-use): the whole root is mounted, so
   # `claude-use <account>` on the host switches the agents in here too, and
@@ -472,7 +489,29 @@ start_container() {
   printf 'root:x:0:0:root:/root:/bin/sh\nagent:x:%s:%s:agent:/home/agent:/bin/bash\n' \
     "$(id -u)" "$(id -g)" >"$ids_dir/passwd"
   printf 'root:x:0:\nagent:x:%s:\nnogroup:x:65534:\n' "$(id -g)" >"$ids_dir/group"
+  # Git identity without the rest of the host's git setup: the agent commits
+  # as you, you push/pull on the host (no ssh in here). Only user.*, init and
+  # pull defaults, and the host's includeIf blocks (a different identity per
+  # directory, e.g. the work e-mail) -- rewritten to absolute paths, since
+  # `~` is /home/agent in here, and kept only when the included file is in
+  # /nix/store (mounted). No gpg signing: there is no key in the sandbox.
+  # Read as the *system* config (GIT_CONFIG_SYSTEM, set in the entrypoint),
+  # so the agent's own `git config --global` in its home volume still wins.
+  local gitconf="$ids_dir/gitconfig-$vol_name" gk gv gpath gdir
+  : >"$gitconf"
+  for gk in user.name user.email init.defaultBranch pull.rebase; do
+    gv="$(git config --global --get "$gk" 2>/dev/null || true)"
+    [ -z "$gv" ] || git config -f "$gitconf" "$gk" "$gv"
+  done
+  git config -f "$gitconf" safe.directory '*'
+  while read -r gk gpath; do
+    gdir="${gk#includeif.gitdir:}"; gdir="${gdir%.path}"
+    gdir="${gdir/#\~/$HOME}"
+    case "$gpath" in /nix/store/*) git config -f "$gitconf" "includeIf.gitdir:$gdir.path" "$gpath" ;; esac
+  done < <(git config --global --get-regexp '^includeif\.gitdir:.*\.path$' 2>/dev/null || true)
+  git config -f "$gitconf" commit.gpgsign false
   args+=(
+    -v "$gitconf:/etc/agent-gitconfig:ro"
     -v /nix/store:/nix/store:ro
     -v "$ids_dir/passwd:/etc/passwd:ro"
     -v "$ids_dir/group:/etc/group:ro"
@@ -518,6 +557,14 @@ start_container() {
       "socat TCP-LISTEN:$pxport,fork,reuseaddr,bind=127.0.0.1 TCP:host.containers.internal:$pxport >> /home/agent/.local-state/autostart.log 2>&1"
   fi
 
+  # Missing tools (config `install =`), after the proxy relay above: this
+  # needs the network. Foreground, so the first `up` shows what it is doing;
+  # a failure only warns -- the sandbox is usable without them.
+  if [ -n "$cfg_install" ]; then
+    podman exec "$container_name" /agent-entrypoint agent-install ||
+      echo "agent-sandbox: agent-install failed, continuing (retry: agent-sandbox -- agent-install)" >&2
+  fi
+
   # autostart: boards/services inside the same container, detached; output
   # in ~/.local-state/autostart.log inside the sandbox.
   local cmd
@@ -560,4 +607,17 @@ fi
 # through it explicitly (HOME, PATH to the toolchain volumes, nix-ld and
 # mise would be missing otherwise). The exit status of the command is podman
 # exec's own (podman uses 125-127 only for its own errors).
-exec podman exec "${tty_args[@]}" -e "AGENT_WORKDIR=$workdir" "$container_name" /agent-entrypoint "$@"
+# Terminal: podman gives the exec session TERM=xterm and no COLORTERM, so
+# colours broke (16 colours, wrong palette, no truecolor). Forward the host's
+# values; terminals whose terminfo entry does not exist in the sandbox
+# (ghostty, kitty, ...) are mapped to xterm-256color, which every ncurses knows.
+term_args=()
+if [ -n "${TERM:-}" ]; then
+  case "$TERM" in
+    xterm-ghostty | xterm-kitty | alacritty* | foot* | wezterm* | rio) sb_term=xterm-256color ;;
+    *) sb_term="$TERM" ;;
+  esac
+  term_args+=(-e "TERM=$sb_term")
+fi
+[ -z "${COLORTERM:-}" ] || term_args+=(-e "COLORTERM=$COLORTERM")
+exec podman exec "${tty_args[@]}" "${term_args[@]}" -e "AGENT_WORKDIR=$workdir" "$container_name" /agent-entrypoint "$@"

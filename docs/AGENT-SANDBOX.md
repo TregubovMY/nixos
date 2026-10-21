@@ -132,9 +132,45 @@ kandev есть признаки настройки `worktree.base_path`/`worktr
 аккаунта (`claude-use sync`; на хосте и в песочнице одинаково). Ключи блока
 **перебивают** ручные правки в `settings.json`, остальные ключи аккаунта остаются.
 Сейчас: без `Co-Authored-By`/подписи в PR и без ссылки на сессию (`attribution`),
-модель `claude-sonnet-5-5`, режим разрешений `auto`. Поменять — править блок и
+модель `claude-sonnet-5-5`, режим разрешений `auto`, экономия токенов
+(автосжатие на 400K вместо ~967K при окне 1M; без синхронизации скиллов и
+коннекторов claude.ai, без Artifact, редкие скиллы выключены). Поменять — править блок и
 `nixos-rebuild switch`; новый аккаунт получает его при первом запуске.
 Уже запущенный `claude` настройки не перечитывает — перезапустить.
+
+### Claude Code через npm: самообновление в песочнице
+
+Nix-пакет `claude-code` неизменяем и обновляется только через `nix flake update`.
+В песочнице есть записываемый том `npm-global` (`/shared/npm-global`, тот же, что у
+`dsh`). При `agent-sandbox up` команда `agent-install` кладёт туда Claude Code и dsh
+(`0.2.0-rc.2`), если их ещё нет; что ставить — ключ конфига `install = claude dsh`
+(по умолчанию оба, `install = none` — ничего). Claude Code обновляется сам. Вручную:
+
+```bash
+agent-sandbox -- agent-install                              # повторить установку
+agent-sandbox -- claude --version
+agent-sandbox -- claude doctor                              # строка Auto-updates
+```
+
+Обёртка `claude` (`claude-accounts.nix`) запускает `$NPM_CONFIG_PREFIX/bin/claude`,
+если он есть, иначе nix-бинарь — выбор аккаунта работает в обоих случаях.
+Канал обновлений — `latest` (`autoUpdatesChannel` в общем блоке; `stable` — на неделю
+старше, без релизов с крупными регрессиями). На хосте ничего не меняется:
+там по-прежнему nix-пакет. Бинарь динамический, работает через `nix-ld`.
+Откат: `npm install -g @anthropic-ai/claude-code@2.1.300`. Версия больше не
+закреплена в `flake.lock` — цена самообновления. Убрать: `npm uninstall -g
+@anthropic-ai/claude-code`.
+
+### Что есть в песочнице «из коробки» (по итогам прогона kandev-задачи, 2026-10-21)
+
+- **git**: имя, e-mail, `includeIf` по каталогам (рабочая почта в рабочих папках),
+  `init.defaultBranch`, `pull.rebase` берутся с хоста при `up` (файл
+  `/etc/agent-gitconfig`), подпись gpg выключена. ssh нет: `fetch/pull/push` — на хосте,
+  а `git` в песочнице сразу пишет об этом, а не «cannot run ssh».
+- **postgres** (`initdb`, `pg_ctl`, `psql`), `file`, **tzdata** (`/usr/share/zoneinfo`,
+  `TZDIR`) — агент раньше искал их в `/nix/store` и обходил руками.
+- **Go**: `GOROOT` больше не подставляется от версии хоста (ломал Go другой версии),
+  `mise reshim` при старте — `gofmt` и прочие бинарники находятся без правки `PATH`.
 
 ### Как запустить: `ai`, `aih`, `ais`
 
