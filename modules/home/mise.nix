@@ -161,6 +161,14 @@ in
   # in this repo sets these (checked), so a plain assignment is fine --
   # no existing value to preserve.
   home.sessionVariables = {
+    # Host twin of the sandbox's NPM_CONFIG_PREFIX (agent-sandbox.nix): every
+    # `npm install -g` -- including Claude Code's own self-update, which runs
+    # npm in the *current* prefix -- lands in ~/.npm-global, where the `claude`
+    # wrapper looks. Without it the updater installed claude into mise's node
+    # dir (2026-10-22), which is first in PATH, shadowed the wrapper and sent
+    # claude to the pre-accounts ~/.claude (login "lost"). Needs a re-login of
+    # the session to take effect.
+    NPM_CONFIG_PREFIX = "$HOME/.npm-global";
     CPATH = lib.concatMapStringsSep ":" (p: "${p.dev}/include") rubyBuildLibs;
     LIBRARY_PATH = lib.concatMapStringsSep ":" (p: "${lib.getLib p}/lib") rubyBuildLibs;
     PKG_CONFIG_PATH = lib.concatMapStringsSep ":" (p: "${p.dev}/lib/pkgconfig") rubyBuildLibs;
