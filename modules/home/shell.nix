@@ -93,6 +93,9 @@
       compdef _agent_sandbox agent-sandbox
     '';
     shellAliases = {
+      # Same reason as in bin/ai: an interactive `claude` must be the account
+      # wrapper even when mise's node dir (first in PATH) holds its own copy.
+      claude = "/run/current-system/sw/bin/claude";
       # claude-code in the sandbox that covers the current directory, started
       # right here (bin/agent-sandbox finds the sandbox by cwd).
       sclaude = "agent-sandbox -- claude";

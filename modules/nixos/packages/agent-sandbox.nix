@@ -639,10 +639,24 @@ let
     else
       runner=""
     fi
-    if [ "$#" -eq 0 ]; then
-      exec $runner ${pkgs.bashInteractive}/bin/bash -l
+    # `mise exec` prepends the project's node/ruby/... bin dirs to PATH, i.e.
+    # AHEAD of the claude wrapper put first above. If a `claude` ever lands in
+    # such a dir (Claude Code's self-update / a stray `npm i -g` under the
+    # project's node, seen live 2026-10-22 in a project pinning node 24.3.0),
+    # a bare `claude` bypasses the wrapper: no CLAUDE_CONFIG_DIR -> empty
+    # /home/agent/.claude -> the first-run "choose theme / login" screen. So
+    # put the wrapper first once more, inside mise's PATH, right before the
+    # command starts.
+    # (An array, not a string: the sh -c script below contains quotes.)
+    if [ -n "$runner" ]; then
+      runner=(mise exec -- ${pkgs.runtimeShell} -c 'PATH=${claudeAccounts}/bin:$PATH; exec "$@"' sh)
     else
-      exec $runner "$@"
+      runner=()
+    fi
+    if [ "$#" -eq 0 ]; then
+      exec "''${runner[@]}" ${pkgs.bashInteractive}/bin/bash -l
+    else
+      exec "''${runner[@]}" "$@"
     fi
   '';
 in

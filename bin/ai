@@ -46,7 +46,11 @@ fi
 
 case "$where" in
   host)
-    exec "${env_args[@]}" claude "$@"
+    # The wrapper by absolute path, not whatever `claude` PATH finds first:
+    # mise puts a node's bin dir ahead of it, and a claude-code that landed
+    # there (Claude Code's self-update installs into the node it runs under,
+    # 2026-10-22) has no CLAUDE_CONFIG_DIR -> pre-accounts ~/.claude -> login.
+    exec "${env_args[@]}" /run/current-system/sw/bin/claude "$@"
     ;;
   sandbox)
     if agent-sandbox which >/dev/null 2>&1; then
