@@ -951,3 +951,50 @@ nmcli connection up work        # или переключатель в меню 
 в Bitwarden — держать отдельный шифрующий-в-git механизм ради нуля
 секретов, которым реально нужен доступ до сетевого логина, смысла не
 имело. Подробности и история решения — `system-plan.md` §6/§7.
+
+## Аналоги `agent-sandbox`: исследование (2026-10-21)
+
+Каталог: github.com/fishman/awesome-agent-sandbox. Смотрели по критериям
+из TODO: rootfs из `/nix/store`, профили аккаунтов, git-идентичность и
+прокси, GUI, вложенные контейнеры, сеть, хранилище секретов. Данные —
+из README/страниц пакетов (не из запуска), поэтому «не описано» ≠ «нет».
+
+| Проект | Изоляция | Что умеет из нужного нам | Чего нет / минус |
+|---|---|---|---|
+| ai-jail (akitaonrails) | bwrap + Landlock + seccomp | nix flake; tmpfs `$HOME`; `--display` (только Wayland-сокет); egress-allowlist через встроенный CONNECT-прокси; `--secret` (подмена на прокси, только plain HTTP); `--lockdown` | `--docker` = монтирует хостовый сокет (root-эквивалент); профилей аккаунтов нет; git-identity не описана; rootfs — хостовый, не `/nix/store`-корень |
+| jailed-agents / jail.nix | bwrap (декларативно в Nix) | ближе всего по духу: Nix-сборка набора пакетов, worktree git, `~/.gitconfig` опционально ro | GUI нет; `enableNix` отдаёт хостовый nix-daemon; сеть всё или ничего; контейнеров внутри нет |
+| aibox (ruifm) | bwrap + direnv/Nix devShell | окружение проекта из devShell | Codex/Claude/Copilot only, остального нет |
+| ExitBox | rootless podman/docker, `--cap-drop=ALL` | Squid-allowlist, hot-reload, vault с подтверждением на хосте, роли | вложенные контейнеры запрещены, Nix/GUI не описаны |
+| terok (+terok-shield) | rootless podman | nftables default-deny (shield работает и отдельно с любым rootless podman), vault ключей на хосте, git-gate | alpha, Python, образы |
+| mino | rootless podman | сеть: bridge/none/iptables-allowlist, короткоживущие облачные креды, SSH-agent | образы, GUI не описан |
+| hort | libcontainer, без демона | worktree на задачу + egress-allowlist | свой формат, образы |
+| srt (Anthropic) | bwrap + seccomp | то, что стоит за встроенной песочницей Claude Code | только процесс-уровень, не окружение |
+| agent-vm / matchlock / nilbox | microVM | MITM-прокси подставляет токены — агент не видит реальных ключей | тяжелее, нужен KVM, вне нашей модели угроз (§9.1) |
+
+### Вывод
+
+**Заменять нашу реализацию нечем.** Ни один проект не совмещает: корень
+из `/nix/store` без образов + аккаунты Claude с общими сессиями + пути
+как на хосте + GUI/Playwright + проброс прокси и git-identity. Ближайший
+— jailed-agents (bwrap, Nix), но без GUI/сети/аккаунтов; переход на
+него потерял бы больше, чем дал. Вложенные контейнеры не документирует
+никто, кроме варианта «пробросить хостовый сокет» (ai-jail) — это
+отвергнуто (root-эквивалент).
+
+### Идеи на заимствование (в порядке пользы/цены)
+
+1. **Egress-allowlist** (сейчас сеть открыта осознанно, §9.2). Самое
+   дешёвое: `terok-shield` ставится на любой rootless podman (nftables +
+   OCI-хуки), либо Squid-sidecar как в ExitBox. Опциональный режим
+   `network = allowlist` в конфиге группы, по умолчанию открыто.
+2. **Подмена секретов на прокси** (ai-jail `--secret`, matchlock,
+   agent-vm): агент получает placeholder, реальный токен подставляет
+   хостовый прокси. Закрывает утечку токенов через prompt injection.
+   Сложнее: нужен TLS-MITM для HTTPS. Пока не нужно.
+3. **Vault с подтверждением на хосте** (ExitBox, terok) — актуально,
+   если появятся долгоживущие ключи в песочнице; сейчас секретов внутри
+   нет (Bitwarden на хосте).
+4. **`--lockdown`-режим** (ai-jail): ro-проект + без сети — для просмотра
+   чужого кода. Дёшево: `--read-only` + `--network=none`.
+5. `.ai-jail`-принцип «проектный конфиг может только ужесточать» — учесть,
+   если конфиги групп когда-нибудь будут лежать в репозиториях.

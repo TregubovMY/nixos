@@ -112,3 +112,28 @@
       репозитория) в kandev 0.97.0 и направить её в `~/code/work/rnds/.worktrees`
       (игнор через `.git/info/exclude`), БД и `master.key` оставить в томе
       песочницы. Подробности — `docs/AGENT-SANDBOX.md`, «Worktree kandev с хоста».
+
+## agent-sandbox: контейнеры у агента и готовые аналоги (2026-10-21)
+
+- [ ] Проверить вложенный rootless podman в песочнице: `/tmp/nested-podman-check.sh`
+      (варианты A/B/C: текущие флаги → `/dev/fuse` + `seccomp=unconfined` →
+      + `label=disable`). Если без `--privileged`/`SYS_ADMIN` не взлетает —
+      оставить `ask` для `docker`/`podman` везде (`claude-accounts.nix`);
+      если взлетает — `allow` внутри песочницы (различать по env песочницы
+      в `claude-use sync`), на хосте `ask`. Сокет хоста в песочницу не
+      пробрасывать никогда (root-эквивалент).
+- [x] (сделано 2026-10-21, итог — `docs/REFERENCE.md` «Аналоги `agent-sandbox`»: заменять нечем; идеи ниже вынесены в отдельные пункты) Посмотреть, есть ли готовые решения, которые могут заменить мою
+      реализацию `agent-sandbox`: terok, ExitBox, mino, hort (podman);
+      ai-jail, aibox, jailed-agents (bubblewrap, Nix); каталог
+      github.com/fishman/awesome-agent-sandbox. Сравнить по: rootfs из
+      `/nix/store` без образов, профили аккаунтов, проброс git-идентичности
+      и прокси, GUI, вложенные контейнеры, сеть (default-deny), хранилище
+      секретов. Уже известно: ни terok, ни ExitBox вложенные контейнеры не
+      документируют (ExitBox даже запрещает: `--cap-drop=ALL`,
+      `no-new-privileges`). Взять идеи: egress-allowlist (ExitBox: Squid;
+      terok: nftables) и vault для ключей на хосте.
+- [ ] agent-sandbox: опциональный egress-allowlist (`network = allowlist`
+      в конфиге группы; `terok-shield` или Squid-sidecar), по умолчанию
+      сеть открыта. Идея из исследования аналогов.
+- [ ] agent-sandbox: режим `--lockdown` (ro-проект + `--network=none`)
+      для чтения чужого кода.
