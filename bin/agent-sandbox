@@ -543,7 +543,12 @@ start_container() {
   resolve_rootfs
   local ids_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/agent-sandbox"
   mkdir -p "$ids_dir"
-  local tmp_dir="${XDG_CACHE_HOME:-$HOME/.cache}/agent-sandbox/tmp-$vol_name"
+  # Per CONTAINER (cfg_name), not per volume set (vol_name): all --here
+  # sandboxes share vol_name "adhoc", and a second `up` wipes and recreates
+  # this directory -- the first container's /tmp bind mount then pointed at a
+  # deleted inode and every mkdir in it failed with ENOENT (claude: "mkdir
+  # /tmp/claude-1000", found 2026-10-22 with two --here sandboxes running).
+  local tmp_dir="${XDG_CACHE_HOME:-$HOME/.cache}/agent-sandbox/tmp-$cfg_name"
   # Go's module cache is read-only (0444 files, 0555 dirs) by design, so a
   # plain rm -rf fails with "Permission denied" on the previous run's gopath.
   chmod -R u+w "$tmp_dir" 2>/dev/null || true
