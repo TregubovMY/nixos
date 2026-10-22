@@ -31,6 +31,9 @@ ro      = ~/code/shared-lib   # проект только для чтения
 publish = 3080:3080           # порт наружу, только на 127.0.0.1 хоста
 env     = RAILS_ENV=development   # обычная переменная (секреты сюда не класть)
 autostart = kandev start --backend-port 38429   # команда в фоне при старте
+service = postgres            # фоновые сервисы (по умолчанию postgres + redis; none — без них)
+service = redis
+worktrees = ~/code/my/.worktrees   # где kandev держит worktree'ы задач (видны с хоста)
 ```
 
 ```ini
@@ -111,19 +114,32 @@ claude-use                   # кто сейчас активен и почем�
 
 ### Worktree kandev с хоста
 
-Домашняя папка kandev (`~/.kandev`: БД, `master.key`, логи, worktree'ы задач)
-лежит в томе песочницы — с хоста недоступна, поэтому `git worktree list` в
-репозитории показывает worktree как `prunable`. Смотреть/запускать их пока можно
-из песочницы (`agent-sandbox @work-rnds`, `cd ~/.kandev/tasks/<id>/<репо>`) либо
-взять ветку на хосте (`git worktree add -f …`; не `git worktree prune` — сломает
-worktree в kandev).
+kandev кладёт worktree'ы задач в `<KANDEV_HOME_DIR>/tasks` и отдельной настройки для этого
+нет (в исходниках: «relocate via KANDEV_HOME_DIR, not a separate knob»; `worktree_root` в
+БД — другое, оно не влияет). Перенос всего `KANDEV_HOME_DIR` на хост утащил бы туда БД и
+`master.key` (пробовали 2026-10-20, откатили). Поэтому — ключ конфига `worktrees`:
 
-Пробовали (2026-10-20) перенести на хост **всю** домашнюю папку через
-`KANDEV_HOME_DIR` и откатили: лишнее — на хост уезжают БД и `master.key`, нужны
-симлинк и `git worktree repair`. Нужно только вынести worktree'ы в проект
-(например `~/code/work/rnds/.worktrees`, один путь с обеих сторон): в бинарнике
-kandev есть признаки настройки `worktree.base_path`/`worktree_root`, как она
-включается и работает ли в 0.97.0 — не проверено. TODO.md.
+```ini
+worktrees = ~/code/work/rnds/.worktrees   # внутри одной из rw-папок; создаётся сам
+```
+
+Песочница делает `~/.kandev/tasks` симлинком на эту папку (БД, `master.key`, логи остаются
+в томе). Git записывает **настоящий** путь worktree, поэтому и `.git` worktree'а, и
+`.git/worktrees/*/gitdir` основного репозитория — хостовые пути: на хосте worktree не
+`prunable`, ветка берётся обычным `git switch`/`git worktree list`, файлы worktree'а (в том
+числе незакоммиченные) лежат на хосте. Папка вне git-репозиториев (`rnds` — не репозиторий,
+репозитории лежат глубже), отдельно игнорировать её не нужно.
+
+Включение для уже работающей песочницы: дописать строку в конфиг,
+`agent-sandbox down @имя && agent-sandbox up @имя`. Старые worktree'ы из `~/.kandev/tasks`
+песочница при этом **переносит сама** (до автостарта kandev) и делает `git worktree repair`
+в основных репозиториях; БД kandev ничего менять не надо — путь `~/.kandev/tasks/…` через
+симлинк остался прежним. Если папка с тем же именем уже есть в целевой — этот worktree
+остаётся на месте, сообщение в выводе `up`.
+
+Нюанс: пока worktree открыт в kandev, одну ветку не править с хоста параллельно с агентом
+(git не даст переключить ветку, занятую worktree'ом, — `git switch --ignore-other-worktrees`
+обходит запрет, но две копии одной ветки разъедутся).
 
 ### Общие настройки Claude для всех аккаунтов
 
@@ -181,6 +197,29 @@ agent-sandbox -- claude doctor                              # строка Auto-
 Откат: `npm install -g @anthropic-ai/claude-code@2.1.300`. Версия больше не
 закреплена в `flake.lock` — цена самообновления. Убрать: `npm uninstall -g
 @anthropic-ai/claude-code`.
+
+### Postgres и Redis в песочнице
+
+`up` (и первый вход) сам поднимает сервисы из `service =` (без строк — `postgres redis`,
+`service = none` — никаких) и ждёт, пока они примут соединения; агенту не нужно искать
+`initdb` и запускать их руками. В каждом шелле песочницы выставлено `PGHOST=127.0.0.1`,
+`PGUSER=postgres` (роль `postgres`, **без пароля**) и `REDIS_URL=redis://127.0.0.1:6379/0`.
+Слушают только loopback внутри контейнера.
+
+- **Данные сохраняются**: том `agent-services-<имя>` (`/shared/services/<сервис>`), переживает
+  `down`/`up`. Сбросить: `podman volume rm agent-services-<имя>` при остановленной песочнице.
+  Redis пишет AOF + снапшот; `down` останавливает сервисы штатно (checkpoint/`SHUTDOWN SAVE`).
+- Лог — `~/.local-state/services/<сервис>.log` внутри; вручную: `agent-service
+  {up|down|status|list} [имя…]` (в песочнице).
+- Смена мажорной версии Postgres (обновление nixpkgs) = новый пустой кластер в соседней папке
+  (`/shared/services/postgres/<мажор>`); старый остаётся, переносить `pg_upgrade`/dump'ом.
+- С хоста сервисы не видны (loopback контейнера): нужен `autostart = socat
+  TCP-LISTEN:5433,fork,reuseaddr TCP:127.0.0.1:5432` + `publish = 5433:5433` (тот же приём, что
+  для `dsh web`).
+- **Добавить свой сервис** (mysql, memcached, minio…): один атрибут в `services` в
+  `modules/nixos/packages/agent-services.nix` (пакеты, переменные для клиента, `init`/`run`/
+  `ready`/`stop` — формат описан в шапке файла); правки `bin/agent-sandbox` не нужны. После
+  `nixos-rebuild switch` — `service = <имя>` в конфиге.
 
 ### Что есть в песочнице «из коробки» (по итогам прогона kandev-задачи, 2026-10-21)
 

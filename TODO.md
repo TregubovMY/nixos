@@ -106,12 +106,13 @@
   LocalSend, бан fail2ban. Локально проверено: `remote-screen` поднимается,
   не предлагает вход без пароля (VeNCrypt/RSA-AES), убирает за собой.
 
-## kandev: worktree'ы в проект (2026-10-20)
+## kandev: worktree'ы в проект (2026-10-20, сделано 2026-10-22)
 
-- [ ] Проверить настройку базы worktree'ов (`worktree.base_path` / `worktree_root`
-      репозитория) в kandev 0.97.0 и направить её в `~/code/work/rnds/.worktrees`
-      (игнор через `.git/info/exclude`), БД и `master.key` оставить в томе
-      песочницы. Подробности — `docs/AGENT-SANDBOX.md`, «Worktree kandev с хоста».
+- [x] Ключ `worktrees =` в конфиге песочницы (симлинк `~/.kandev/tasks`, миграция старых
+      worktree'ов). Своей настройки базы worktree'ов у kandev нет — см. `docs/AGENT-SANDBOX.md`,
+      «Worktree kandev с хоста».
+- [ ] Включить в `work-rnds.conf` (`worktrees = ~/code/work/rnds/.worktrees`) и проверить на
+      живой задаче kandev: создание, удаление задачи (cleanupOnRemove), повторный запуск.
 
 ## agent-sandbox: контейнеры у агента и готовые аналоги (2026-10-21)
 

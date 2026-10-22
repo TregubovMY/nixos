@@ -25,8 +25,9 @@
 | 2026-10-20 | Доступ к машине: SSH, удалённый экран, LocalSend, пароль на всё | не проверено на железе | `modules/nixos/remote-access.nix`; `docs/DAILY-WORKFLOW.md` «Удалённый доступ» |
 | 2026-10-20 | Общие настройки Claude (без подписи, Sonnet 5.5, auto mode) | сделано | `modules/nixos/packages/claude-accounts.nix` |
 | 2026-10-20 | Сессии Claude общие хост/песочница; `ai`/`aih`/`ais`; любая папка в песочнице | сделано | `bin/ai`, `bin/agent-sandbox --here` |
-| 2026-10-20 | Worktree kandev видеть с хоста | открыто (вариант «целиком на хост» откатили) | `TODO.md` |
+| 2026-10-20 | Worktree kandev видеть с хоста | сделано 2026-10-22 (`worktrees =` в конфиге; осталось включить в `work-rnds.conf` и проверить на живой задаче) | `docs/AGENT-SANDBOX.md` «Worktree kandev с хоста» |
 | 2026-10-20 | SSH для git внутри песочницы | открыто | — |
 | 2026-10-21 | Контейнеры у агента: в песочнице можно, на хосте по запросу; поискать готовые аналоги песочницы | аналоги исследованы (заменять нечем), вложенный podman — открыто | `docs/REFERENCE.md` «Аналоги agent-sandbox», `TODO.md` |
 | 2026-10-22 | Вход на хосте «слетел»: npm-самообновление положило claude в node mise, он перекрыл обёртку → читался старый `~/.claude` | сделано (`NPM_CONFIG_PREFIX=~/.npm-global` на хосте; нужен перелогин сессии) | `modules/home/mise.nix` |
 | 2026-10-22 | `ais` в проекте с pin node 24.3.0 показывал онбординг/логин: самообновление положило claude в node проекта, `mise exec` поставил его впереди обёртки | сделано (копии удалены; обёртка возвращается в начало PATH после `mise exec`; `ai`/алиас `claude` зовут обёртку по абсолютному пути; нужны switch и `agent-sandbox down && up`) | `modules/nixos/packages/agent-sandbox.nix`, `bin/ai`, `modules/home/shell.nix` |
+| 2026-10-22 | Песочница сразу поднимает postgres и redis (расширяемо, данные переживают перезапуск) | сделано (`service =` в конфиге, таблица сервисов в `agent-services.nix`; нужны switch и `agent-sandbox down && up`) | `docs/AGENT-SANDBOX.md` «Postgres и Redis в песочнице» |

@@ -143,6 +143,16 @@ fi
 #                                  (claude = Claude Code, self-updating; dsh = DeepSeek Harness);
 #                                  default "claude dsh", "none" to skip. No ssh in the sandbox:
 #                                  fetch/pull/push run on the host.
+#   service   = postgres         backing service started inside the sandbox by `up`, with its data
+#                                  in a persistent volume (repeatable; known: postgres, redis, see
+#                                  modules/nixos/packages/agent-services.nix, where new ones are added).
+#                                  Default "postgres redis"; "none" for no services. Client env
+#                                  (PGHOST, REDIS_URL...) is set for every shell in the sandbox.
+#   worktrees = ~/code/work/x/.worktrees
+#                                  where kandev keeps its task worktrees (inside an rw dir; created
+#                                  if missing; optional). Without it they live in the sandbox's own
+#                                  volume and the host cannot see them. Why a symlink and not a
+#                                  kandev setting: docs/AGENT-SANDBOX.md, "Worktree kandev".
 # The first rw/ro is where a shell starts when the cwd is outside all of them.
 #
 # Why the file is outside the projects and not a dotfile in one: project
@@ -162,6 +172,8 @@ cfg_env=()
 cfg_autostart=()
 cfg_publish=()
 cfg_install="claude dsh"
+cfg_services="postgres redis"
+cfg_worktrees=""
 
 cfg_path() { # expand a leading ~ and resolve to a physical dir, or die
   local p="$1"
@@ -187,8 +199,8 @@ load_config() { # load_config <name> -> fills the cfg_* globals
   esac
   cfg_file="$conf_dir/$cfg_name.conf"
   [ -f "$cfg_file" ] || die "no config $cfg_file"
-  cfg_mounts=(); cfg_account=""; cfg_env=(); cfg_autostart=(); cfg_publish=(); cfg_install="claude dsh"
-  local line lineno=0 key val w
+  cfg_mounts=(); cfg_account=""; cfg_env=(); cfg_autostart=(); cfg_publish=(); cfg_install="claude dsh"; cfg_services="postgres redis"; cfg_worktrees=""
+  local line lineno=0 key val w services_set=0
   while IFS= read -r line || [ -n "$line" ]; do
     lineno=$((lineno + 1))
     line="${line%%#*}"
@@ -228,6 +240,28 @@ load_config() { # load_config <name> -> fills the cfg_* globals
             ;;
         esac
         ;;
+      worktrees)
+        case "$val" in "~") val="$HOME" ;; "~/"*) val="$HOME/${val#"~/"}" ;; esac
+        # created here (on the host) so it exists as a mount-visible dir and
+        # cfg_path can canonicalize it; the "inside an rw dir" check is below,
+        # when all mounts are known
+        mkdir -p "$val" 2>/dev/null || die "$cfg_file:$lineno: cannot create $val"
+        cfg_worktrees="$(cfg_path "$val")"
+        ;;
+      service)
+        # Names are checked against the real table by agent-service inside
+        # (it knows the list); here only the shape, as for `account`.
+        case "$val" in
+          none) cfg_services="" ;;
+          "" | *[!a-z0-9_\ -]* | [_-]*) die "$cfg_file:$lineno: service expects names [a-z0-9_-] or 'none'" ;;
+          *)
+            # first `service =` replaces the default, later ones add
+            if [ "$cfg_services" = "postgres redis" ] && [ "$services_set" = 0 ]; then cfg_services=""; fi
+            services_set=1
+            cfg_services="${cfg_services:+$cfg_services }$val"
+            ;;
+        esac
+        ;;
       env)
         case "$val" in
           [A-Za-z_]*=*) cfg_env+=("$val") ;;
@@ -238,6 +272,14 @@ load_config() { # load_config <name> -> fills the cfg_* globals
     esac
   done <"$cfg_file"
   [ "${#cfg_mounts[@]}" -gt 0 ] || die "$cfg_file lists no 'rw = ...' directory"
+  if [ -n "$cfg_worktrees" ]; then
+    local wt_ok=0
+    for m in "${cfg_mounts[@]}"; do
+      case "$m" in *:ro) continue ;; esac
+      case "$cfg_worktrees/" in "$m"/*) wt_ok=1 ;; esac
+    done
+    [ "$wt_ok" = 1 ] || die "$cfg_file: worktrees = $cfg_worktrees must lie inside an 'rw =' directory (otherwise it is not mounted)"
+  fi
   # The config must not be reachable (writable) from inside the container.
   local cfg_real m
   cfg_real="$(cd "$(dirname "$cfg_file")" && pwd -P)/$(basename "$cfg_file")"
@@ -275,7 +317,7 @@ if [ "$here_mode" = 1 ]; then
   # the same folder always lands in the same container.
   cfg_file="--here"
   cfg_mounts=("$(cfg_path "$here")")
-  cfg_account=""; cfg_env=(); cfg_autostart=(); cfg_publish=(); cfg_install="claude dsh"
+  cfg_account=""; cfg_env=(); cfg_autostart=(); cfg_publish=(); cfg_install="claude dsh"; cfg_services="postgres redis"
   hash="$(printf '%s' "$here" | sha256sum | cut -c1-8)"
   base="$(basename "$here" | tr 'A-Z.' 'a-z-' | tr -c 'a-z0-9_\n-' '-' | cut -c1-24)"
   cfg_name="here-${base#[-_]}-$hash"
@@ -320,6 +362,13 @@ running() {
 if [ "$mode" = down ]; then
   # `up` starts the container with --rm: stopping removes it, the named
   # volumes (home, cache, toolchains) stay.
+  # Services first, by their own graceful stop (redis saves, postgres
+  # checkpoints): podman stop would end them with SIGKILL after its timeout,
+  # i.e. crash recovery for postgres and up to a second of AOF lost for redis.
+  # Best effort -- a stopped or broken container must still be stopped.
+  if running; then
+    podman exec "$container_name" /agent-entrypoint agent-service down >&2 || true
+  fi
   exec podman stop "$container_name"
 fi
 
@@ -386,7 +435,8 @@ start_container() {
     env_args+=(-e GITLAB_TOKEN)
   fi
   for e in ${cfg_env[@]+"${cfg_env[@]}"}; do env_args+=(-e "$e"); done
-  env_args+=(-e "AGENT_INSTALL=$cfg_install")
+  env_args+=(-e "AGENT_INSTALL=$cfg_install" -e "AGENT_SERVICES=$cfg_services")
+  [ -z "$cfg_worktrees" ] || env_args+=(-e "AGENT_TASKS_DIR=$cfg_worktrees")
 
   # Claude accounts (bin/claude-use): the whole root is mounted, so
   # `claude-use <account>` on the host switches the agents in here too, and
@@ -446,6 +496,9 @@ start_container() {
     -v "agent-uv-tools-$vol_name:/shared/uv"
     -v "agent-npm-global-$vol_name:/shared/npm-global"
     -v "agent-cache-$vol_name:/home/agent/.cache"
+    # Data of the backing services (postgres, redis, ...): per sandbox like the
+    # rest, and a volume, so it survives down/up.
+    -v "agent-services-$vol_name:/shared/services"
     --network=bridge
   )
   args+=(${env_args[@]+"${env_args[@]}"} ${claude_args[@]+"${claude_args[@]}"})
@@ -574,6 +627,14 @@ start_container() {
   if [ -n "$cfg_install" ]; then
     podman exec "$container_name" /agent-entrypoint agent-install ||
       echo "agent-sandbox: agent-install failed, continuing (retry: agent-sandbox -- agent-install)" >&2
+  fi
+
+  # Backing services (config `service =`): foreground, so `up` returns when
+  # they accept connections and the first command already finds them; a
+  # failure only warns, the sandbox is usable without them.
+  if [ -n "$cfg_services" ]; then
+    podman exec "$container_name" /agent-entrypoint agent-service up ||
+      echo "agent-sandbox: a service did not start (log: ~/.local-state/services/ in the sandbox; retry: agent-sandbox -- agent-service up)" >&2
   fi
 
   # autostart: boards/services inside the same container, detached; output

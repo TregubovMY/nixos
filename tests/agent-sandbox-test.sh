@@ -212,7 +212,7 @@ done
 expect log_lacks --env-host
 expect log_lacks --env-file
 # every -e in the invocation is from the allowlist
-bad_env=$(awk 'prev == "-e" && $0 !~ /^(ANTHROPIC_API_KEY|DEEPSEEK_API_KEY|GITLAB_TOKEN|AGENT_MOUNTS=.*|RAILS_ENV=.*|WAYLAND_DISPLAY=.*|XDG_RUNTIME_DIR=.*|MISE_SHARED_INSTALL_DIRS=.*|CLAUDE_ACCOUNT.*|AGENT_SANDBOX_NAME=.*|AGENT_INSTALL=.*)$/ { print } { prev = $0 }' "$(logf)")
+bad_env=$(awk 'prev == "-e" && $0 !~ /^(ANTHROPIC_API_KEY|DEEPSEEK_API_KEY|GITLAB_TOKEN|AGENT_MOUNTS=.*|RAILS_ENV=.*|WAYLAND_DISPLAY=.*|XDG_RUNTIME_DIR=.*|MISE_SHARED_INSTALL_DIRS=.*|CLAUDE_ACCOUNT.*|AGENT_SANDBOX_NAME=.*|AGENT_INSTALL=.*|AGENT_SERVICES=.*|AGENT_TASKS_DIR=.*)$/ { print } { prev = $0 }' "$(logf)")
 expect [ -z "$bad_env" ]
 
 t "env allowlist: unset keys are not forwarded as empty"
@@ -284,6 +284,37 @@ use exec
 expect log_seq -d agent-sandbox-cfg-board
 expect log_has "kandev start --backend-port 38429 >> /home/agent/.local-state/autostart.log 2>&1"
 rm "$cfgdir/board.conf"
+
+t "config service: default postgres+redis, explicit list replaces, none disables, volume for data"
+printf 'rw = %s\n' "$rnds" >"$cfgdir/svc.conf"
+rc=$(run bash "$script" up @svc)
+expect_rc "$rc" 0
+expect log_seq -e "AGENT_SERVICES=postgres redis"
+expect log_seq -v "agent-services-svc:/shared/services"
+use exec
+expect log_seq agent-service up
+printf 'rw = %s\nservice = redis\n' "$rnds" >"$cfgdir/svc.conf"
+t "config service: explicit list replaces the default"
+rc=$(run bash "$script" up @svc)
+expect log_seq -e "AGENT_SERVICES=redis"
+printf 'rw = %s\nservice = none\n' "$rnds" >"$cfgdir/svc.conf"
+t "config service = none: no services started"
+rc=$(run bash "$script" up @svc)
+expect log_seq -e "AGENT_SERVICES="
+use exec
+expect log_lacks "agent-service"
+rm "$cfgdir/svc.conf"
+
+t "config worktrees: passed as AGENT_TASKS_DIR, created, must be inside an rw dir"
+printf 'rw = %s\nworktrees = %s/.wt\n' "$rnds" "$rnds" >"$cfgdir/wt.conf"
+rc=$(run bash "$script" up @wt)
+expect_rc "$rc" 0
+expect log_seq -e "AGENT_TASKS_DIR=$rnds/.wt"
+expect [ -d "$rnds/.wt" ]
+printf 'rw = %s\nworktrees = %s\n' "$rnds" "$shared" >"$cfgdir/wt.conf"
+rc=$(run bash "$script" up @wt)
+expect_rc "$rc" 1
+rm "$cfgdir/wt.conf"
 
 t "down stops the container"
 rc=$(CWD="$my" run bash "$script" down)

@@ -84,11 +84,13 @@ let
   # The `claude` wrapper on its own so the entrypoint can put it FIRST in
   # PATH (see "claude via npm" below).
   claudeAccounts = pkgs.callPackage ./claude-accounts.nix { };
+  # postgres/redis/... started by `up` (config `service =`), see the file.
+  agentServices = import ./agent-services.nix { inherit pkgs; };
   tools = pkgs.buildEnv {
     name = "agent-sandbox-tools";
     extraOutputsToInstall = [ "dev" ];
     ignoreCollisions = true;
-    paths = with pkgs; [
+    paths = agentServices.packages ++ [ agentServices.agentService ] ++ (with pkgs; [
       # kandev board (modules/nixos/packages/kandev.nix): one sandbox, boards inside it
       (callPackage ./kandev.nix { })
       # gh: kandev's GitHub integration (PRs, checks) calls the gh CLI.
@@ -198,7 +200,7 @@ let
         # Found in a kandev run (2026-10-20): the agent hunted /nix/store for
         # a postgres to run integration tests (initdb/pg_ctl/psql), and had
         # no `file`. Server + client both, same store paths as the host.
-        postgresql
+        # (postgresql itself now comes with agentServices.packages below.)
         file
         tzdata
         opencode
@@ -356,7 +358,7 @@ let
         # already present; this minimal Nix-store-only image has to name it
         # explicitly.
         perl
-    ];
+    ]);
   };
 
   entrypoint = pkgs.writeShellScript "agent-sandbox-entrypoint" ''
@@ -397,6 +399,61 @@ let
     # didn't exist at all. mkdir unconditionally, independent of whether
     # mise ever runs for this project.
     mkdir -p "$XDG_STATE_HOME"
+    # kandev task worktrees on the host (config `worktrees =`). kandev always
+    # puts them at <KANDEV_HOME_DIR>/tasks (apps/backend/internal/worktree/
+    # provider.go in kdlbs/kandev: no setting for it; its own comment says
+    # "relocate via KANDEV_HOME_DIR, not a separate knob") and KANDEV_HOME_DIR
+    # also moves the database and master.key to the host, which we do not
+    # want. A symlink for just that one directory does the job: git records the
+    # REAL path of a worktree it creates through the link (checked), so the
+    # `gitdir:` files and .git/worktrees/* the host reads are host paths, and
+    # kandev itself canonicalizes with EvalSymlinks where it compares paths.
+    # A tasks dir that already holds worktrees is migrated (below).
+    if [ -n "''${AGENT_TASKS_DIR:-}" ]; then
+      mkdir -p "$HOME/.kandev"
+      tasks_link="$HOME/.kandev/tasks"
+      if [ -L "$tasks_link" ]; then
+        ln -sfn "$AGENT_TASKS_DIR" "$tasks_link"
+      elif [ ! -e "$tasks_link" ]; then
+        ln -s "$AGENT_TASKS_DIR" "$tasks_link"
+      elif rmdir "$tasks_link" 2>/dev/null; then
+        ln -s "$AGENT_TASKS_DIR" "$tasks_link"
+      else
+        # One-time migration of worktrees made before `worktrees =` was set.
+        # Runs here, before the autostart commands, so kandev is not running
+        # on them while they move. kandev's database keeps the path
+        # ~/.kandev/tasks/<id>/<repo>, which the link makes valid again. The
+        # main repos' .git/worktrees/*/gitdir still name the old location:
+        # `git worktree repair <new path>` rewrites them (run in the main repo
+        # that the worktree's own .git file points to).
+        echo "agent-sandbox: moving kandev worktrees from $tasks_link to $AGENT_TASKS_DIR" >&2
+        tasks_old="$HOME/.kandev/tasks.migrating"
+        rm -rf "$tasks_old"
+        mv "$tasks_link" "$tasks_old"
+        ln -s "$AGENT_TASKS_DIR" "$tasks_link"
+        for entry in "$tasks_old"/* "$tasks_old"/.[!.]*; do
+          [ -e "$entry" ] || continue
+          if [ -e "$AGENT_TASKS_DIR/''${entry##*/}" ]; then
+            echo "agent-sandbox: $AGENT_TASKS_DIR/''${entry##*/} exists, left $entry where it is" >&2
+            continue
+          fi
+          mv "$entry" "$AGENT_TASKS_DIR/" || { echo "agent-sandbox: could not move $entry" >&2; continue; }
+          for wt in "$AGENT_TASKS_DIR/''${entry##*/}"/*; do
+            [ -f "$wt/.git" ] || continue
+            gd="$(sed -n 's/^gitdir: //p' "$wt/.git")"
+            main="''${gd%/.git/worktrees/*}"
+            [ "$main" != "$gd" ] && [ -d "$main" ] || continue
+            git -C "$main" worktree repair "$wt" ||
+              echo "agent-sandbox: git worktree repair failed for $wt (main repo $main)" >&2
+          done
+        done
+        rmdir "$tasks_old" 2>/dev/null || echo "agent-sandbox: leftovers in $tasks_old (see messages above)" >&2
+      fi
+    fi
+    # Client variables of the services this sandbox runs (PGHOST, REDIS_URL...),
+    # from the service table in agent-services.nix; AGENT_SERVICES is set by
+    # bin/agent-sandbox from the config's `service =` lines.
+    eval "$(agent-service env)"
     # Gems: reuse everything installed on the host, install only what's
     # missing. The host's mise Rubies (and the gems installed into them)
     # are mounted read-only (bin/agent-sandbox, MISE_SHARED_INSTALL_DIRS),
