@@ -261,3 +261,13 @@ Options (в Firefox `about:addons` → Vimium → Preferences; в Chrome пра�
    блок перезаписывается при каждой перестройке.
 3. Файлы DMS (`~/.config/hypr/dms/binds.lua`) — его стандартные сочетания,
    их пишет сам DMS.
+
+## FAQ
+
+**По ssh в терминале Backspace «добавляет пробелы» / ломается перерисовка.**
+Ghostty ставит `TERM=xterm-ghostty`, а на сервере такого terminfo нет.
+Лечится опцией `shell-integration-features = ssh-env,ssh-terminfo`
+(`modules/home/ghostty.nix`): при первом `ssh` terminfo ставится на сервер,
+а если не вышло — `TERM` откатывается на `xterm-256color`. Применяется после
+`nixos-rebuild switch` в новых окнах Ghostty. Срочно, без пересборки:
+`TERM=xterm-256color ssh host`.

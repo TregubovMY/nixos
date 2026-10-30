@@ -48,6 +48,19 @@ keybind = ctrl+shift+key_v=paste_from_clipboard
 keybind = ctrl+shift+key_t=new_tab
 keybind = ctrl+shift+key_w=close_surface
 keybind = ctrl+shift+key_n=new_window
+# Выделение сразу копируется в системный буфер (DMS по умолчанию пишет
+# copy-on-select=false -- из-за этого выделенное в claude не копировалось).
+# Ctrl+C копирует, только если есть выделение, иначе уходит в программу
+# как обычный SIGINT (performable:).
+copy-on-select = clipboard
+scrollback-limit = 100000000
+# ssh на хосты без terminfo xterm-ghostty: Backspace/перерисовка ломаются
+# (появляются пробелы). ssh-terminfo ставит terminfo на сервер через infocmp/tic
+# при первом подключении, ssh-env -- запасной вариант: TERM=xterm-256color
+# (+ проброс COLORTERM), если установка не удалась. Нужна shell-интеграция
+# ghostty (zsh подхватывается автоматически). Docs: ghostty.org/docs/config/reference#shell-integration-features
+shell-integration-features = ssh-env,ssh-terminfo
+keybind = performable:ctrl+c=copy_to_clipboard
 # NIXOS-MANAGED KEYS END
 GHOSTTY
       mv -f "$TMP" "$CONF"
