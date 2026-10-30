@@ -1109,6 +1109,11 @@ nmcli connection up work        # или переключатель в меню 
   `agent-vm up` ждал 3 минуты. Починено правилом `ESTABLISHED,RELATED`
   первым в цепочке (соединение, начатое гостем, остаётся NEW и режется).
   `agent-vm test` проверял это только изнутри VM — до ssh не доходило.
+- **Третий баг**: kandev писал `lookup kdlbs.github.io: no such host`
+  (индекс плагинов). `networking.proxy` задаёт `environment.variables`, то
+  есть только оболочки, а службы systemd (kandev, `dsh-install`) прокси не
+  видели, а DNS и маршрута у гостя нет. Починено `systemd.globalEnvironment`
+  с `HTTP(S)_PROXY`/`NO_PROXY` в обоих регистрах (Go читает оба).
 
 ### agent-vm: права Claude шире, чем на хосте (2026-10-30)
 
@@ -1138,7 +1143,9 @@ nmcli connection up work        # или переключатель в меню 
 - `dsh-setup` вынесен из `agent-sandbox.nix` в `packages/dsh-setup.nix`
   (общий для песочницы и VM; деривация песочницы не изменилась — проверено
   по `drvPath`). dsh ставит служба `dsh-install` (oneshot с повтором, т.к.
-  нужен прокси), `dsh-web` ждёт его появления; socat открывает 3081 → 3080.
+  нужен прокси; ставит dsh и плагины `core` через `dsh-setup`, метка успеха
+  `~/.npm-global/.dsh-plugins-core`), `dsh-web` ждёт метку (до 10 мин, чтобы
+  сломанный плагин не клал веб-интерфейс); socat открывает 3081 → 3080.
 - `kandevTasksDir` — симлинк `~/.kandev/tasks` (идея и проверка git —
   из песочницы, см. её раздел выше); служба `kandev` делает его в
   `ExecStartPre`. `CLAUDE_CODE_EXECUTABLE` указывает на обёртку аккаунтов.

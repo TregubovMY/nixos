@@ -469,12 +469,12 @@ in
             "Bash(psql:*)" "Bash(redis-cli:*)" "Bash(pg_dump:*)"
           ];
           npmPrefix = "${home}/.npm-global";
-          dshVersion = "0.2.0-rc.2"; # same pin as agent-sandbox.nix / dsh-setup.nix
           # dsh web refuses a non-loopback --host ("would expose remote code
           # execution to the network"), so it listens on 127.0.0.1:3081 and
           # socat exposes it on 0.0.0.0:3080 for the host's port forward;
           # --trusted-host is the Host header the browser sends.
           dshLoopbackPort = 3081;
+          dshCoreMarker = "${npmPrefix}/.dsh-plugins-core";
           vmPermissions = {
             allow = base.allow ++ vmAllow;
             # docker/podman no longer ask; git push/reset --hard/clean/worktree
@@ -561,6 +561,16 @@ in
         networking.proxy = {
           default = proxyUrl;
           noProxy = noProxy;
+        };
+        # networking.proxy only reaches shells (environment.variables), not
+        # systemd units: kandev (plugin index on github.io), dsh-install
+        # (npm) and the like have no DNS and no route, so without this they
+        # fail with "lookup ...: no such host" (found live 2026-10-30).
+        # globalEnvironment = DefaultEnvironment of every system unit. Go
+        # reads the upper- and lowercase names.
+        systemd.globalEnvironment = {
+          HTTP_PROXY = proxyUrl; HTTPS_PROXY = proxyUrl; ALL_PROXY = proxyUrl; NO_PROXY = noProxy;
+          http_proxy = proxyUrl; https_proxy = proxyUrl; all_proxy = proxyUrl; no_proxy = noProxy;
         };
         # Everything is reachable only from the bridge; the guest firewall
         # still closes all but the service ports.
@@ -768,12 +778,17 @@ in
           };
         };
 
-        # dsh into the persistent npm prefix, once (needs the proxy, so it
-        # retries). Plugins: `dsh-setup core` by hand, as in the sandbox.
+        # dsh and its `core` plugins, once, into the persistent home. Needs
+        # the proxy, so it retries every 30 s until both steps succeed; the
+        # marker file (success only) makes later boots a no-op. Same
+        # dsh-setup as in the sandbox, so the pinned version and the plugin
+        # list (packages/dsh-plugins/core.txt) stay in one place. Other lists
+        # (extra, claude-sdk -- the latter asks a question) stay manual:
+        # `agent-vm shell dsh-setup extra`.
         systemd.services.dsh-install = {
           wantedBy = [ "multi-user.target" ];
           after = [ "network.target" ];
-          path = [ pkgs.nodejs pkgs.git ];
+          path = [ pkgs.nodejs pkgs.git (pkgs.callPackage ./packages/dsh-setup.nix { }) ];
           environment = { HOME = home; NPM_CONFIG_PREFIX = npmPrefix; };
           serviceConfig = {
             Type = "oneshot";
@@ -783,8 +798,10 @@ in
             RestartSec = 30;
             ExecStart = pkgs.writeShellScript "dsh-install" ''
               set -eu
-              [ -x "${npmPrefix}/bin/dsh" ] && exit 0
-              exec npm install -g @deepseek-ai/dsh@${dshVersion}
+              [ -e "${dshCoreMarker}" ] && exit 0
+              export PATH="${npmPrefix}/bin:$PATH"
+              dsh-setup core
+              touch "${dshCoreMarker}"
             '';
           };
         };
@@ -803,9 +820,11 @@ in
             WorkingDirectory = home;
             Restart = "always";
             RestartSec = 10;
-            # Waits for dsh-install instead of failing while npm is still
-            # fetching it.
+            # Waits for dsh-install (plugins are read at start) instead of
+            # failing while npm is still fetching; gives up waiting after
+            # 10 min so a broken plugin does not keep the web UI down.
             ExecStart = pkgs.writeShellScript "dsh-web" ''
+              for _ in $(seq 120); do [ -e "${dshCoreMarker}" ] && break; sleep 5; done
               until [ -x "${npmPrefix}/bin/dsh" ]; do sleep 5; done
               exec "${npmPrefix}/bin/dsh" web --no-open --port ${toString dshLoopbackPort} --trusted-host 127.0.0.1:${toString forwards.dsh}
             '';

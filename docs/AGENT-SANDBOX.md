@@ -473,7 +473,7 @@ agentVm = {
 | Сессии Claude, история, skills | да (`claude-accounts/shared`) |
 | Аккаунты Claude | только перечисленные в `claudeAccounts` (в них токен входа); правила `~/.config/claude-accounts/rules` — да, только чтение; `claude-use` внутри VM меняет аккаунт только в VM |
 | Docker | **нет**: свой демон, образы и тома в VM. Образы хоста: `agent-vm docker-load`. Сокет хоста не пробрасывается никогда |
-| git | имя, e-mail, `includeIf`-идентичности (как в песочнице); **без ssh, без credential helper, без gpg**. Пушить с хоста или по https-токену на один репозиторий |
+| git | имя, e-mail, `includeIf`-идентичности (как в песочнице); **без ssh, без credential helper, без gpg**. Пушить с хоста или по https-токену на один репозиторий (как — README llm-dev-template, «Push из VM без ssh») |
 | Языки (mise) | рантаймы хоста, только чтение (`MISE_SHARED_INSTALL_DIRS`) |
 | ssh-ключи, ssh-agent, Bitwarden, `~/.ssh` | нет |
 | Сеть | только интернет через фильтрующий прокси; LAN, VPN, `podman0`, метаданные — нет |
@@ -490,8 +490,10 @@ rw-монтировании — иначе `nixos-rebuild` откажется (a
 
 **dsh.** Ставится сам при старте VM (`npm -g` в `~/.npm-global` VM, версия `0.2.0-rc.2` та же,
 что в песочнице), `dsh web` слушает 3081 и открыт на 3080 через socat (сам он не-loopback
-отказывается). Плагины — как в песочнице, вручную: `agent-vm shell dsh-setup core`
-(списки `core`/`extra`/`claude-sdk`). Профиль dsh и БД kandev у VM свои — данные песочницы
+отказывается). Плагины списка `core` ставятся сами при старте VM (та же `dsh-setup`,
+что в песочнице; повтор каждые 30 с, пока не получится, затем метка
+`~/.npm-global/.dsh-plugins-core`). Остальные списки — вручную:
+`agent-vm shell dsh-setup extra` (`claude-sdk` задаёт вопрос). Профиль dsh и БД kandev у VM свои — данные песочницы
 (`agent-home-*`) сюда не переезжают.
 
 **Главный риск монтирований.** VM защищает систему и внутреннюю сеть, но не
