@@ -70,8 +70,20 @@
     inputs.nixpkgs.follows = "nixpkgs";
   };
 
+  # microvm.nix (astro/microvm.nix): runs NixOS guests as qemu/KVM microVMs
+  # under systemd (microvm@<name>.service). Used by modules/nixos/agent-vm.nix
+  # for the agent VM with its own kernel + Docker (design:
+  # docs/superpowers/specs/2026-10-30-agent-vm-design.md). Only its HOST
+  # module is imported (below); the guest side is pulled in by
+  # `microvm.vms.<name>.config`. Floats on the default branch like disko:
+  # `nix flake update microvm` is a separate commit with flake.lock.
+  inputs.microvm = {
+    url = "github:astro/microvm.nix";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+
   outputs =
-    { self, nixpkgs, disko, lanzaboote, home-manager, dank-material-shell, dank-calendar, ... }:
+    { self, nixpkgs, disko, lanzaboote, home-manager, dank-material-shell, dank-calendar, microvm, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
@@ -110,6 +122,7 @@
               disko.nixosModules.disko
               lanzaboote.nixosModules.lanzaboote
               home-manager.nixosModules.home-manager
+              microvm.nixosModules.host # microvm.vms.* for modules/nixos/agent-vm.nix
               dank-material-shell.nixosModules.default
               # DMS's / DankCalendar's home-manager options only exist when
               # their homeModules are injected via sharedModules, not just
