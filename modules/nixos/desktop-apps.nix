@@ -149,6 +149,13 @@
       # PDF -- тоже не было просмотрщика. evince: GTK, в одной
       # теме с Nautilus; открывает и PDF, и DjVu/PS/CBZ.
       evince
+
+      # Архиваторы в GUI (запрошено 2026-10-26: zip не открывался в
+      # Nautilus). Сам Nautilus архивы не читает -- нужен отдельный
+      # обработчик; file-roller (GNOME Archive Manager) -- парный к нему,
+      # GTK4 в той же теме. Внешние бинарники (unzip/zip/7z) он берёт из
+      # PATH: unzip и zip лежат в modules/nixos/base.nix.
+      file-roller
     ];
 
     # §5.1.2 Телефон ↔ ПК (решено 2026-08-10) — module auto-provides
@@ -185,6 +192,31 @@
     # exists. Before this, `xdg-mime query default inode/directory` said
     # code.desktop.
     services.gvfs.enable = true;
-    xdg.mime.defaultApplications."inode/directory" = "org.gnome.Nautilus.desktop";
+
+    # Шрифты для документов (LibreOffice не показывал текст docx, 2026-10-26).
+    # До этого на системе был ТОЛЬКО Nerd Font из modules/nixos/hyprland.nix:
+    # ни Liberation (метрически совместим с Times New Roman/Arial/Courier --
+    # на них LibreOffice подменяет шрифты из docx), ни кириллического
+    # текстового шрифта. Гипотеза, не подтверждена: без них docx мог
+    # рендериться пустым. carlito/caladea -- метрические замены Calibri и
+    # Cambria (шрифты по умолчанию в современном Word). fonts.packages
+    # мерджится со списком из hyprland.nix.
+    fonts.packages = with pkgs; [
+      liberation_ttf
+      dejavu_fonts
+      noto-fonts
+      carlito
+      caladea
+    ];
+    xdg.mime.defaultApplications = {
+      "inode/directory" = "org.gnome.Nautilus.desktop";
+      # Без явного дефолта zip мог уходить в случайное приложение
+      # (или ни в какое) -- те же причины system-wide, что выше.
+      "application/zip" = "org.gnome.FileRoller.desktop";
+      "application/x-7z-compressed" = "org.gnome.FileRoller.desktop";
+      "application/x-tar" = "org.gnome.FileRoller.desktop";
+      "application/gzip" = "org.gnome.FileRoller.desktop";
+      "application/x-xz-compressed-tar" = "org.gnome.FileRoller.desktop";
+    };
   };
 }
