@@ -202,6 +202,18 @@ in
       '';
     };
 
+    kandevTasksDir = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "/home/max/code/work/rnds/.worktrees";
+      description = ''
+        Where kandev keeps the worktrees of its tasks. Must lie inside a
+        read-write entry of `mounts`: then the worktrees are on the host too
+        (git branch, IDE, `git worktree list` work there). null: they stay
+        in the VM's own ~/.kandev/tasks.
+      '';
+    };
+
     miseInstalls = lib.mkOption {
       type = lib.types.bool;
       default = true;
@@ -238,6 +250,7 @@ in
       default = {
         kandev = 38429; # same port as `kandev start --backend-port` in the sandbox
         terminal = 7681; # ttyd
+        dsh = 3080; # dsh web (socat in the guest -> 127.0.0.1:3081, see dshWebLoopback)
       };
       description = ''
         name -> port. Each is served in the guest and reachable on the
@@ -247,6 +260,12 @@ in
   };
 
   config = lib.mkIf cfg.enable (lib.mkMerge [ {
+    assertions = [{
+      assertion = cfg.kandevTasksDir == null
+        || lib.any (m: !m.ro && lib.hasPrefix "${m.path}/" "${cfg.kandevTasksDir}/") cfg.mounts;
+      message = "agentVm.kandevTasksDir must lie inside a read-write entry of agentVm.mounts (otherwise the worktrees are not on the host).";
+    }];
+
     # ---- Network on the host: bridge + tap, nothing routed ---------------
     # systemd-networkd only for these two links: NetworkManager keeps
     # everything else (it is told to ignore them), the networkd units match
@@ -435,8 +454,54 @@ in
     microvm.vms.agent = {
       autostart = false;
       restartIfChanged = false;
-      config = { pkgs, utils, ... }: {
+      config = { pkgs, utils, ... }:
+        let
+          claudeAccounts = pkgs.callPackage ./packages/claude-accounts.nix { };
+          base = claudeAccounts.permissions;
+          # What the VM adds on top of the host's rules. The VM is where the
+          # agent is supposed to run containers and install things, and its
+          # boundary is the hypervisor + the proxy, not these prompts. Rules
+          # about DATA in the mounted project folders stay as on the host:
+          # a destructive git command or a push is as bad here as there.
+          vmAllow = [
+            "Bash(docker:*)" "Bash(docker-compose:*)" "Bash(podman:*)"
+            "Bash(sudo:*)" "Bash(systemctl:*)" "Bash(journalctl:*)"
+            "Bash(psql:*)" "Bash(redis-cli:*)" "Bash(pg_dump:*)"
+          ];
+          npmPrefix = "${home}/.npm-global";
+          dshVersion = "0.2.0-rc.2"; # same pin as agent-sandbox.nix / dsh-setup.nix
+          # dsh web refuses a non-loopback --host ("would expose remote code
+          # execution to the network"), so it listens on 127.0.0.1:3081 and
+          # socat exposes it on 0.0.0.0:3080 for the host's port forward;
+          # --trusted-host is the Host header the browser sends.
+          dshLoopbackPort = 3081;
+          vmPermissions = {
+            allow = base.allow ++ vmAllow;
+            # docker/podman no longer ask; git push/reset --hard/clean/worktree
+            # remove still do.
+            ask = lib.subtractLists [ "Bash(docker:*)" "Bash(podman:*)" ] base.ask;
+            # sudo is allowed above, so it leaves the deny list; secrets and
+            # the mass-delete rules stay (the mounts are the host's files).
+            deny = lib.subtractLists [ "Bash(sudo:*)" ] base.deny;
+          };
+        in
+        {
         system.stateVersion = "24.05";
+
+        # Claude Code's managed settings, local to the VM (/etc is the
+        # guest's own, never shared). allowManagedPermissionRulesOnly makes
+        # THIS the only source of allow/ask/deny rules: the account's
+        # settings.json is a shared file (mounted from the host), its
+        # permission lists merge with every other scope and an allow cannot
+        # beat an ask, so loosening via another file is impossible, and
+        # writing looser rules INTO the shared file would loosen host sessions
+        # too (Claude reloads settings live). defaultMode etc. still come
+        # from the account. Documented behaviour:
+        # https://code.claude.com/docs/en/managed-settings.md
+        environment.etc."claude-code/managed-settings.json".text = builtins.toJSON {
+          allowManagedPermissionRulesOnly = true;
+          permissions = vmPermissions;
+        };
 
         microvm = {
           hypervisor = "qemu";
@@ -507,8 +572,16 @@ in
           # (DOCKER_CONFIG below); the daemon (pulls) through daemon.json.
           daemon.settings.proxies = dockerProxies;
         };
+        # cliPluginsExtraDirs: `docker compose` / `docker buildx` (v2 syntax)
+        # need the plugins on the CLI's search path; the nixpkgs packages put
+        # them in libexec/docker/cli-plugins, and DOCKER_CONFIG points away
+        # from ~/.docker, so the dirs are listed here.
         environment.etc."agent-docker/config.json".text = builtins.toJSON {
           proxies.default = dockerProxies;
+          cliPluginsExtraDirs = [
+            "${pkgs.docker-compose}/libexec/docker/cli-plugins"
+            "${pkgs.docker-buildx}/libexec/docker/cli-plugins"
+          ];
         };
 
         # The host user, same name/uid/home: see "What the guest sees".
@@ -571,6 +644,8 @@ in
           # `agent-vm up` from the host's config. Read as the SYSTEM
           # config so the user's own `git config --global` still wins.
           GIT_CONFIG_SYSTEM = "/mnt/host-share/gitconfig";
+          # npm -g installs (dsh) go to the user's persistent home.
+          NPM_CONFIG_PREFIX = npmPrefix;
         } // lib.optionalAttrs cfg.miseInstalls {
           # Host runtimes, read-only; installs go to the guest's own dir.
           MISE_SHARED_INSTALL_DIRS = miseInstalls;
@@ -580,6 +655,12 @@ in
           PGUSER = "postgres";
           REDIS_URL = "redis://127.0.0.1:6379/0";
         };
+
+        # Login shells (ttyd, `agent-vm shell`) get the npm-global bin dir;
+        # non-login ssh commands get it from bin/agent-vm.
+        environment.extraInit = ''
+          export PATH="${npmPrefix}/bin:$PATH"
+        '';
 
         # ---- Postgres + Redis, up from boot ------------------------------
         # Native NixOS services (agent-sandbox has to start them by hand,
@@ -611,12 +692,19 @@ in
 
         environment.systemPackages = with pkgs; [
           git curl jq ripgrep fd tmux vim gnumake gcc nodejs python3 mise
-          docker-compose
+          docker-compose docker-buildx
+          # Build deps for mise-compiled runtimes and native gems/npm addons
+          # (ruby, node-gyp, pg, ...), clients for the in-VM databases, and
+          # everyday tools.
+          pkg-config openssl zlib readline libyaml libffi libxml2 libxslt
+          cmake go sqlite postgresql_16 redis
+          wget unzip zip file less tree htop lsof bind.dnsutils
           # The SAME wrapper package as on the host (claude, claude-use, ai):
           # accounts, path rules and the base settings behave identically.
-          (callPackage ./packages/claude-accounts.nix { })
+          claudeAccounts
           (callPackage ./packages/kandev.nix { })
-          ttyd
+          (callPackage ./packages/dsh-setup.nix { })
+          ttyd gh which socat pnpm
         ];
 
         # Terminal in the browser. --check-origin: a page in the user's
@@ -637,17 +725,99 @@ in
         systemd.services.kandev = {
           wantedBy = [ "multi-user.target" ];
           after = [ "network.target" ];
-          path = [ pkgs.git pkgs.docker ];
+          path = [ pkgs.git pkgs.docker pkgs.gh claudeAccounts ];
           environment = {
             HOME = home;
+            DOCKER_CONFIG = "/etc/agent-docker";
+            GIT_CONFIG_SYSTEM = "/mnt/host-share/gitconfig";
+            # kandev starts claude itself: through the account wrapper, like
+            # the sandbox's autostart did (CLAUDE_CODE_EXECUTABLE=$(command -v claude)).
+            # Which account a task runs under follows the path rules by the
+            # worktree's folder; `agent-vm account` (an ssh-side default)
+            # does not reach this service.
+            CLAUDE_CODE_EXECUTABLE = "${claudeAccounts}/bin/claude";
+          };
+          serviceConfig = {
+            User = cfg.user;
+            WorkingDirectory = home;
+            # kandev always puts task worktrees at <KANDEV_HOME_DIR>/tasks and
+            # has no setting for it (apps/backend/internal/worktree/provider.go
+            # in kdlbs/kandev: "relocate via KANDEV_HOME_DIR, not a separate
+            # knob"), while KANDEV_HOME_DIR also moves the database and
+            # master.key -- not wanted on the host. A symlink for just that
+            # directory does it; git records the REAL path of a worktree it
+            # creates through the link, so the .git files and
+            # .git/worktrees/* the host reads are host paths (checked in
+            # agent-sandbox, docs/AGENT-SANDBOX.md "Worktree kandev с хоста").
+            ExecStartPre = lib.optional (cfg.kandevTasksDir != null) (pkgs.writeShellScript "kandev-tasks-link" ''
+              set -eu
+              target=${lib.escapeShellArg cfg.kandevTasksDir}
+              tasks="$HOME/.kandev/tasks"
+              mkdir -p "$HOME/.kandev" "$target"
+              if [ -L "$tasks" ]; then ln -sfn "$target" "$tasks"
+              elif [ ! -e "$tasks" ]; then ln -s "$target" "$tasks"
+              elif rmdir "$tasks" 2>/dev/null; then ln -s "$target" "$tasks"
+              else
+                # The VM's own tasks dir already holds worktrees: not moved
+                # automatically (a fresh VM has none).
+                echo "kandev-tasks-link: $tasks is a non-empty directory, worktrees stay there; move them to $target by hand" >&2
+              fi
+            '');
+            ExecStart = "${pkgs.callPackage ./packages/kandev.nix { }}/bin/kandev start --backend-port ${toString forwards.kandev}";
+            Restart = "on-failure";
+          };
+        };
+
+        # dsh into the persistent npm prefix, once (needs the proxy, so it
+        # retries). Plugins: `dsh-setup core` by hand, as in the sandbox.
+        systemd.services.dsh-install = {
+          wantedBy = [ "multi-user.target" ];
+          after = [ "network.target" ];
+          path = [ pkgs.nodejs pkgs.git ];
+          environment = { HOME = home; NPM_CONFIG_PREFIX = npmPrefix; };
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            User = cfg.user;
+            Restart = "on-failure";
+            RestartSec = 30;
+            ExecStart = pkgs.writeShellScript "dsh-install" ''
+              set -eu
+              [ -x "${npmPrefix}/bin/dsh" ] && exit 0
+              exec npm install -g @deepseek-ai/dsh@${dshVersion}
+            '';
+          };
+        };
+        systemd.services.dsh-web = {
+          wantedBy = [ "multi-user.target" ];
+          after = [ "network.target" "dsh-install.service" ];
+          path = [ pkgs.nodejs pkgs.pnpm pkgs.git pkgs.python3 pkgs.gh claudeAccounts ];
+          environment = {
+            HOME = home;
+            NPM_CONFIG_PREFIX = npmPrefix;
             DOCKER_CONFIG = "/etc/agent-docker";
             GIT_CONFIG_SYSTEM = "/mnt/host-share/gitconfig";
           };
           serviceConfig = {
             User = cfg.user;
             WorkingDirectory = home;
-            ExecStart = "${pkgs.callPackage ./packages/kandev.nix { }}/bin/kandev start --backend-port ${toString forwards.kandev}";
-            Restart = "on-failure";
+            Restart = "always";
+            RestartSec = 10;
+            # Waits for dsh-install instead of failing while npm is still
+            # fetching it.
+            ExecStart = pkgs.writeShellScript "dsh-web" ''
+              until [ -x "${npmPrefix}/bin/dsh" ]; do sleep 5; done
+              exec "${npmPrefix}/bin/dsh" web --no-open --port ${toString dshLoopbackPort} --trusted-host 127.0.0.1:${toString forwards.dsh}
+            '';
+          };
+        };
+        systemd.services.dsh-web-expose = {
+          wantedBy = [ "multi-user.target" ];
+          after = [ "network.target" ];
+          serviceConfig = {
+            ExecStart = "${pkgs.socat}/bin/socat TCP-LISTEN:${toString forwards.dsh},fork,reuseaddr TCP:127.0.0.1:${toString dshLoopbackPort}";
+            Restart = "always";
+            DynamicUser = true;
           };
         };
       };

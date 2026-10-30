@@ -23,5 +23,8 @@
       { path = "/home/max/code/work/rnds"; }
     ];
     claudeAccounts = [ "personal" "work" ];
+    # kandev puts its task worktrees here, so they are visible on the host
+    # (inside the rw mount of ~/code/work/rnds; not a git repository itself).
+    kandevTasksDir = "/home/max/code/work/rnds/.worktrees";
   };
 }

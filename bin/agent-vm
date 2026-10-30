@@ -132,7 +132,9 @@ case "$cmd" in
       echo "agent-vm: $cwd is not mounted into the VM (agentVm.mounts) -- starting in the VM's home instead" >&2
       workdir="$AGENT_VM_HOME"
     fi
-    env_part=""
+    # Non-login ssh command: no /etc/profile, so the npm-global bin dir (dsh)
+    # is put on PATH here.
+    env_part="PATH=$(printf '%q' "$AGENT_VM_HOME/.npm-global/bin"):\$PATH "
     [ -z "$account" ] || env_part="CLAUDE_ACCOUNT=$(printf '%q' "$account") "
     def="$(default_account)"
     [ -z "$def" ] || env_part+="CLAUDE_ACCOUNT_DEFAULT=$(printf '%q' "$def") "

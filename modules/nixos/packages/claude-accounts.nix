@@ -46,6 +46,31 @@ let
     };
   });
 
+  # Permission lists of the base settings. Also exported (passthru below) so
+  # the agent VM can build its own, wider set from the same source instead of
+  # a copy that drifts (modules/nixos/agent-vm.nix).
+  permissions = {
+    defaultMode = "auto";
+    allow = [
+      "Bash(git add:*)" "Bash(git commit:*)" "Bash(git stash:*)"
+      "Bash(git switch:*)" "Bash(git checkout:*)" "Bash(git branch:*)"
+      "Bash(openspec:*)"
+    ];
+    # ask = allowed only after the user confirms each time (deny > ask > allow).
+    ask = [
+      "Bash(git push:*)" "Bash(git reset --hard:*)" "Bash(git clean:*)"
+      "Bash(git worktree remove:*)" "Bash(podman:*)" "Bash(docker:*)"
+    ];
+    deny = [
+      "Read(~/.ssh/**)" "Read(./.env)" "Read(./.env.*)" "Read(./**/.env)" "Read(./**/.env.*)"
+      "Read(./**/*.pem)" "Read(./**/*.key)" "Read(./secrets/**)"
+      "Edit(~/.config/agent-sandbox/**)" "Edit(~/.local/share/claude-accounts/*/.credentials.json)"
+      "Bash(git config --global:*)"
+      "Bash(sudo:*)" "Bash(nixos-rebuild:*)"
+      "Bash(rm -rf /:*)" "Bash(rm -rf ~:*)" "Bash(rm -rf $HOME:*)" "Bash(chmod -R 777:*)"
+    ];
+  };
+
   baseSettings = pkgs.writeText "claude-base-settings.json" (builtins.toJSON {
     attribution = {
       commit = "";
@@ -65,27 +90,7 @@ let
     # commands, only after the user confirms (no ssh in the sandbox).
     # Arrays are replaced, not merged, by claude-use sync: this list wins
     # over an account's own permissions.allow/deny.
-    permissions = {
-      defaultMode = "auto";
-      allow = [
-        "Bash(git add:*)" "Bash(git commit:*)" "Bash(git stash:*)"
-        "Bash(git switch:*)" "Bash(git checkout:*)" "Bash(git branch:*)"
-        "Bash(openspec:*)"
-      ];
-      # ask = allowed only after the user confirms each time (deny > ask > allow).
-      ask = [
-        "Bash(git push:*)" "Bash(git reset --hard:*)" "Bash(git clean:*)"
-        "Bash(git worktree remove:*)" "Bash(podman:*)" "Bash(docker:*)"
-      ];
-      deny = [
-        "Read(~/.ssh/**)" "Read(./.env)" "Read(./.env.*)" "Read(./**/.env)" "Read(./**/.env.*)"
-        "Read(./**/*.pem)" "Read(./**/*.key)" "Read(./secrets/**)"
-        "Edit(~/.config/agent-sandbox/**)" "Edit(~/.local/share/claude-accounts/*/.credentials.json)"
-        "Bash(git config --global:*)"
-        "Bash(sudo:*)" "Bash(nixos-rebuild:*)"
-        "Bash(rm -rf /:*)" "Bash(rm -rf ~:*)" "Bash(rm -rf $HOME:*)" "Bash(chmod -R 777:*)"
-      ];
-    };
+    inherit permissions;
     # Token diet (2026-10-20, analysis of session transcripts): the 1M window
     # means autocompact only fires near 967K, so sessions grew to 400-960K and
     # every call re-read all of it. Compact at ~370K instead; drop what is
@@ -115,7 +120,7 @@ let
     };
   });
 in
-pkgs.runCommand "claude-accounts" { } ''
+pkgs.runCommand "claude-accounts" { passthru = { inherit permissions; }; } ''
   mkdir -p $out/bin
   install -m755 ${../../../bin/claude-use} $out/bin/claude-use
   install -m755 ${../../../bin/ai} $out/bin/ai
