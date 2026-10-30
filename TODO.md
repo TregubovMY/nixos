@@ -151,3 +151,4 @@
 - [ ] Подключить `bin/agent-vm` в `agent-sandbox-cli`-подобный check (shellcheck уже в flake.nix) и тест с фейковым ssh.
 - [ ] agent-vm: egress-allowlist по доменам в фильтре (sing-box `domain_suffix` + `final = reject`) — по желанию.
 - [ ] agent-vm: GUI/Playwright в госте (сейчас нет).
+- [ ] agent-vm: проверить на живой VM dsh (установка, `dsh web` на 3080) и worktree'ы kandev на хосте (`agentVm.kandevTasksDir`).

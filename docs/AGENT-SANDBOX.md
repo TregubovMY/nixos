@@ -478,7 +478,21 @@ agentVm = {
 | ssh-ключи, ssh-agent, Bitwarden, `~/.ssh` | нет |
 | Сеть | только интернет через фильтрующий прокси; LAN, VPN, `podman0`, метаданные — нет |
 | Postgres 16, Redis | **свои, внутри VM, поднимаются сами при старте** (loopback; `PGHOST=127.0.0.1`, `PGUSER=postgres` без пароля, `REDIS_URL=redis://127.0.0.1:6379/0` — как в песочнице); данные на своих дисках, переживают `down`/`up`; с хоста — `agent-vm forward 5432 6379`. Отключить: `agentVm.services = false` |
+| Права Claude | **шире, чем на хосте**: `docker`, `podman`, `sudo`, `systemctl`, `psql`, `redis-cli` без вопроса (в VM для этого и живёт агент); `git push`, `reset --hard`, `clean`, `worktree remove` по-прежнему спрашивают — они бьют по смонтированным папкам; запреты на секреты и массовое удаление те же. Задаётся `/etc/claude-code/managed-settings.json` в госте, правится в `agent-vm.nix` (`vmAllow`) |
 | GUI/Playwright | нет |
+
+**Worktree'ы kandev на хосте.** `agentVm.kandevTasksDir` (у `demiurge` —
+`/home/max/code/work/rnds/.worktrees`, внутри rw-монтирования) — `~/.kandev/tasks` в VM
+становится симлинком туда: БД и `master.key` kandev остаются в VM, а worktree'ы задач лежат
+на хосте (ветка берётся обычным `git switch`, IDE их видит). Механика и нюансы — «Worktree
+kandev с хоста» выше (в VM нет миграции старых worktree'ов: VM новая). Папка должна лежать в
+rw-монтировании — иначе `nixos-rebuild` откажется (assertion).
+
+**dsh.** Ставится сам при старте VM (`npm -g` в `~/.npm-global` VM, версия `0.2.0-rc.2` та же,
+что в песочнице), `dsh web` слушает 3081 и открыт на 3080 через socat (сам он не-loopback
+отказывается). Плагины — как в песочнице, вручную: `agent-vm shell dsh-setup core`
+(списки `core`/`extra`/`claude-sdk`). Профиль dsh и БД kandev у VM свои — данные песочницы
+(`agent-home-*`) сюда не переезжают.
 
 **Главный риск монтирований.** VM защищает систему и внутреннюю сеть, но не
 файлы смонтированных папок и не то, что потом запускается из них на хосте:
@@ -487,8 +501,10 @@ agentVm = {
 агент писал, смотрите `git diff` **и** `git status --ignored`, хуки; для
 чужого кода — `ro = true`.
 
-- **В браузере**: `http://127.0.0.1:38429` — kandev, `http://127.0.0.1:7681` —
-  терминал (ttyd). Открывать в отдельном профиле: контент из VM недоверенный.
+- **В браузере**: `http://127.0.0.1:38429` — kandev, `http://127.0.0.1:3080` —
+  `dsh web`, `http://127.0.0.1:7681` — терминал (ttyd). Один kandev на все
+  проекты; аккаунт задачи выбирается по правилам пути (`~/code/work` → work),
+  потому что kandev — служба, до неё `agent-vm account` не доходит. Открывать в отдельном профиле: контент из VM недоверенный.
 - **Сеть**: всё наружу — через `HTTP(S)_PROXY` (docker, git, npm, curl
   настроены); сырой TCP/UDP не работает. Порты контейнеров из VM —
   `agent-vm forward`.
