@@ -138,3 +138,16 @@
       сеть открыта. Идея из исследования аналогов.
 - [ ] agent-sandbox: режим `--lockdown` (ro-проект + `--network=none`)
       для чтения чужого кода.
+
+## agent-vm: microVM с Docker для агентов (2026-10-30)
+
+- [x] Фильтр приватных адресов: второй sing-box (решено, проверено на фейковом SOCKS).
+- [x] Модуль `modules/nixos/agent-vm.nix` + `bin/agent-vm` (eval, dry-run, сборка гостя, `sing-box check` — зелёные).
+- [x] Одна VM: `mounts`/`claudeAccounts`, `agent-vm claude|account|forward|docker-load`, `ai --vm` (eval/сборка зелёные).
+- [ ] agent-vm: смонтировать `.git/hooks` проектов только для чтения поверх rw-шары (закрыть самый вероятный канал на хост).
+- [x] Postgres 16 + Redis в госте из коробки (`agentVm.services`).
+- [x] Первый живой запуск (2026-10-30): `agent-vm up && agent-vm test` зелёный — интернет через прокси, LAN/метаданные/CGNAT/rebinding заблокированы, docker run и контейнер→LAN, Postgres, Redis, git-идентичность, дерево сессий Claude.
+- [ ] Ещё не проверено руками: `agent-vm claude` в папке проекта (аккаунты, общие сессии), kandev и ttyd в браузере (слушает ли kandev не только localhost), домен, доступный только через прокси Throne (нужен sniff на его inbound), права `authorized_keys`/mise/nix-ld в реальной работе.
+- [ ] Подключить `bin/agent-vm` в `agent-sandbox-cli`-подобный check (shellcheck уже в flake.nix) и тест с фейковым ssh.
+- [ ] agent-vm: egress-allowlist по доменам в фильтре (sing-box `domain_suffix` + `final = reject`) — по желанию.
+- [ ] agent-vm: GUI/Playwright в госте (сейчас нет).

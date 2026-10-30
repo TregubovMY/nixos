@@ -422,6 +422,81 @@ opencode auth        # opencode хранит логин в home-volume песо�
 Ничего пробрасывать не нужно: песочница монтирует те же папки (bind-mount, не
 копия). Изолируется выполнение агента, не файлы, которые вы редактируете.
 
+## agent-vm: когда агенту нужен Docker
+
+`agent-sandbox` (rootless podman) Docker агенту не даёт: сокет хоста —
+root-эквивалент, вложенный podman не проверен. Для задач с контейнерами —
+**одна microVM со своим ядром и своим Docker**; если её взломают, ломается
+VM, а не хост и не ваша внутренняя сеть. Устройство и модель угроз —
+`docs/superpowers/specs/2026-10-30-agent-vm-design.md`.
+
+**Идея как у песочницы:** папки проектов лежат в VM по тем же путям, что на
+хосте (`~/code/my/app` — тот же `~/code/my/app`), пользователь в VM — вы
+(`max`, тот же uid и `$HOME`). Поэтому команда, запущенная в папке проекта,
+работает в той же папке в VM, а сессии Claude общие (он хранит их по
+рабочему каталогу).
+
+```bash
+agent-vm up                        # поднять VM, записать git-идентичность, напечатать адреса
+cd ~/code/my/app
+agent-vm claude                    # claude в VM, в этой же папке   (то же: ai --vm)
+agent-vm claude --account work     # один запуск под другим аккаунтом
+agent-vm claude --continue         # продолжить сессию (общая с хостом и песочницей)
+agent-vm account work              # аккаунт по умолчанию в VM; agent-vm account --auto — обратно к правилам по пути
+agent-vm shell [команда]           # шелл/команда в VM, в этой папке
+agent-vm forward 3000 5432         # 127.0.0.1:порт на хосте -> тот же порт в VM (ssh -L); 5432 — Postgres VM
+agent-vm docker-load postgres:16   # перенести образ из podman хоста в Docker VM
+agent-vm test                      # проверка сетевой политики ИЗ VM
+agent-vm down | status | urls | mounts | reset
+```
+
+**Конфиг** — в конфиге хоста (`hosts/<хост>/configuration.nix`, пример —
+`demiurge`), не в `~/.config`: общие папки virtiofs входят в командную строку
+qemu и фиксируются при старте VM.
+
+```nix
+agentVm = {
+  mounts = [
+    { path = "/home/max/code/my"; }                 # чтение+запись
+    { path = "/home/max/code/shared-lib"; ro = true; }
+  ];
+  claudeAccounts = [ "personal" "work" ];           # какие аккаунты видны в VM
+};
+```
+После правки: `nixos-rebuild switch`, затем `agent-vm down && agent-vm up`.
+
+**Что общее с хостом, а что нет**
+
+| | в VM |
+|---|---|
+| Папки проектов | да, по тем же путям; запись в них — **канал на хост** (см. ниже) |
+| Сессии Claude, история, skills | да (`claude-accounts/shared`) |
+| Аккаунты Claude | только перечисленные в `claudeAccounts` (в них токен входа); правила `~/.config/claude-accounts/rules` — да, только чтение; `claude-use` внутри VM меняет аккаунт только в VM |
+| Docker | **нет**: свой демон, образы и тома в VM. Образы хоста: `agent-vm docker-load`. Сокет хоста не пробрасывается никогда |
+| git | имя, e-mail, `includeIf`-идентичности (как в песочнице); **без ssh, без credential helper, без gpg**. Пушить с хоста или по https-токену на один репозиторий |
+| Языки (mise) | рантаймы хоста, только чтение (`MISE_SHARED_INSTALL_DIRS`) |
+| ssh-ключи, ssh-agent, Bitwarden, `~/.ssh` | нет |
+| Сеть | только интернет через фильтрующий прокси; LAN, VPN, `podman0`, метаданные — нет |
+| Postgres 16, Redis | **свои, внутри VM, поднимаются сами при старте** (loopback; `PGHOST=127.0.0.1`, `PGUSER=postgres` без пароля, `REDIS_URL=redis://127.0.0.1:6379/0` — как в песочнице); данные на своих дисках, переживают `down`/`up`; с хоста — `agent-vm forward 5432 6379`. Отключить: `agentVm.services = false` |
+| GUI/Playwright | нет |
+
+**Главный риск монтирований.** VM защищает систему и внутреннюю сеть, но не
+файлы смонтированных папок и не то, что потом запускается из них на хосте:
+подложенный `.git/hooks/pre-commit`, `.envrc`, `mise.toml`, скрипт в
+`package.json`, задача IDE. Перед запуском чего-либо из проекта, в который
+агент писал, смотрите `git diff` **и** `git status --ignored`, хуки; для
+чужого кода — `ro = true`.
+
+- **В браузере**: `http://127.0.0.1:38429` — kandev, `http://127.0.0.1:7681` —
+  терминал (ttyd). Открывать в отдельном профиле: контент из VM недоверенный.
+- **Сеть**: всё наружу — через `HTTP(S)_PROXY` (docker, git, npm, curl
+  настроены); сырой TCP/UDP не работает. Порты контейнеров из VM —
+  `agent-vm forward`.
+- Всё, что лежит в VM (токены аккаунтов из `claudeAccounts`), при взломе
+  считается украденным: заводите отдельный аккаунт/токен с лимитами.
+- `nixos-rebuild switch` работающую VM не перезапускает.
+- Проверка после первого `switch`: `agent-vm up && agent-vm test`.
+
 ## Известные нюансы (кратко; полный список — REFERENCE.md)
 
 - `--gui` требует реальной Wayland-сессии (Hyprland) на хосте.

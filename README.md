@@ -27,7 +27,7 @@ hosts/<машина>/        configuration.nix (имя машины) + facter.js
 hosts/disk-config.nix  разметка диска (диск и размер swap задаются при установке)
 modules/nixos/         системные модули: база, десктоп, Hyprland, Secure Boot, песочница…
 modules/home/          пользовательские: shell, neovim, ghostty, Hyprland/DMS…
-bin/                   install-host, agent-sandbox, vm-ssh-on
+bin/                   install-host, agent-sandbox, agent-vm, vm-ssh-on
 ```
 
 Машины: `mimir` (ноутбук). Новая — `bin/install-host <имя> <диск>`.
