@@ -5,6 +5,8 @@
 #   ai --host    [args...]   directly on the host, whatever covers the directory
 #   ai --sandbox [args...]   in a sandbox: the configured one that covers the directory, otherwise a
 #                            one-off sandbox for exactly this folder (agent-sandbox --here)
+#   ai --vm      [args...]   in the agent microVM (agent-vm: own Docker, internet only), in this folder;
+#                            the folder must be in agentVm.mounts
 #   ai --account NAME ...    run this one invocation under Claude account NAME (claude-use)
 #
 # Sessions are the same wherever it runs: claude-code keys transcripts by
@@ -23,6 +25,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --host) where=host ;;
     --sandbox) where=sandbox ;;
+    --vm) where=vm ;;
     --account)
       [ "$#" -ge 2 ] || { echo "ai: --account needs a name" >&2; exit 2; }
       account="$2"; shift
@@ -58,5 +61,11 @@ case "$where" in
     fi
     echo "ai: no sandbox config covers $PWD -- starting a one-off sandbox for this folder" >&2
     exec agent-sandbox --here -- "${env_args[@]}" claude "$@"
+    ;;
+  vm)
+    # --account goes as agent-vm's own option: the remote side reads
+    # CLAUDE_ACCOUNT from the command line it builds, not from this env.
+    if [ -n "$account" ]; then exec agent-vm claude --account "$account" "$@"; fi
+    exec agent-vm claude "$@"
     ;;
 esac

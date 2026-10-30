@@ -10,4 +10,18 @@
   # shared default (breaks a fresh install's first build on any OTHER
   # host, before ITS Throne exists yet).
   desktopApps.rubymine.enable = true;
+
+  # The agent VM (modules/nixos/agent-vm.nix) sees exactly these host
+  # folders, at the same paths -- the folders of the two agent-sandbox
+  # groups (my.conf, work-rnds.conf). A read-write mount is a channel back
+  # to the host (planted .git/hooks, .envrc...): see the option's text.
+  agentVm = {
+    mounts = [
+      { path = "/home/max/code/my"; }
+      { path = "/home/max/code/learn"; }
+      { path = "/home/max/code/sfedu"; }
+      { path = "/home/max/code/work/rnds"; }
+    ];
+    claudeAccounts = [ "personal" "work" ];
+  };
 }

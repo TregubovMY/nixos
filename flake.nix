@@ -236,7 +236,7 @@
               cp -r ${./bin} bin
               cp -r ${./tests} tests
               chmod -R u+w .
-              shellcheck -x bin/agent-sandbox tests/agent-sandbox-test.sh
+              shellcheck -x bin/agent-sandbox bin/agent-vm tests/agent-sandbox-test.sh
               bash tests/agent-sandbox-test.sh
               touch $out
             '';

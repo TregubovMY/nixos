@@ -31,6 +31,7 @@ in
     ../modules/nixos/dev-databases.nix
     ../modules/nixos/podman.nix
     ../modules/nixos/agent-sandbox.nix
+    ../modules/nixos/agent-vm.nix # microVM with Docker for agents, internet only via a filtering proxy
     ../modules/nixos/home-manager.nix
     ../modules/nixos/nix-ld.nix
     ../modules/nixos/notebooklm-tooling.nix
@@ -73,6 +74,9 @@ in
   # stayed green through the same conflict -- worth remembering: a bool
   # option set in two places needs dry-build, not just check, to catch).
   desktopApps.rubymine.enable = lib.mkDefault false;
+
+  # lib.mkDefault so a host can switch it off (same reason as rubymine above).
+  agentVm.enable = lib.mkDefault true;
 
   time.timeZone = "Europe/Moscow";
   i18n.defaultLocale = "ru_RU.UTF-8";

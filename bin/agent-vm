@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+# agent-vm -- control the agent microVM (modules/nixos/agent-vm.nix;
+# design: docs/superpowers/specs/2026-10-30-agent-vm-design.md).
+#
+# ONE VM. What it sees of the host is the list `agentVm.mounts` in the host
+# config, mounted at the SAME paths, so a command run in a project folder on
+# the host runs in the same folder in the VM and claude-code sessions are the
+# same on both sides (it keys them by working directory).
+#
+#   agent-vm up                      start the VM, write the git identity, wait for ssh, print URLs
+#   agent-vm down                    stop it (the disks stay)
+#   agent-vm claude [--account A] [claude args...]
+#                                    claude-code in the VM, in the folder you are in
+#   agent-vm shell [command...]      shell (or a command) in the VM, in the folder you are in
+#   agent-vm account [NAME | --auto] show / set the account the VM uses by default
+#                                    (--auto: back to the path rules, ~/.config/claude-accounts/rules)
+#   agent-vm forward PORT...         open 127.0.0.1:PORT on the host -> the VM's PORT (ssh -L, background;
+#                                    5432 = its Postgres, 6379 = its Redis)
+#   agent-vm docker-load IMAGE...    copy images from the host's podman/docker into the VM's Docker
+#   agent-vm status | urls | test | reset
+#   agent-vm mounts                  what is mounted (host path = VM path)
+#
+# `ai --vm` is the same as `agent-vm claude`.
+#
+# The wrapper in agent-vm.nix sets AGENT_VM_* and puts ssh/curl on PATH.
+set -euo pipefail
+
+state_dir=${AGENT_VM_STATE_DIR:?run via the agent-vm wrapper from agent-vm.nix}
+guest_ip=${AGENT_VM_GUEST_IP:?}
+vm_user=${AGENT_VM_USER:?}
+ports=${AGENT_VM_PORTS:-}
+mounts=${AGENT_VM_MOUNTS:-}
+unit=microvm@agent.service
+account_file="${XDG_CONFIG_HOME:-$HOME/.config}/agent-vm/account"
+
+die() { echo "agent-vm: $*" >&2; exit 1; }
+
+# The guest is on a private bridge reachable only from this host, and its
+# host key changes whenever the disk is reset: pinning it would only produce
+# false alarms, so known_hosts is switched off for this one address.
+ssh_opts=(-i "$state_dir/id_ed25519" -o IdentitiesOnly=yes
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+vm_ssh() { ssh "${ssh_opts[@]}" -o ConnectTimeout=3 "$vm_user@$guest_ip" "$@"; }
+
+urls() {
+  for np in $ports; do echo "${np%%=*}: http://127.0.0.1:${np##*=}"; done
+}
+
+wait_ssh() {
+  local i
+  for i in $(seq 1 40); do
+    vm_ssh -o ConnectTimeout=2 true 2>/dev/null && return 0
+    [ $((i % 10)) -ne 0 ] || echo "agent-vm: still waiting for ssh (${i}s)..." >&2
+    sleep 1
+  done
+  return 1
+}
+
+# Is $1 (a real path) inside one of the mounted project directories?
+covered() {
+  local d
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    case "$1/" in "$d"/*) return 0 ;; esac
+  done <<<"$mounts"
+  return 1
+}
+
+# Quote every argument for the remote shell (ssh joins them with spaces).
+quote_args() { printf '%q ' "$@"; }
+
+# Git identity without the rest of the host's git setup, for the VM: the
+# agent commits as you, you push/pull on the host (there is no ssh in the
+# VM). Same idea as agent-sandbox: only user.*, init/pull defaults and the
+# host's includeIf blocks (another identity per directory, e.g. the work
+# e-mail). An included file lives in $HOME, which the VM does not have, so
+# its user.* values are copied into a file of their own. No gpg signing
+# (no key in the VM). Read by the guest as the SYSTEM git config.
+write_gitconfig() {
+  local out="$state_dir/share/gitconfig" k v key path dir n=0 inc
+  : >"$out"
+  for k in user.name user.email init.defaultBranch pull.rebase; do
+    v="$(git config --global --get "$k" 2>/dev/null || true)"
+    [ -z "$v" ] || git config -f "$out" "$k" "$v"
+  done
+  git config -f "$out" safe.directory '*'
+  git config -f "$out" commit.gpgsign false
+  while read -r key path; do
+    [ -n "$key" ] || continue
+    dir="${key#includeif.gitdir:}"; dir="${dir%.path}"
+    dir="${dir/#\~/$HOME}"
+    path="${path/#\~/$HOME}"
+    [ -f "$path" ] || continue
+    n=$((n + 1)); inc="$state_dir/share/gitconfig-inc$n"
+    : >"$inc"
+    for k in user.name user.email; do
+      v="$(git config -f "$path" --get "$k" 2>/dev/null || true)"
+      [ -z "$v" ] || git config -f "$inc" "$k" "$v"
+    done
+    git config -f "$out" "includeIf.gitdir:$dir.path" "/mnt/host-share/gitconfig-inc$n"
+  done < <(git config --global --get-regexp '^includeif\.gitdir:.*\.path$' 2>/dev/null || true)
+}
+
+# The account the VM uses when nothing more specific is asked for. Empty
+# file / missing file = path rules of ~/.config/claude-accounts/rules.
+default_account() { if [ -s "$account_file" ]; then cat "$account_file"; fi; }
+
+cmd=${1:-}
+case "$cmd" in
+  up)
+    systemctl start agent-vm-ssh-key.service "$unit"
+    write_gitconfig
+    wait_ssh || die "ssh did not answer: the guest boots in ~10 s (journalctl -u $unit), so look at the host firewall: sudo iptables -S agentvm-in"
+    echo "agent-vm is up. Open (use a separate browser profile, the content is untrusted):"
+    urls
+    echo "Claude in a project folder: cd <project> && agent-vm claude   (or: ai --vm)"
+    ;;
+  down)
+    systemctl stop "$unit"
+    ;;
+  claude | shell)
+    shift
+    account=""
+    if [ "$cmd" = claude ] && [ "${1:-}" = --account ]; then
+      [ "$#" -ge 2 ] || die "--account needs a name"
+      account="$2"; shift 2
+    fi
+    cwd="$(pwd -P)"
+    if covered "$cwd"; then
+      workdir="$cwd"
+    else
+      echo "agent-vm: $cwd is not mounted into the VM (agentVm.mounts) -- starting in the VM's home instead" >&2
+      workdir="$AGENT_VM_HOME"
+    fi
+    env_part=""
+    [ -z "$account" ] || env_part="CLAUDE_ACCOUNT=$(printf '%q' "$account") "
+    def="$(default_account)"
+    [ -z "$def" ] || env_part+="CLAUDE_ACCOUNT_DEFAULT=$(printf '%q' "$def") "
+    if [ "$cmd" = claude ]; then
+      remote="cd $(printf '%q' "$workdir") && exec env ${env_part}claude $(quote_args "$@")"
+    elif [ "$#" -gt 0 ]; then
+      remote="cd $(printf '%q' "$workdir") && exec env ${env_part}$(quote_args "$@")"
+    else
+      remote="cd $(printf '%q' "$workdir") && exec env ${env_part}bash -l"
+    fi
+    exec ssh -t "${ssh_opts[@]}" "$vm_user@$guest_ip" "$remote"
+    ;;
+  account)
+    case "${2:-}" in
+      "")
+        a="$(default_account)"
+        if [ -n "$a" ]; then echo "default account in the VM: $a (agent-vm account --auto to go back to path rules)"
+        else echo "default account in the VM: by path rules (~/.config/claude-accounts/rules)"; fi
+        ;;
+      --auto)
+        rm -f "$account_file"; echo "back to path rules"
+        ;;
+      *)
+        case "$2" in *[!a-z0-9_-]* | [_-]*) die "bad account name: $2" ;; esac
+        mkdir -p "$(dirname "$account_file")"
+        printf '%s\n' "$2" >"$account_file"
+        echo "the VM uses account $2 by default (an account must be listed in agentVm.claudeAccounts)"
+        ;;
+    esac
+    ;;
+  forward)
+    shift
+    [ "$#" -gt 0 ] || die "forward PORT..."
+    for p in "$@"; do
+      case "$p" in *[!0-9]*) die "bad port: $p" ;; esac
+      # -f -N: background, no command. ExitOnForwardFailure: a busy port is an error.
+      ssh -f -N -o ExitOnForwardFailure=yes -L "127.0.0.1:$p:127.0.0.1:$p" "${ssh_opts[@]}" "$vm_user@$guest_ip"
+      echo "http://127.0.0.1:$p -> VM:$p"
+    done
+    ;;
+  docker-load)
+    shift
+    [ "$#" -gt 0 ] || die "docker-load IMAGE..."
+    if command -v podman >/dev/null; then eng=podman; elif command -v docker >/dev/null; then eng=docker; else die "no podman/docker on the host"; fi
+    for img in "$@"; do
+      "$eng" save "$img" | vm_ssh docker load
+    done
+    ;;
+  mounts)
+    echo "$mounts"
+    ;;
+  status)
+    systemctl is-active "$unit" || true
+    for np in $ports; do
+      code=$(curl -s -o /dev/null -m 2 -w '%{http_code}' "http://127.0.0.1:${np##*=}/" || true)
+      echo "${np%%=*}: http://127.0.0.1:${np##*=} -> ${code:-000}"
+    done
+    ;;
+  urls)
+    urls
+    ;;
+  test)
+    # Fail fast if the proxy is not even listening: everything below goes
+    # through it, and without it each step waits for a timeout (a docker pull
+    # with an unreachable proxy hangs for minutes -- the first live run did).
+    if ! systemctl is-active --quiet agent-vm-proxy.service || ! (exec 3<>"/dev/tcp/10.200.0.1/3128") 2>/dev/null; then
+      die "the filtering proxy is not listening on 10.200.0.1:3128 -- journalctl -u agent-vm-proxy"
+    fi
+    # Runs INSIDE the VM, so it tests the real path. "ok" = behaves as the
+    # policy says. The nip.io name resolves to a LAN address: it catches
+    # DNS rebinding, which a name-only filter would let through.
+    vm_ssh bash -s <<'EOF'
+fail=0
+# The proxy answers 502 for a rejected destination and curl exits 0 on any
+# HTTP reply, so "reachable" is judged by the code: 000 (no reply/refused
+# CONNECT) and 502 mean blocked.
+code_of() { curl -s -m "$2" -o /dev/null -w '%{http_code}' "$1" 2>/dev/null || true; }
+expect_ok() { c=$(code_of "$1" 20); case "$c" in 000|502|"") echo "FAIL  unreachable (expected reachable, code ${c:-000}): $1"; fail=1;; *) echo "ok    reachable:  $1 ($c)";; esac; }
+expect_no() { c=$(code_of "$1" 8); case "$c" in 000|502|"") echo "ok    blocked:    $1";; *) echo "FAIL  reachable (expected blocked, code $c): $1"; fail=1;; esac; }
+expect_ok https://example.com
+expect_ok https://registry-1.docker.io/v2/
+expect_no http://172.22.1.1
+expect_no http://172.22.1.1.nip.io
+expect_no http://192.168.122.1
+expect_no http://10.88.0.1
+expect_no http://169.254.169.254
+expect_no http://100.64.0.1
+expect_no http://10.200.0.1:22
+# Without the proxy the VM must have no way out at all:
+if env -u http_proxy -u https_proxy -u HTTP_PROXY -u HTTPS_PROXY curl -sS -m 5 --noproxy '*' -o /dev/null https://1.1.1.1 2>/dev/null; then
+  echo "FAIL  direct (proxy-less) connection to 1.1.1.1 worked"; fail=1
+else echo "ok    blocked:    direct connection to 1.1.1.1"; fi
+# Docker: pulls through the proxy; a container cannot reach the LAN either.
+if timeout 180 docker run --rm alpine true >/dev/null 2>&1; then echo "ok    docker run alpine"; else echo "FAIL  docker run alpine"; fail=1; fi
+if timeout 60 docker run --rm alpine wget -T 5 -qO- http://172.22.1.1 >/dev/null 2>&1; then echo "FAIL  container reached the LAN"; fail=1; else echo "ok    blocked:    container -> LAN"; fi
+# Databases are up from boot (agentVm.services).
+if psql -Atc 'select 1' postgres >/dev/null 2>&1; then echo "ok    postgres answers"; else echo "FAIL  postgres"; fail=1; fi
+if [ "$(redis-cli ping 2>/dev/null)" = PONG ]; then echo "ok    redis answers"; else echo "FAIL  redis"; fail=1; fi
+# Identity and sessions: the git identity arrived, and Claude's shared tree is mounted.
+if git config --get user.email >/dev/null; then echo "ok    git identity: $(git config --get user.email)"; else echo "FAIL  no git identity (agent-vm up writes it)"; fail=1; fi
+if [ -d "$HOME/.local/share/claude-accounts/shared/projects" ]; then echo "ok    claude sessions tree mounted"; else echo "FAIL  claude-accounts/shared/projects missing"; fail=1; fi
+exit $fail
+EOF
+    ;;
+  reset)
+    read -r -p "Delete the VM's disks (docker images, the VM's own home, Postgres/Redis data)? [y/N] " a
+    [ "$a" = y ] || die "cancelled"
+    sudo systemctl stop "$unit"
+    sudo rm -f /var/lib/microvms/agent/docker.img /var/lib/microvms/agent/home.img \
+      /var/lib/microvms/agent/postgres.img /var/lib/microvms/agent/redis.img
+    echo "disks removed; agent-vm up creates fresh ones. Mounted project folders are untouched."
+    ;;
+  *)
+    sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//' >&2
+    exit 1
+    ;;
+esac
