@@ -51,15 +51,35 @@ let
   # a copy that drifts (modules/nixos/agent-vm.nix).
   permissions = {
     defaultMode = "auto";
+    # Widened 2026-10-30: on the host the confirmations cost more time than
+    # they protected (requested). allow = routine local work: git that only
+    # touches local state, container tools, build/test/package tools, nix
+    # builds that do not switch the system, read-only inspection. ask is
+    # left ONLY for what leaves the machine or destroys uncommitted work
+    # (push, reset --hard, clean); deny (below) is unchanged and wins over
+    # everything, bypass mode included.
     allow = [
       "Bash(git add:*)" "Bash(git commit:*)" "Bash(git stash:*)"
       "Bash(git switch:*)" "Bash(git checkout:*)" "Bash(git branch:*)"
+      "Bash(git merge:*)" "Bash(git rebase:*)" "Bash(git cherry-pick:*)"
+      "Bash(git tag:*)" "Bash(git fetch:*)" "Bash(git pull:*)"
+      "Bash(git worktree:*)" "Bash(git restore:*)" "Bash(git mv:*)" "Bash(git rm:*)"
       "Bash(openspec:*)"
+      "Bash(podman:*)" "Bash(docker:*)" "Bash(docker-compose:*)"
+      "Bash(nix build:*)" "Bash(nix flake check:*)" "Bash(nix eval:*)" "Bash(nix develop:*)"
+      "Bash(nix shell:*)" "Bash(nix run:*)" "Bash(nix search:*)" "Bash(nix fmt:*)"
+      "Bash(make:*)" "Bash(mise:*)" "Bash(just:*)"
+      "Bash(npm:*)" "Bash(npx:*)" "Bash(pnpm:*)" "Bash(yarn:*)" "Bash(node:*)"
+      "Bash(bundle:*)" "Bash(bin/rails:*)" "Bash(rspec:*)" "Bash(rubocop:*)"
+      "Bash(go:*)" "Bash(cargo:*)" "Bash(python3:*)" "Bash(pytest:*)" "Bash(uv:*)"
+      "Bash(shellcheck:*)" "Bash(jq:*)" "Bash(gh pr view:*)" "Bash(gh pr list:*)"
+      "Bash(gh pr diff:*)" "Bash(gh run list:*)" "Bash(gh run view:*)" "Bash(gh issue view:*)"
+      "Bash(journalctl:*)" "Bash(systemctl status:*)" "Bash(systemctl --user status:*)"
+      "Bash(systemctl is-active:*)" "Bash(systemctl list-units:*)"
     ];
     # ask = allowed only after the user confirms each time (deny > ask > allow).
     ask = [
       "Bash(git push:*)" "Bash(git reset --hard:*)" "Bash(git clean:*)"
-      "Bash(git worktree remove:*)" "Bash(podman:*)" "Bash(docker:*)"
     ];
     deny = [
       "Read(~/.ssh/**)" "Read(./.env)" "Read(./.env.*)" "Read(./**/.env)" "Read(./**/.env.*)"

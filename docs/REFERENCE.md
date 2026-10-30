@@ -1152,3 +1152,14 @@ nmcli connection up work        # или переключатель в меню 
 - Не проверено на живой VM: установка dsh через прокси, `dsh web` за
   socat, создание worktree в смонтированной папке (права, inode).
 
+### Права Claude на хосте шире (2026-10-30)
+
+По просьбе («подтверждения только тратят время») базовый набор в
+`claude-accounts.nix` расширен: без вопроса — локальный git (merge, rebase, pull,
+fetch, worktree, tag…), `podman`/`docker`, `nix build/flake check/eval/develop/run`,
+сборка и тесты (`make`, `mise`, `npm/pnpm/yarn`, `bundle`, `rspec`, `go`, `cargo`,
+`pytest`, `uv`…), чтение `gh`, `journalctl` и `systemctl status`. Спрашивают только
+`git push`, `git reset --hard`, `git clean` (то, что уходит с машины или стирает
+незакоммиченное). `deny` не тронут (секреты, `sudo`, `nixos-rebuild`, `rm -rf /`,
+`git config --global`). Правила общие для хоста, песочницы и VM; VM добавляет к ним
+`sudo`/`systemctl`/`psql`. Чтобы вернуть вопросы — вернуть строки из `allow` в `ask`.

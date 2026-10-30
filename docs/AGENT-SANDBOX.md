@@ -478,7 +478,7 @@ agentVm = {
 | ssh-ключи, ssh-agent, Bitwarden, `~/.ssh` | нет |
 | Сеть | только интернет через фильтрующий прокси; LAN, VPN, `podman0`, метаданные — нет |
 | Postgres 16, Redis | **свои, внутри VM, поднимаются сами при старте** (loopback; `PGHOST=127.0.0.1`, `PGUSER=postgres` без пароля, `REDIS_URL=redis://127.0.0.1:6379/0` — как в песочнице); данные на своих дисках, переживают `down`/`up`; с хоста — `agent-vm forward 5432 6379`. Отключить: `agentVm.services = false` |
-| Права Claude | **шире, чем на хосте**: `docker`, `podman`, `sudo`, `systemctl`, `psql`, `redis-cli` без вопроса (в VM для этого и живёт агент); `git push`, `reset --hard`, `clean`, `worktree remove` по-прежнему спрашивают — они бьют по смонтированным папкам; запреты на секреты и массовое удаление те же. Задаётся `/etc/claude-code/managed-settings.json` в госте, правится в `agent-vm.nix` (`vmAllow`) |
+| Права Claude | **шире, чем на хосте**: к правилам хоста (с 2026-10-30 `docker`/`podman`, сборка и тесты, git без push уже без вопроса) добавлены `sudo`, полный `systemctl`, `psql`, `redis-cli`, `pg_dump` (в VM для этого и живёт агент); `git push`, `reset --hard`, `clean` по-прежнему спрашивают — они бьют по смонтированным папкам; запреты на секреты и массовое удаление те же. Задаётся `/etc/claude-code/managed-settings.json` в госте, правится в `agent-vm.nix` (`vmAllow`) |
 | GUI/Playwright | нет |
 
 **Worktree'ы kandev на хосте.** `agentVm.kandevTasksDir` (у `demiurge` —

@@ -477,9 +477,8 @@ in
           dshCoreMarker = "${npmPrefix}/.dsh-plugins-core";
           vmPermissions = {
             allow = base.allow ++ vmAllow;
-            # docker/podman no longer ask; git push/reset --hard/clean/worktree
-            # remove still do.
-            ask = lib.subtractLists [ "Bash(docker:*)" "Bash(podman:*)" ] base.ask;
+            # Same as the host: only git push/reset --hard/clean ask.
+            ask = base.ask;
             # sudo is allowed above, so it leaves the deny list; secrets and
             # the mass-delete rules stay (the mounts are the host's files).
             deny = lib.subtractLists [ "Bash(sudo:*)" ] base.deny;
