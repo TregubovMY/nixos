@@ -160,7 +160,8 @@
 
     # §5.1.2 Телефон ↔ ПК (решено 2026-08-10) — module auto-provides
     # kdePackages.kdeconnect-kde and opens the needed firewall ports
-    # (TCP/UDP 1714-1764) itself; simpler than doing it by hand in
+    # (TCP/UDP 1714-1764) itself -- to every address; with
+    # remoteAccess.lanOnly, remote-access.nix narrows them to the LAN; simpler than doing it by hand in
     # networking.firewall.
     programs.kdeconnect.enable = true;
 

@@ -9,8 +9,8 @@
 # по ключу; LocalSend — каждый входящий файл нужно подтвердить + PIN в
 # настройках приложения). Так открытый порт сам по себе ничего не отдаёт.
 #
-# KDE Connect сам открывает свои порты (programs.kdeconnect в
-# desktop-apps.nix) — здесь его нет.
+# KDE Connect включается в desktop-apps.nix (programs.kdeconnect), но его
+# порты 1714–1764 при lanOnly открываются здесь, только для LAN (см. openPorts).
 { config, lib, pkgs, ... }:
 let
   cfg = config.remoteAccess;
@@ -32,6 +32,12 @@ let
     { proto = "tcp"; port = vncPort; }
     { proto = "tcp"; port = localsendPort; }
     { proto = "udp"; port = localsendPort; }
+    # KDE Connect (desktop-apps.nix, programs.kdeconnect): its module opens
+    # 1714-1764 tcp+udp to EVERY address via allowedT/UPortRanges. Review
+    # 2026-11-02 (M8): with lanOnly those ranges are force-emptied below and
+    # opened here for the LAN ranges only, like everything else.
+    { proto = "tcp"; port = "1714:1764"; }
+    { proto = "udp"; port = "1714:1764"; }
   ];
 
   # Запуск `wayvnc` с одноразовым паролем и свежим сертификатом.
@@ -189,6 +195,12 @@ in
           map (p: "iptables -A nixos-fw -s ${r} -p ${p.proto} --dport ${toString p.port} -j nixos-fw-accept") openPorts
         ) lanRanges
       );
+      # See openPorts: KDE Connect's own "open to everyone" ranges are
+      # replaced by the LAN-only rules above. mkForce empties ALL port ranges
+      # -- KDE Connect is the only module setting any (checked 2026-11-02);
+      # a new one would have to go into openPorts too.
+      allowedTCPPortRanges = lib.mkForce [ ];
+      allowedUDPPortRanges = lib.mkForce [ ];
     } else {
       allowedTCPPorts = [ sshPort vncPort localsendPort ];
       allowedUDPPorts = [ localsendPort ];

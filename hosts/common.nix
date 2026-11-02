@@ -115,6 +115,7 @@ in
   home-manager.users.max = {
     imports = [
       ../modules/home/hyprland.nix
+      ../modules/home/time-tracker.nix
       ../modules/home/neovim.nix
       ../modules/home/shell.nix
       ../modules/home/zellij.nix

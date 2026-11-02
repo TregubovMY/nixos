@@ -93,14 +93,19 @@
   # actually supposed to be locked at that moment -- an ordinary dms.service
   # crash/restart while unlocked (e.g. during a `nixos-rebuild switch`) is
   # left alone, nothing here forces a lock that wasn't already there. When
-  # it does act: clear Hyprland's stuck lock state, wait for dms.service's
-  # own Restart=on-failure to bring a fresh instance up, then immediately
-  # issue a brand new `dms ipc call lock lock`. Net effect: instead of a
-  # dead black screen requiring a TTY detour, you get a normal, working
-  # password prompt again -- this is explicitly NOT an unlock-without-auth
-  # bypass; clear_crashed_lockscreen() only releases Hyprland's broken
-  # internal bookkeeping, and the very next step re-locks before anyone can
-  # interact with the session.
+  # it does act: wait for dms.service's own Restart=on-failure to bring a
+  # fresh instance up, then issue a brand new `dms ipc call lock lock`.
+  #
+  # Changed 2026-11-02 (review finding H3): it used to run
+  # `hl.clear_crashed_lockscreen()` FIRST, which RELEASES the lock; if DMS
+  # then never came back (crash loop into the start limit -- exactly the
+  # monitor hotplug/resume class this exists for) or the new lock call
+  # failed, the desktop stayed open and unlocked. Now Hyprland's lock is
+  # never released by us: misc.allow_session_lock_restore (INPUT block
+  # below) lets a NEW lock client take over a dead one's lock, so the worst
+  # case is the built-in "lockscreen app died" screen -- fail closed.
+  # Also fixed: the session lookup took the first seat0 session of ANY user
+  # (could be the greeter's); now filtered by our uid.
   systemd.user.services.dms.Unit.OnFailure = [ "dms-lock-crash-recovery.service" ];
 
   systemd.user.services.dms-lock-crash-recovery = {
@@ -111,16 +116,10 @@
         name = "dms-lock-crash-recovery";
         runtimeInputs = [ pkgs.systemd pkgs.hyprland config.programs.dank-material-shell.package ];
         text = ''
-          sid="$(loginctl list-sessions --no-legend | awk '$4 == "seat0" { print $1; exit }')"
+          sid="$(loginctl list-sessions --no-legend | awk -v uid="$(id -u)" '$2 == uid && $4 == "seat0" { print $1; exit }')"
           [ -n "$sid" ] || exit 0
           locked="$(loginctl show-session "$sid" -p LockedHint --value 2>/dev/null || echo no)"
           [ "$locked" = "yes" ] || exit 0
-
-          for inst in "''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/hypr/*/; do
-            [ -S "$inst.socket.sock" ] || continue
-            HYPRLAND_INSTANCE_SIGNATURE="$(basename "$inst")" \
-              hyprctl eval 'hl.clear_crashed_lockscreen()' >/dev/null 2>&1 || true
-          done
 
           for _ in $(seq 1 50); do
             systemctl --user is-active --quiet dms.service && break
@@ -128,6 +127,9 @@
           done
           systemctl --user is-active --quiet dms.service || exit 0
 
+          # Hyprland keeps the session locked (fail closed) and, with
+          # misc.allow_session_lock_restore (INPUT block below), accepts a new
+          # lock client: this one just takes the lock over again.
           dms ipc call lock lock >/dev/null 2>&1 || true
         '';
       }) + "/bin/dms-lock-crash-recovery";
@@ -305,54 +307,6 @@
         [ -n "$text" ] || exec dialect
         if printf '%s' "$text" | grep -q '[А-Яа-яЁё]'; then dest=en; else dest=ru; fi
         exec dialect --text "$text" --dest "$dest"
-      '';
-    })
-    # Wallpaper Engine scenes/videos on the desktop (renderer only; the DMS
-    # plugin "Linux Wallpaper Engine" drives it, set up by hand). The
-    # wallpapers and Wallpaper Engine's `assets` come from Steam via
-    # steamcmd, no Steam client installed (docs/REFERENCE.md, «Живые обои»).
-    pkgs.linux-wallpaperengine
-    # lockscreen-videos: video on the lock screen. DMS plays a random video
-    # from a folder when lockScreenVideoPath is a directory (DMS
-    # quickshell/Modules/Lock/VideoScreensaver.qml). This collects
-    # Wallpaper Engine wallpapers of type "video" (plain mp4s, project.json
-    # `type`/`file`) into ~/Videos/Lockscreen as HARD links -- no extra
-    # space, and DMS's `find -type f` skips symlinks -- then points DMS at
-    # the folder and turns the lock video on (DMS watches settings.json, no
-    # restart). Any own videos dropped into the folder count too.
-    (pkgs.writeShellApplication {
-      name = "lockscreen-videos";
-      runtimeInputs = with pkgs; [ jq findutils coreutils ];
-      text = ''
-        dir="$HOME/Videos/Lockscreen"
-        we="''${1:-$HOME/.local/share/Steam/steamapps/workshop/content/431960}"
-        settings="''${XDG_CONFIG_HOME:-$HOME/.config}/DankMaterialShell/settings.json"
-        mkdir -p "$dir"
-        if [ -d "$we" ]; then
-          for proj in "$we"/*/project.json; do
-            [ -f "$proj" ] || continue
-            [ "$(jq -r '(.type // "") | ascii_downcase' "$proj")" = video ] || continue
-            file="$(jq -r '.file // empty' "$proj")"
-            src="$(dirname "$proj")/$file"
-            [ -n "$file" ] && [ -f "$src" ] || continue
-            dst="$dir/we-$(basename "$(dirname "$proj")")-$(basename "$file")"
-            ln -f "$src" "$dst" 2>/dev/null || cp -f "$src" "$dst"
-          done
-        fi
-        count="$(find "$dir" -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.mkv' -o -iname '*.webm' -o -iname '*.mov' \) | wc -l)"
-        echo "lockscreen-videos: $count video(s) in $dir"
-        if [ "$count" -eq 0 ]; then
-          echo "Put videos there or download Wallpaper Engine video wallpapers (steamcmd), then run again." >&2
-          exit 1
-        fi
-        if [ ! -f "$settings" ]; then
-          echo "No $settings yet -- log into the desktop once (DMS creates it), then run again." >&2
-          exit 1
-        fi
-        tmp="$(mktemp "$settings.XXXXXX")"
-        jq --arg d "$dir" '.lockScreenVideoEnabled = true | .lockScreenVideoPath = $d' "$settings" > "$tmp"
-        mv -f "$tmp" "$settings"
-        echo "lockscreen-videos: DMS lock screen now plays a random video from $dir"
       '';
     })
     (pkgs.writeShellApplication {
@@ -557,6 +511,12 @@ hl.config({
     -- which is why 1 was not chosen). Not verified live.
     follow_mouse = 2,
   },
+  -- Lock fail-closed (see dms-lock-crash-recovery in this file): a restarted
+  -- DMS may take over the lock of a crashed lock client instead of the
+  -- compositor requiring a manual clear_crashed_lockscreen().
+  misc = {
+    allow_session_lock_restore = true,
+  },
 })
 -- NIXOS-MANAGED INPUT BLOCK END
 
@@ -661,34 +621,11 @@ hl.bind("SUPER + CTRL + R", hl.dsp.exec_cmd("screenrec screen"))
 -- - Win+E opens the file manager (Nautilus, desktop-apps.nix).
 hl.bind("SUPER + SUPER_L", hl.dsp.exec_cmd("dms ipc call spotlight toggle"), { release = true })
 hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))
--- Two distinct locks (Windows convention, asked for 2026-10-18, split
--- into two behaviours 2026-10-19):
--- - Win+L: a normal lock -- screensaver/live-wallpaper (lockscreen-videos,
---   home.packages above) keeps playing on the lock screen, monitors stay
---   on. DMS's own factory binds.lua already ships "SUPER + ALT + L" for
---   plain `lock` too (left alone, harmless overlap) -- this adds the bare
---   Win key for it.
--- - Win+Alt+L: lock AND power the monitors off (`lockAndOutputsOff`, a
---   separate dms ipc target from plain `lock` -- confirmed via `dms ipc`
---   listing its targets). Overrides the SUPER+ALT+L combo DMS's factory
---   binds already uses for plain `lock` -- `hl.unbind` was tried live
---   first but didn't actually remove the old registration (`hyprctl
---   binds` still showed it after calling it), so this just adds a second
---   registration on the same combo instead: harmless, since DMS's own
---   lock()/lockAndOutputsOff() (Modules/Lock/Lock.qml, read directly)
---   guard against a second lock() call while already locked and just
---   proceed straight to powering the outputs off -- confirmed live, both
---   firing on one keypress ends up locked-with-outputs-off either way.
+-- One lock (simplified 2026-11-02: the separate "lock + monitors off" combo
+-- and the live-wallpaper/lock-video machinery were removed on request).
+-- Win+L is a plain DMS lock. DMS's own factory binds.lua also ships
+-- "SUPER + ALT + L" for the same plain `lock` -- left alone, same behaviour.
 hl.bind("SUPER + L", hl.dsp.exec_cmd("dms ipc call lock lock"))
--- Delay of 1s before powering the outputs off (reported 2026-10-20: "win+alt+l
--- is the same as win+l, or sometimes does not turn the screen off"). Cause
--- found in DMS's Modules/Lock/Lock.qml (read directly): after the monitors go
--- off, the FIRST further input (a key press -- including auto-repeat of L
--- while it is still held -- or any mouse move) arms the wake-up, and the next
--- one switches the monitors back on (lockWakeDebounce, 200 ms). Firing the
--- power-off the instant the combo is pressed therefore races with your own
--- fingers. Waiting 1s lets the keys go up first. Not verified live.
-hl.bind("SUPER + ALT + L", hl.dsp.exec_cmd("sh -c 'sleep 1; dms ipc call lock lockAndOutputsOff'"))
 
 -- 2026-10-21: this switcher moved from Win+Tab to ALT+Tab. DMS already binds
 -- SUPER+TAB to its overview (all windows, `dms ipc call hypr toggleOverview`,

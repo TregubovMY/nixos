@@ -32,9 +32,7 @@ vault, без второго пароля.
 |---|---|
 | Hyprland + DankMaterialShell (DMS) — панель, трей, лок-скрин, управление Bluetooth/сетью без отдельных GUI-утилит (blueman и т.п. не нужны — DMS уже всё умеет) | `docs/REFERENCE.md` «Hyprland + DankMaterialShell (DMS)» |
 | Переменные окружения сессии — через `~/.config/uwsm/env` (не через конфиг компоновщика и не через системный `environment.sessionVariables`) | `modules/home/hyprland.nix`, искать "UWSM" |
-| Два разных лока — просто заблокировать (живые обои крутятся) и заблокировать+погасить мониторы | `docs/DAILY-WORKFLOW.md` «Горячие клавиши» |
 | Скриншоты/запись экрана/перевод по хоткею (Dialect) одной кнопкой | `docs/DAILY-WORKFLOW.md` «Горячие клавиши» |
-| Живые обои (Wallpaper Engine) и видео на лок-скрине | `docs/REFERENCE.md` «Живые обои (Wallpaper Engine) и видео на экране блокировки» |
 | Удалённый стол в обе стороны: `remote-screen` (VNC с одноразовым паролем) и Remmina; SSH по ключу с fail2ban; файлы через LocalSend, телефон через KDE Connect | `docs/DAILY-WORKFLOW.md` «Удалённый доступ и передача файлов», `modules/nixos/remote-access.nix` |
 
 ## Мелочи, которые экономят время
