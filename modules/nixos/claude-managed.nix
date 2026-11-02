@@ -1,11 +1,11 @@
 # Managed settings of Claude Code on the HOST (/etc/claude-code/managed-settings.json).
 #
 # Why (review 2026-11-02, finding C1): the whole ~/.local/share/claude-accounts
-# tree is mounted read-write into every agent-sandbox and into agent-vm
-# (bin/agent-sandbox, modules/nixos/agent-vm.nix) so sessions and logins are
-# shared. An agent inside can therefore edit an account's settings.json /
-# .claude.json -- and anything it plants there is read by the NEXT `claude`
-# started on the host, outside the sandbox. Two of the keys that run code:
+# tree is mounted read-write into agent-vm (modules/nixos/agent-vm.nix) so
+# sessions and logins are shared. settings.json/CLAUDE.md are bind-mounted
+# read-only there, but root in the VM can undo that, and .claude.json stays
+# writable -- anything planted is read by the NEXT `claude` started on the
+# host, outside the VM. Two of the keys that run code:
 # - hooks: shell commands on SessionStart etc.
 #   -> allowManagedHooksOnly = true: only hooks from managed settings run
 #   (there are none), so user/project/plugin hooks are ignored.
@@ -21,10 +21,10 @@
 # allowManagedPermissionRulesOnly is NOT set here on purpose: the host's
 # allow/ask/deny lists live in the account settings (claude-accounts.nix) and
 # would stop applying. Not covered by this file: transcripts in shared/projects
-# (a forged transcript can steer `claude --continue`) -- see docs/AGENT-SANDBOX.md.
+# (a forged transcript can steer `claude --continue`) -- see docs/AGENT-VM.md.
 #
-# Applies to Claude Code started on the host. The sandbox rootfs and the VM
-# have their own /etc (the VM writes its own managed-settings.json).
+# Applies to Claude Code started on the host. The VM has its own /etc and
+# its own managed-settings.json (agent-vm.nix).
 { pkgs, ... }:
 let
   claudeAccounts = pkgs.callPackage ./packages/claude-accounts.nix { };

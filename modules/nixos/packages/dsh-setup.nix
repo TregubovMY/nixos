@@ -1,8 +1,8 @@
 # dsh-setup: one command to install dsh and its plugins into a dsh profile
 # (npm -g, then `dsh plugin --profile web add <spec>` for each line of the
-# pinned lists in ./dsh-plugins: core, extra, claude-sdk). Shared by the
-# agent sandbox (agent-sandbox.nix) and the agent VM (agent-vm.nix) so the
-# pinned dsh version and the plugin handling live in one place.
+# pinned lists in ./dsh-plugins: core, extra, claude-sdk). Used by the agent
+# VM (agent-vm.nix), so the pinned dsh version and the plugin handling live
+# in one place.
 { writeShellApplication }:
 writeShellApplication {
   name = "dsh-setup";
@@ -43,6 +43,6 @@ writeShellApplication {
       echo "dsh-setup: failed: ''${failed[*]}" >&2
       exit 1
     fi
-    echo "==> done. Restart dsh web (agent-sandbox down/up) to load the plugins."
+    echo "==> done. Restart dsh web (agent-vm shell sudo systemctl restart dsh-web) to load the plugins."
   '';
 }

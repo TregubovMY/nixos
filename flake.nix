@@ -1,6 +1,6 @@
 {
-  # One real host (nixosConfigurations.mimir), the agent-sandbox image, and
-  # VM checks for the disk layout, Secure Boot signing and the sandbox CLI.
+  # The hosts (nixosConfigurations.*), VM checks for the disk layout and
+  # Secure Boot signing, and a cheap check of the scripts in bin/.
   # The per-module throwaway hosts (test-*, mimir-vm-*) were removed on
   # 2026-10-06: .#mimir composes every module, so `nix flake check
   # --no-build` evaluating it covers what they did; the real install
@@ -13,7 +13,7 @@
   # nothing in this repo's actual secret inventory needs to exist before
   # network login/Bitwarden unlock, which was sops-nix's one remaining
   # reason for being here. See system-plan.md §6 for the full writeup.
-  description = "NixOS for mimir: disko+LUKS, Secure Boot, Hyprland+DMS, home-manager, agent sandboxes (see system-plan.md)";
+  description = "NixOS for mimir: disko+LUKS, Secure Boot, Hyprland+DMS, home-manager, agent microVM (see system-plan.md)";
 
   inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   inputs.disko = {
@@ -96,17 +96,6 @@
       };
     in
     {
-      # The sandbox root directory (no container image any more, see
-      # modules/nixos/packages/agent-sandbox.nix). On the host it arrives
-      # through modules/nixos/agent-sandbox.nix; this output is for building
-      # / testing it without a rebuild: `nix build .#agent-sandbox-rootfs`
-      # and AGENT_SANDBOX_ROOTFS=./result agent-sandbox ...
-      packages.${system} = rec {
-        agent-sandbox-rootfs =
-          (import ./modules/nixos/packages/agent-sandbox.nix { inherit pkgs; }).rootfs;
-        default = agent-sandbox-rootfs;
-      };
-
       # Machines: every hosts/<name>/ with a configuration.nix becomes
       # nixosConfigurations.<name> (the shared part is hosts/common.nix,
       # the hardware report hosts/<name>/facter.json). A new machine is a
@@ -212,34 +201,22 @@
           '';
         };
 
-        # bin/agent-sandbox's own logic (argument parsing, the env
-        # allowlist that keeps Jira/GitLab tokens out of the container,
-        # --workdir validation, exit-code passthrough, up/exec wiring),
-        # tested against a fake `podman` -- see the header of
-        # tests/agent-sandbox-test.sh. Unlike the two VM tests around it
-        # this one is cheap (bash + shellcheck, seconds), so a plain
-        # `nix build .#checks.x86_64-linux.agent-sandbox-cli` or `make
-        # test` is fine to run after every change to the wrapper.
-        agent-sandbox-cli =
-          pkgs.runCommand "agent-sandbox-cli-test"
+        # Cheap (seconds, no VM): shellcheck of every script in bin/ and the
+        # bin/ai test with fakes (tests/ai-test.sh). Fine after every change:
+        # `nix build .#checks.x86_64-linux.scripts` or `make test`.
+        # (Was agent-sandbox-cli; the sandbox and its tests moved to the
+        # `agent-sandbox` branch on 2026-11-02.)
+        scripts =
+          pkgs.runCommand "scripts-check"
             {
-              nativeBuildInputs = with pkgs; [
-                bash
-                coreutils
-                gawk
-                git # bin/agent-sandbox calls git (gitconfig, worktrees)
-                python3 # tests/agent-sandbox-test.sh
-                gnugrep
-                shellcheck
-                jq
-              ];
+              nativeBuildInputs = with pkgs; [ bash coreutils gnugrep shellcheck ];
             }
             ''
               cp -r ${./bin} bin
               cp -r ${./tests} tests
               chmod -R u+w .
-              shellcheck -x bin/* tests/agent-sandbox-test.sh # every script in bin/ (review 2026-11-02: only 2 were covered)
-              bash tests/agent-sandbox-test.sh
+              shellcheck -x bin/* tests/*.sh
+              bash tests/ai-test.sh
               touch $out
             '';
 

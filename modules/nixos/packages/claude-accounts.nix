@@ -3,14 +3,14 @@
 #
 # The wrapper REPLACES the plain claude-code in PATH rather than sitting
 # next to it: every launcher (a shell, the Hyprland keybind, an IDE, an
-# orchestrator inside agent-sandbox) must pick the account the same way, and
+# orchestrator inside agent-vm) must pick the account the same way, and
 # a shell alias would only cover interactive zsh. It only exports
 # CLAUDE_CONFIG_DIR and execs the real binary -- no behaviour of claude-code
 # itself is changed. claude-code is taken from the `claudeCode` argument so
-# the sandbox and the host wrap the same store path.
+# the VM and the host wrap the same store path.
 { pkgs, claudeCode ? pkgs.claude-code }:
 let
-  # Common settings for EVERY account, host and sandbox alike: merged into
+  # Common settings for EVERY account, host and VM alike: merged into
   # each account's settings.json before each launch (claude-use sync; these
   # keys win, the account's other keys stay). Declarative on purpose: one
   # place in git instead of editing settings.json per account by hand.
@@ -20,17 +20,15 @@ let
   # - permissions.defaultMode "auto": auto mode (a classifier approves routine
   #   actions, asks on risky ones) instead of prompting for each.
   # Browser for the agent (playwright MCP), registered in every account by
-  # claude-use sync (CLAUDE_BASE_MCP). Same on the host and in the sandbox:
+  # claude-use sync (CLAUDE_BASE_MCP). Same on the host and in the VM:
   # - Chromium from nixpkgs (the NixOS-compatible build), not Playwright's own
   #   download;
-  # - headless unless a Wayland session is passed in (a sandbox started with
-  #   `agent-sandbox --gui` / a host Hyprland session) -> a visible window;
-  #   PLAYWRIGHT_MCP_HEADLESS=1 forces headless even then;
-  # - --no-sandbox only inside agent-sandbox: Chromium's own sandbox cannot
-  #   nest in rootless podman (the container is the boundary there).
+  # - headless unless there is a Wayland session (the host's Hyprland) -> a
+  #   visible window; PLAYWRIGHT_MCP_HEADLESS=1 forces headless even then.
+  #   (agent-sandbox, now on the `agent-sandbox` branch, also passed
+  #   --no-sandbox inside its podman container.)
   playwrightMcp = pkgs.writeShellScript "playwright-mcp-launcher" ''
     args=(--executable-path ${pkgs.chromium}/bin/chromium)
-    [ -z "''${AGENT_SANDBOX_NAME:-}" ] || args+=(--no-sandbox)
     if [ -n "''${WAYLAND_DISPLAY:-}" ] && [ -z "''${PLAYWRIGHT_MCP_HEADLESS:-}" ]; then
       export NIXOS_OZONE_WL=1
     else
@@ -90,7 +88,7 @@ let
     deny = [
       "Read(~/.ssh/**)" "Read(./.env)" "Read(./.env.*)" "Read(./**/.env)" "Read(./**/.env.*)"
       "Read(./**/*.pem)" "Read(./**/*.key)" "Read(./secrets/**)"
-      "Edit(~/.config/agent-sandbox/**)" "Edit(~/.local/share/claude-accounts/*/.credentials.json)"
+      "Edit(~/.local/share/claude-accounts/*/.credentials.json)"
       "Bash(git config --global:*)"
       "Bash(sudo:*)" "Bash(nixos-rebuild:*)"
       "Bash(rm -rf /:*)" "Bash(rm -rf ~:*)" "Bash(rm -rf $HOME:*)" "Bash(chmod -R 777:*)"
@@ -104,16 +102,16 @@ let
       sessionUrl = false;
     };
     model = "claude-sonnet-5-5";
-    # Self-updating npm install in the sandbox follows the latest channel
+    # Self-updating npm install (host ~/.npm-global, the VM) follows the latest channel
     # (chosen 2026-10-21 over "stable", which is ~1 week behind).
     autoUpdatesChannel = "latest";
-    # Permissions (2026-10-21). The sandbox (agent-sandbox) is the real
-    # boundary; these rules are the second line and apply in EVERY mode,
+    # Permissions (2026-10-21). On the host they are the only line; in the
+    # agent VM its own managed settings replace them (agent-vm.nix). They apply in EVERY mode,
     # bypass included (deny always wins). allow = only universal local git
     # operations (read-only commands need no rule, language tools belong in
     # the project's .claude/settings.json; the rest goes through auto mode);
-    # deny = what an agent must not do even inside the sandbox; ask = publishing and destructive/container
-    # commands, only after the user confirms (no ssh in the sandbox).
+    # deny = what an agent must never do; ask = publishing and destructive/container
+    # commands, only after the user confirms.
     # Arrays are replaced, not merged, by claude-use sync: this list wins
     # over an account's own permissions.allow/deny.
     inherit permissions;
@@ -157,7 +155,7 @@ pkgs.runCommand "claude-accounts" { passthru = { inherit permissions; playwright
   CLAUDE_CONFIG_DIR="$(@out@/bin/claude-use dir)" || exit 1
   export CLAUDE_CONFIG_DIR
   CLAUDE_BASE_SETTINGS=@base@ CLAUDE_BASE_MCP=@mcp@ PATH=@jq@/bin:$PATH @out@/bin/claude-use sync "$CLAUDE_CONFIG_DIR" || true
-  # npm install (sandbox: $NPM_CONFIG_PREFIX, a writable volume -> Claude Code
+  # npm install ($NPM_CONFIG_PREFIX or ~/.npm-global, writable -> Claude Code
   # self-updates) wins over the immutable Nix store binary; absent -> Nix one.
   npm_claude="''${NPM_CONFIG_PREFIX:-$HOME/.npm-global}/bin/claude"
   if [ -x "$npm_claude" ]; then exec "$npm_claude" "$@"; fi

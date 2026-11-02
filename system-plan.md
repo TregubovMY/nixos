@@ -60,7 +60,7 @@ modules/
     networking.nix
     users.nix
     packages/
-      agent-sandbox.nix       # Nix-корень rootless-podman для песочницы AI-агентов (mise, claude-code, opencode, chromium) — см. п.9
+      claude-accounts.nix     # обёртка claude + claude-use (аккаунты), kandev.nix, dsh-setup.nix — см. п.9
   home/
     hyprland/                 # конфиги Hyprland, hyprlock, hypridle, hyprpaper
     waybar-or-quickshell/
@@ -70,9 +70,9 @@ modules/
     shell.nix                 # zsh/bash, алиасы, git config
 Makefile                      # check, check-full, dry, vm, disko-test, test
 bin/
-  agent-sandbox                # обёртка над podman run для песочницы AI-агентов (см. п.9)
+  agent-vm                     # управление microVM агентов (см. п.9); ai, claude-use
 CLAUDE.md                     # инструкции для агента
-README.md                     # в т.ч. как подключать IDE к проекту, запущенному в песочнице
+README.md                     # вход для человека; шпаргалка по агентам — docs/AGENT-VM.md
 ```
 
 Всё, кроме `secrets/secrets.yaml`, можно свободно отдавать другому человеку —
@@ -595,6 +595,14 @@ bin/install-host mimir /dev/nvme0n1
 ```
 
 ## 9. Безопасный запуск AI-агентов (sandboxing)
+
+> **2026-11-02: podman-песочница (`agent-sandbox`, п.9.2–9.6) убрана из master
+> по решению пользователя — агенты работают в одной microVM `agent-vm`
+> (`modules/nixos/agent-vm.nix`, `docs/AGENT-VM.md`, дизайн —
+> `docs/superpowers/specs/2026-10-30-agent-vm-design.md`). Песочница и её
+> история — в ветке `agent-sandbox`. Текст ниже о песочнице оставлен как
+> история решений; актуальны идеи «те же пути, что на хосте» и п.9.8
+> (аккаунты Claude, общие сессии), они перенесены в VM.**
 
 ### 9.1 Зачем
 

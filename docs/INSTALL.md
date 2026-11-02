@@ -69,8 +69,7 @@ sudo systemctl restart nix-daemon
       (флаг — только в VM: у неё нет TPM-журнала Option ROM) → перезагрузка →
       `bootctl status` → `Secure Boot: enabled (user)`.
 - [ ] Гибернация: `systemctl hibernate` → запуск → пароль LUKS → сессия на месте.
-- [ ] Песочница агентов: `agent-sandbox ~/code/<проект> -- claude --version`
-      (подробно — docs/AGENT-SANDBOX.md).
+- [ ] VM агентов: `agent-vm up && agent-vm test` (подробно — docs/AGENT-VM.md).
 
 **Пустить агента (Claude) в VM по SSH** для проверки:
 `cd ~/code/nixos && git pull && bin/vm-ssh-on` — только в VM, только по
@@ -119,8 +118,8 @@ lanzaboote (подписан загрузчик-«заглушка», ядро �
    пакет, который блокируют без прокси»).
 6. **Рабочий VPN**: `nmcli connection import type openvpn file work.ovpn`.
 7. **Календарь**: `dcal account add google`.
-8. **Песочницы агентов и аккаунты Claude**: конфиги `work`/`my`, аккаунты
-   (`claude-use --add`, вход в каждый) — docs/AGENT-SANDBOX.md.
+8. **VM агентов и аккаунты Claude**: `agentVm.mounts` в конфиге хоста, аккаунты
+   (`claude-use --add`, вход в каждый) — docs/AGENT-VM.md.
 
 ## Обновление уже установленной системы
 

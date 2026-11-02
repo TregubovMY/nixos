@@ -1,8 +1,8 @@
 # kandev (https://github.com/kdlbs/kandev, AGPL-3.0) -- agent kanban board.
-# Not in nixpkgs. Packaged here so it is just another tool inside
-# agent-sandbox (one sandbox, boards are programs in it -- decided
-# 2026-10-06), replacing the separate kandev-sandbox container that ran
-# upstream's Docker image.
+# Not in nixpkgs. Packaged here so it is just another tool inside the
+# agent VM (agent-vm.nix; earlier inside agent-sandbox, now on the
+# `agent-sandbox` branch), replacing the separate kandev-sandbox container
+# that ran upstream's Docker image.
 #
 # Source: upstream's prebuilt npm runtime bundle @kdlbs/runtime-linux-x64,
 # version 0.97.0; the hash is the registry's own `dist.integrity`

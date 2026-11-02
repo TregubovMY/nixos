@@ -12,8 +12,8 @@
   desktopApps.rubymine.enable = true;
 
   # The agent VM (modules/nixos/agent-vm.nix) sees exactly these host
-  # folders, at the same paths -- the folders of the two agent-sandbox
-  # groups (my.conf, work-rnds.conf). A read-write mount is a channel back
+  # folders, at the same paths (they were the folders of the old
+  # agent-sandbox groups my/work-rnds). A read-write mount is a channel back
   # to the host (planted .git/hooks, .envrc...): see the option's text.
   agentVm = {
     mounts = [

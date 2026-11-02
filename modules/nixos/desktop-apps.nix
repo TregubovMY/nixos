@@ -41,8 +41,8 @@
       android-studio
 
       # §5.5 AI coding agents — host-level packages for one-off interactive
-      # use (system-plan.md §5.5); the sandboxed/per-project path is
-      # separate, see modules/nixos/packages/agent-sandbox.nix and README.md.
+      # use (system-plan.md §5.5); the isolated path is the agent VM,
+      # modules/nixos/agent-vm.nix and docs/AGENT-VM.md.
       # claude-code behind the account-switching wrapper: `claude` and
       # `claude-use` (modules/nixos/packages/claude-accounts.nix, bin/claude-use).
       # Replaces the bare claude-code on purpose -- every launcher must pick

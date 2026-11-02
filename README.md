@@ -1,7 +1,7 @@
 # nixos
 
 Моя NixOS-конфигурация (flake): зашифрованный диск (LUKS + btrfs), Secure
-Boot, рабочий стол Hyprland + DankMaterialShell, home-manager, и песочница,
+Boot, рабочий стол Hyprland + DankMaterialShell, home-manager, и microVM,
 в которой работают AI-агенты.
 
 | Документ | О чём |
@@ -9,8 +9,8 @@ Boot, рабочий стол Hyprland + DankMaterialShell, home-manager, и п�
 | [docs/INSTALL.md](docs/INSTALL.md) | установка — в виртуалку и на машину, что сделать после |
 | [docs/NIX-HOWTO.md](docs/NIX-HOWTO.md) | базовое в Nix: добавить пакет/модуль/машину, обновить, откатить |
 | [docs/DAILY-WORKFLOW.md](docs/DAILY-WORKFLOW.md) | как пользоваться день в день: редактор, файловый менеджер, горячие клавиши, растущий FAQ |
-| [docs/AI-AGENTS.md](docs/AI-AGENTS.md) | работа с AI-агентами — прямо на машине и в песочнице |
-| [docs/AGENT-SANDBOX.md](docs/AGENT-SANDBOX.md) | песочница агентов — команды, конфиг, шпаргалка |
+| [docs/AI-AGENTS.md](docs/AI-AGENTS.md) | работа с AI-агентами — прямо на машине и в VM |
+| [docs/AGENT-VM.md](docs/AGENT-VM.md) | VM агентов и аккаунты Claude — команды, конфиг, шпаргалка |
 | [docs/REQUESTS.md](docs/REQUESTS.md) | журнал просьб и косяков: что просили, статус, где сделано — для переноса на другую машину |
 | [docs/FEATURES.md](docs/FEATURES.md) | фишки системы — что повторить на другой машине/ОС, чтобы не потерять удобство |
 | [docs/REFERENCE.md](docs/REFERENCE.md) | подробности и история решений по каждому компоненту |
@@ -25,9 +25,9 @@ flake.nix              входы (nixpkgs, home-manager, disko, lanzaboote, DMS
 hosts/common.nix       всё общее для любой машины
 hosts/<машина>/        configuration.nix (имя машины) + facter.json (её железо)
 hosts/disk-config.nix  разметка диска (диск и размер swap задаются при установке)
-modules/nixos/         системные модули: база, десктоп, Hyprland, Secure Boot, песочница…
+modules/nixos/         системные модули: база, десктоп, Hyprland, Secure Boot, agent-vm…
 modules/home/          пользовательские: shell, neovim, ghostty, Hyprland/DMS…
-bin/                   install-host, agent-sandbox, agent-vm, vm-ssh-on
+bin/                   install-host, agent-vm, ai, claude-use, vm-ssh-on
 ```
 
 Машины: `mimir` (ноутбук). Новая — `bin/install-host <имя> <диск>`.
@@ -50,11 +50,12 @@ bin/                   install-host, agent-sandbox, agent-vm, vm-ssh-on
 Почему именно так, а не через `podman login` без флага — и общее решение
 про sops-nix/Bitwarden — `system-plan.md` §6/§7, `docs/REFERENCE.md`.
 
-## AI-агенты и песочница
+## AI-агенты и VM
 
-Claude Code/OpenCode (и доски kandev/dsh) работают изолированно от
-остальной машины — **`docs/AI-AGENTS.md`** (вход), **`docs/AGENT-SANDBOX.md`**
-(полная шпаргалка: команды, конфиг `@имя`, IDE).
+Claude Code (и доски kandev/dsh) работают изолированно от остальной машины
+в microVM — **`docs/AI-AGENTS.md`** (вход), **`docs/AGENT-VM.md`**
+(полная шпаргалка: команды, конфиг, аккаунты Claude). Podman-песочница
+`agent-sandbox` убрана 2026-11-02, лежит в ветке `agent-sandbox`.
 
 ## День в день
 

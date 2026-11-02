@@ -101,7 +101,7 @@ let
   #   - claude-code sessions shared: it keys transcripts by working
   #     directory, so /home/max/code/x must be /home/max/code/x in the VM;
   #   - paths in logs/stack traces the ones your IDE opens;
-  # the same idea as agent-sandbox (docs/AGENT-SANDBOX.md).
+  # (the same idea the former agent-sandbox used, `agent-sandbox` branch).
   home = config.users.users.${cfg.user}.home;
   claudeRoot = "${home}/.local/share/claude-accounts";
   claudeRules = "${home}/.config/claude-accounts";
@@ -722,7 +722,7 @@ in
           # Host runtimes, read-only; installs go to the guest's own dir.
           MISE_SHARED_INSTALL_DIRS = miseInstalls;
         } // lib.optionalAttrs cfg.services {
-          # Same client variables as in agent-sandbox (agent-services.nix).
+          # Same client variables the former agent-sandbox set (agent-services.nix on the `agent-sandbox` branch).
           PGHOST = "127.0.0.1";
           PGUSER = "postgres";
           REDIS_URL = "redis://127.0.0.1:6379/0";
@@ -820,7 +820,7 @@ in
             # directory does it; git records the REAL path of a worktree it
             # creates through the link, so the .git files and
             # .git/worktrees/* the host reads are host paths (checked in
-            # agent-sandbox, docs/AGENT-SANDBOX.md "Worktree kandev с хоста").
+            # agent-sandbox, docs/AGENT-VM.md).
             ExecStartPre = lib.optional (cfg.kandevTasksDir != null) (pkgs.writeShellScript "kandev-tasks-link" ''
               set -eu
               target=${lib.escapeShellArg cfg.kandevTasksDir}

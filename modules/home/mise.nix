@@ -1,6 +1,6 @@
 # mise -- version manager for ruby/node/etc, versions come from each
 # project's .tool-versions, not hardcoded here (system-plan.md §5.3) --
-# same instance the agent-sandbox image uses internally (§9.3).
+# the agent VM mounts its installs read-only (agentVm.miseInstalls).
 { pkgs, lib, ... }:
 let
   # mise's ruby-build backend compiles pinned Rubies from source (it only
@@ -14,8 +14,8 @@ let
   # PATH already (pulled in incidentally by modules/home/neovim.nix for
   # treesitter, not something this module should rely on).
   #
-  # This is the exact same problem modules/nixos/packages/agent-sandbox.nix
-  # already solved for the agent sandbox's ruby-build -- list and reasoning
+  # This is the exact same problem the former agent-sandbox (`agent-sandbox`
+  # branch, packages/agent-sandbox.nix) solved for its ruby-build -- list and reasoning
   # copied from there (ruby-build wiki's suggested-build-environment,
   # https://github.com/rbenv/ruby-build/wiki#suggested-build-environment,
   # minus OpenSSL: ruby-build vendors/builds its own OpenSSL from source,
@@ -38,7 +38,7 @@ let
   ];
   # Plain package names only pull in each package's default ("out") output
   # -- the shared library, no headers. nixpkgs splits headers/pkg-config
-  # files into a separate "dev" output for these (same as agent-sandbox.nix
+  # files into a separate "dev" output for these (same as the former agent-sandbox,
   # confirmed via `nix eval .#legacyPackages.x86_64-linux.<pkg>.outputs`).
   # Ruby's own ./configure links against readline/libyaml(Psych)/
   # libffi(fiddle)/gdbm/ncurses and needs their headers at compile time.
@@ -47,9 +47,8 @@ let
 in
 {
   # Gems install into the mise Ruby as usual (one shared dir per Ruby
-  # version, not per project); the agent sandbox reads them from there
-  # read-only and installs only missing ones into its own dir (GEM_PATH in
-  # modules/nixos/packages/agent-sandbox.nix).
+  # version, not per project); the agent VM sees them read-only through the
+  # mounted mise installs (agentVm.miseInstalls).
   # NOT using programs.mise.globalConfig: it home-manager-symlinks
   # ~/.config/mise/config.toml into /nix/store, read-only -- any later
   # `mise use -g`/`mise install -g` (including this module's own
@@ -154,14 +153,14 @@ in
   # NOT make gcc/pkg-config look there. The nixpkgs gcc wrapper's search
   # path is hardcoded at wrap time to its own declared inputs (glibc and
   # its own headers), not to whatever home.packages happens to list; the
-  # fix (confirmed working in agent-sandbox.nix's entrypoint, same
+  # fix (confirmed working in the former agent-sandbox entrypoint, same
   # reasoning applies to a plain interactive shell) is pointing gcc/
   # pkg-config at them explicitly via these standard env vars, which both
   # tools search *in addition to* their hardcoded defaults. Nothing else
   # in this repo sets these (checked), so a plain assignment is fine --
   # no existing value to preserve.
   home.sessionVariables = {
-    # Host twin of the sandbox's NPM_CONFIG_PREFIX (agent-sandbox.nix): every
+    # Host twin of the VM's ~/.npm-global (agent-vm.nix): every
     # `npm install -g` -- including Claude Code's own self-update, which runs
     # npm in the *current* prefix -- lands in ~/.npm-global, where the `claude`
     # wrapper looks. Without it the updater installed claude into mise's node

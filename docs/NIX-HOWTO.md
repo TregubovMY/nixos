@@ -121,7 +121,7 @@ nix store prefetch-file --json https://github.com/<owner>/<repo>/releases/downlo
 
 Подключить: `environment.systemPackages` нужного модуля в
 `modules/nixos/` через `pkgs.callPackage ./packages/<имя>.nix { }`
-(как `kandev.nix` подключён в `modules/nixos/packages/agent-sandbox.nix`).
+(как `kandev.nix` подключён в `modules/nixos/agent-vm.nix`).
 
 Если инструмент нужен **разово, не как часть системы** — быстрее без
 derivation вообще, раз `nix-ld` уже включён (`modules/nixos/nix-ld.nix`):

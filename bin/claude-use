@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # claude-use -- pick which Claude account (subscription) claude-code runs
 # under, without logging out and in again. Used on the host and inside
-# agent-sandbox alike; the `claude` wrapper (modules/nixos/packages/
+# agent-vm alike; the `claude` wrapper (modules/nixos/packages/
 # claude-accounts.nix) calls `claude-use resolve` before every launch.
 #
-# Layout (one root, mounted at the same path into every sandbox):
+# Layout (one root, mounted at the same path into the agent VM):
 #   <root>/shared/            what belongs to YOU, not to an account: session
 #                             transcripts (projects/), history, skills, plugins...
 #   <root>/<account>/         one CLAUDE_CONFIG_DIR per account. Holds only the
@@ -17,18 +17,16 @@
 # be resumed under B -- exactly what is needed when A hits its usage limit.
 # Sharing projects/ makes `claude-use B && claude --continue` pick the same
 # conversation up. The symlinks are relative so they resolve wherever the
-# root is mounted (host $HOME vs. the sandbox).
+# root is mounted (host $HOME vs. the VM).
 #
 # Which account is used (first match wins; `claude-use resolve`):
 #   1. $CLAUDE_ACCOUNT                  explicit, one invocation
-#   2. <root>/.override.<sandbox>       set by `claude-use @<sandbox> <account>`: ONE sandbox only
-#                                       (the container knows its name from $AGENT_SANDBOX_NAME)
-#   3. <root>/.override                 set by `claude-use <account>` (global, until --auto)
-#   4. $CLAUDE_ACCOUNT_DEFAULT          set by agent-sandbox from the sandbox config's `account =`
-#   5. rules file, longest matching `path = account` for $PWD, then `default = account`
+#   2. <root>/.override                 set by `claude-use <account>` (global, until --auto)
+#   3. $CLAUDE_ACCOUNT_DEFAULT          set by `agent-vm` from its default account (agent-vm account)
+#   4. rules file, longest matching `path = account` for $PWD, then `default = account`
 #      (~/.config/claude-accounts/rules; plain data, never sourced)
-# The override lives in <root> (not in $HOME) so a running sandbox sees it
-# too: switching on the host also switches the agents in the sandboxes.
+# The override lives in <root> (not in $HOME) so the VM sees it too:
+# switching on the host also switches the agents in the VM.
 set -euo pipefail
 
 root="${CLAUDE_ACCOUNTS_ROOT:-$HOME/.local/share/claude-accounts}"
@@ -67,12 +65,10 @@ resolve() {
   local acct="" why=""
   if [ -n "${CLAUDE_ACCOUNT:-}" ]; then
     acct="$CLAUDE_ACCOUNT"; why="\$CLAUDE_ACCOUNT"
-  elif [ -n "${AGENT_SANDBOX_NAME:-}" ] && [ -s "$root/.override.$AGENT_SANDBOX_NAME" ]; then
-    acct="$(head -n1 "$root/.override.$AGENT_SANDBOX_NAME")"; why="override for sandbox @$AGENT_SANDBOX_NAME (claude-use @$AGENT_SANDBOX_NAME --auto clears it)"
   elif [ -s "$override" ]; then
     acct="$(head -n1 "$override")"; why="override (claude-use --auto clears it)"
   elif [ -n "${CLAUDE_ACCOUNT_DEFAULT:-}" ]; then
-    acct="$CLAUDE_ACCOUNT_DEFAULT"; why="sandbox config"
+    acct="$CLAUDE_ACCOUNT_DEFAULT"; why="agent-vm default account"
   elif [ -f "$rules" ]; then
     local cwd line key val best=0 default=""
     cwd="$(pwd -P)"
@@ -135,7 +131,7 @@ import_default() {
     cat >&2 <<EOF
 claude-use: this MOVES $old and $oldjson into $root
   (login + .claude.json -> $name/, transcripts/skills/plugins/... -> shared/).
-Close every running claude (including sandboxes) first, then repeat with --yes:
+Close every running claude (including the VM's) first, then repeat with --yes:
   claude-use --import $name --yes
 EOF
     exit 1
@@ -165,15 +161,15 @@ sync_settings() {
   [ -n "$base" ] && [ -f "$base" ] || return 0
   command -v jq >/dev/null 2>&1 || { echo "claude-use: jq not found, base settings not applied" >&2; return 0; }
   target="$dir/settings.json"
-  # Read-only inside agent-sandbox/agent-vm (mounted so on purpose, settings
+  # Read-only inside agent-vm (mounted so on purpose, settings
   # change only on the host): nothing to sync there.
   [ ! -e "$target" ] || [ -w "$target" ] || return 0
   if [ ! -s "$target" ]; then
     tmp="$(mktemp "$target.tmp.XXXXXX")" && jq -S . "$base" >"$tmp" && mv "$tmp" "$target"
     return 0
   fi
-  # Review 2026-11-02 (C1): the account dir is mounted read-write into every
-  # sandbox/VM, so an agent there can plant keys in settings.json that run
+  # Review 2026-11-02 (C1): the account dir is mounted read-write into the
+  # agent VM, so an agent there can plant keys in settings.json that run
   # commands on the HOST the next time `claude` starts. Drop the keys that
   # execute a command (hooks, statusLine, *Helper, awsAuth*...) before the
   # merge; the base never sets them, so they only ever come from outside.
@@ -181,7 +177,7 @@ sync_settings() {
   merged="$(jq -S -s '(.[0] | del(.hooks, .statusLine, .apiKeyHelper, .awsAuthRefresh, .awsCredentialExport, .otelHeadersHelper, .fileSuggestion)) * .[1]' "$target" "$base" 2>/dev/null)" ||
     { echo "claude-use: $target is not valid JSON, base settings not applied" >&2; return 0; }
   if [ "$merged" != "$(jq -S . "$target")" ]; then
-    tmp="$(mktemp "$target.tmp.XXXXXX")" # not $$: host and sandbox PID namespaces can collide (review 2026-11-02)
+    tmp="$(mktemp "$target.tmp.XXXXXX")" # not $$: host and VM PIDs can collide (review 2026-11-02)
     printf '%s\n' "$merged" >"$tmp" && mv "$tmp" "$target"
   fi
 }
@@ -202,27 +198,12 @@ sync_mcp() {
   merged="$(jq -S -s '.[0] * {mcpServers: ((.[0].mcpServers // {}) * .[1].mcpServers)}' "$target" "$base" 2>/dev/null)" ||
     { echo "claude-use: $target is not valid JSON, base MCP servers not applied" >&2; return 0; }
   if [ "$merged" != "$(jq -S . "$target")" ]; then
-    tmp="$(mktemp "$target.tmp.XXXXXX")" # not $$: host and sandbox PID namespaces can collide (review 2026-11-02)
+    tmp="$(mktemp "$target.tmp.XXXXXX")" # not $$: host and VM PIDs can collide (review 2026-11-02)
     printf '%s\n' "$merged" >"$tmp" && mv "$tmp" "$target"
   fi
 }
 
 case "${1:-}" in
-  @*)
-    # Per-sandbox switch: claude-use @work-rnds personal | claude-use @work-rnds --auto
-    sb="${1#@}"
-    valid_name "$sb" || die "bad sandbox name: @$sb"
-    case "${2:-}" in
-      "") die "usage: claude-use @$sb <account> | claude-use @$sb --auto" ;;
-      --auto) rm -f "$root/.override.$sb"; echo "claude-use: override for @$sb cleared" ;;
-      *)
-        account_exists "$2" || die "unknown account '$2'; existing: $(list_accounts | tr '\n' ' ')"
-        printf '%s\n' "$2" >"$root/.override.$sb"
-        echo "claude-use: sandbox @$sb now uses '$2' (new claude launches in it; the host and other sandboxes are unchanged)"
-        echo "  back to the rules: claude-use @$sb --auto"
-        ;;
-    esac
-    ;;
   "")
     IFS=$'\t' read -r acct why < <(resolve)
     echo "current: $acct  ($why)"
@@ -249,7 +230,7 @@ case "${1:-}" in
   *)
     account_exists "$1" || die "unknown account '$1'; existing: $(list_accounts | tr '\n' ' ')"
     printf '%s\n' "$1" >"$override"
-    echo "claude-use: now using '$1' everywhere (host and sandboxes) until: claude-use --auto"
+    echo "claude-use: now using '$1' everywhere (host and VM) until: claude-use --auto"
     echo "  continue the last conversation:  claude --continue"
     ;;
 esac

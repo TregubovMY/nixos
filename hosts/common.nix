@@ -31,7 +31,6 @@ in
     ../modules/nixos/nix-settings.nix
     ../modules/nixos/dev-databases.nix
     ../modules/nixos/podman.nix
-    ../modules/nixos/agent-sandbox.nix
     ../modules/nixos/agent-vm.nix # microVM with Docker for agents, internet only via a filtering proxy
     ../modules/nixos/home-manager.nix
     ../modules/nixos/nix-ld.nix

@@ -54,56 +54,16 @@
       bindkey '^[[27;5;127~' backward-kill-word
       bindkey '^[[3;5~' kill-word
 
-      # Tab-completion for agent-sandbox: subcommands, @name configs (read
-      # fresh from ~/.config/agent-sandbox/projects/*.conf every time, so a
-      # newly added config shows up without a new shell) and its flags. Runs after compinit further up in this
-      # same initContent (home-manager injects compinit at a lower
-      # mkOrder, 570, than this file's own plain initContent, 1000 by
-      # default -- confirmed against this repo's pinned home-manager
-      # source, modules/programs/zsh/default.nix -- so `compdef` below is
-      # always called after compinit has defined it). Deliberately not
-      # state-perfect (e.g. still offers @name after one was already
-      # typed) -- a full argument-position state machine is more machinery
-      # than a personal dotfiles completion needs; worse case is one
-      # harmless extra suggestion, nothing breaks.
-      _agent_sandbox() {
-        local conf_dir="''${XDG_CONFIG_HOME:-$HOME/.config}/agent-sandbox/projects"
-        local -a names
-        local f
-        for f in "$conf_dir"/*.conf(N); do
-          names+=("@''${f:t:r}")
-        done
-
-        if (( CURRENT == 2 )); then
-          compadd -- up down list "''${names[@]}"
-          return
-        fi
-
-        _arguments -s \
-          '-C[start in this directory (must be inside the sandbox)]:directory:_files -/' \
-          '--gui[Wayland + GPU passthrough]' \
-          '--no-tty[never allocate a TTY]' \
-          '--gitlab-token[pass GITLAB_TOKEN through]' \
-          '*::target:->target'
-
-        if [[ "$state" == target ]]; then
-          compadd -- "''${names[@]}"
-        fi
-      }
-      compdef _agent_sandbox agent-sandbox
     '';
     shellAliases = {
       # Same reason as in bin/ai: an interactive `claude` must be the account
       # wrapper even when mise's node dir (first in PATH) holds its own copy.
       claude = "/run/current-system/sw/bin/claude";
-      # claude-code in the sandbox that covers the current directory, started
-      # right here (bin/agent-sandbox finds the sandbox by cwd).
-      sclaude = "agent-sandbox -- claude";
-      # ai (bin/ai): claude where it belongs -- in the sandbox that covers the
-      # folder, else on the host. aih forces the host, ais a sandbox (a one-off
-      # one for any folder). Sessions are shared in all cases.
-      aih = "ai --host";
-      ais = "ai --sandbox";
+      # ai (bin/ai): claude on the host; `aiv` the same in the agent VM
+      # (agent-vm, folder must be in agentVm.mounts). Sessions are shared.
+      # (sclaude/ais/aih and the agent-sandbox completion went with the
+      # sandbox to the `agent-sandbox` branch, 2026-11-02.)
+      aiv = "ai --vm";
       ".." = "cd ..";
       "..." = "cd ../..";
       gs = "git status";
