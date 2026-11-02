@@ -198,7 +198,7 @@ skeleton (см. §4). `Makefile` реализован (`check`/`check-full`/`dry
   **Обновление (2026-08-12): эта комбинация подтверждена реальной
   загрузкой** — хост `mimir-vm-rehearsal` (удалён 2026-10-06; disko-luks-btrfs.nix +
   secure-boot.nix, без qemu-vm.nix, см.
-  `docs/superpowers/plans/tingly-doodling-phoenix.md`), установлен и
+  `docs/REFERENCE.md` «Hyprland + DankMaterialShell (DMS)»), установлен и
   загружен вручную в QEMU/OVMF VM (реальный disko-раздел на синтетическом
   диске, не auto-built VM-артефакт). Подтверждено на живой машине: LUKS
   спросил пароль **один раз** (не дважды — гипотеза про одинаковый

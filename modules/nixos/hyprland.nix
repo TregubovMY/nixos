@@ -7,7 +7,7 @@
 # findings"), not assumed from §5.2's flat package list. Real config
 # content lives in modules/home/hyprland.nix, see
 # docs/superpowers/specs/2026-08-12-hyprland-config-design.md and
-# docs/superpowers/plans/tingly-doodling-phoenix.md for the later
+# docs/REFERENCE.md «Hyprland + DankMaterialShell (DMS)» (the plan file tingly-doodling-phoenix.md was never committed) for the later
 # DankMaterialShell switch.
 #
 # waybar/fuzzel/mako/hyprlock/hypridle/hyprpolkitagent used to be listed

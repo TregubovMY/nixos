@@ -5,7 +5,7 @@
 # fuzzel, and the polkit agent as one integrated system (confirmed
 # against DankMaterialShell's own README: "It replaces waybar, swaylock,
 # swayidle, mako, fuzzel, polkit, and everything else you'd normally
-# stitch together") -- see docs/superpowers/plans/tingly-doodling-phoenix.md
+# stitch together") -- see docs/REFERENCE.md «Hyprland + DankMaterialShell (DMS)» (the plan file tingly-doodling-phoenix.md was never committed)
 # for the fuller discussion (why not end-4/dots-hyprland directly: that
 # repo is an Arch/AUR-specific installer with configs for apps we don't
 # use, not portable to NixOS; DMS ships real nixosModules/homeModules
@@ -59,6 +59,10 @@
 # graphical-session.target, same shape
 # wayland.windowManager.hyprland's own module used internally, so
 # DMS's exec-once line has something real to start.
+# Still needed under UWSM (checked 2026-11-02): DMS's generated
+# ~/.config/hypr/hyprland.lua still runs `systemctl --user start
+# hyprland-session.target`; with UWSM already owning graphical-session.target
+# the BindsTo is a no-op, the unit just has to exist.
 { config, lib, pkgs, ... }:
 {
   # quickshell itself comes from home-manager's own programs.quickshell
@@ -251,10 +255,8 @@
   # already solves "get Lua into DMS's files" more simply, so folding this
   # into it is less machinery, not more). `hypr/quick-translate.lua`
   # removed as dead: nothing references it anymore.
-  # glib -- provides `gdbus`, which the Crow Translate bind below shells
-  # out to. Almost certainly already pulled in transitively by the
-  # Qt6/quickshell stack DMS needs, but wasn't declared anywhere in this
-  # repo before -- declaring it explicitly instead of relying on that.
+  # (glib/gdbus was listed here for the old Crow Translate D-Bus bind;
+  # removed 2026-11-02 -- translate-selection uses Dialect, no gdbus.)
   # swappy: annotation editor for screenshots (arrows/text/blur/shapes),
   # wired via grimblast's own `edit` action + GRIMBLAST_EDITOR below,
   # rather than a separate hand-rolled `grim -g "$(slurp)" | swappy -f -`
@@ -285,7 +287,6 @@
     pkgs.bibata-cursors
     pkgs.grimblast
     pkgs.dialect
-    pkgs.glib
     pkgs.swappy
     # translate-selection: opens Dialect's window with the selected text
     # already in it and translated (asked for 2026-10-06: "окно переводчика
@@ -543,18 +544,14 @@ hl.on("hyprland.start", function()
   hl.exec_cmd("sh -c '[ -S /run/spice-vdagentd/spice-vdagent-sock ] && exec spice-vdagent'")
   hl.exec_cmd("sh -c 'sleep 2; systemctl --user reset-failed xdg-desktop-portal.service xdg-desktop-portal-hyprland.service xdg-desktop-portal-gtk.service; systemctl --user restart xdg-desktop-portal.service'")
 end)
--- End the session properly on logout. Hyprland runs via start-hyprland, not
--- a session manager (uwsm would do this), so nothing stopped
--- graphical-session.target when Hyprland exited: dms, dcal and the portals
--- (all PartOf it) kept running without a display, crashed and were
--- restarted in a loop -- a burst of quickshell/portal coredumps at every
--- logout in the VM journal (2026-10-06). Stopping the targets here stops
--- them cleanly; at the next login DMS's own start hook starts
--- hyprland-session.target again with the fresh session environment.
--- --no-block: Hyprland is exiting, don't wait on the jobs.
-hl.on("hyprland.shutdown", function()
-  hl.exec_cmd("systemctl --user --no-block stop hyprland-session.target graphical-session.target")
-end)
+-- (Removed 2026-11-02: an hl.on("hyprland.shutdown") hook that stopped
+-- hyprland-session.target + graphical-session.target by hand. It was written
+-- when Hyprland ran via plain start-hyprland (2026-10-06); the session now
+-- runs under UWSM (greetd.nix; checked live: wayland-wm@hyprland.desktop.service,
+-- graphical-session.target BoundBy wayland-session@hyprland.desktop.target),
+-- and UWSM stops graphical-session.target itself when the compositor exits.
+-- If the burst of quickshell/portal coredumps at logout comes back, this is
+-- the place: git show the commit that removed it.)
 -- NIXOS-MANAGED AUTOSTART BLOCK END
 
 -- NIXOS-MANAGED CURSOR BLOCK START -- managed by home-manager activation
@@ -627,7 +624,7 @@ hl.bind("SUPER + E", hl.dsp.exec_cmd("nautilus"))
 -- "SUPER + ALT + L" for the same plain `lock` -- left alone, same behaviour.
 hl.bind("SUPER + L", hl.dsp.exec_cmd("dms ipc call lock lock"))
 
--- 2026-10-21: this switcher moved from Win+Tab to ALT+Tab. DMS already binds
+-- 2026-10-21: this switcher moved from Win+Tab to Win+` (grave). DMS already binds
 -- SUPER+TAB to its overview (all windows, `dms ipc call hypr toggleOverview`,
 -- dms/binds.lua), and this file bound SUPER+Tab too (hyprctl binds showed both,
 -- modmask 64): one press opened the overview AND entered the submap below, the
@@ -660,13 +657,11 @@ hl.bind("SUPER + L", hl.dsp.exec_cmd("dms ipc call lock lock"))
 -- Hyprland/discussions/14733) isn't something this config can fully
 -- rule out going forward.
 --
--- Two changes address both reports:
--- 1. Tab/Shift+Tab now only move an index (altTabIndex) -- no
---    hl.dsp.focus call at all while cycling, verified live (stepping
---    repeatedly left `hyprctl activewindow` completely unchanged).
---    Real focus only moves once, in altTabConfirm, called from the
---    release-bind (confirm the pick) -- Escape instead just resets
---    with no confirm call at all (cancel, nothing refocused).
+-- What addressed both reports, as of 2026-11-02:
+-- 1. (Superseded 2026-10-21, see "Instant switching" below: focus DOES move
+--    on every step again -- the window itself is the preview -- and Escape
+--    returns to the window you started from. The 2026-10-19 version moved
+--    only an index and focused once on release.)
 -- 2. A one-shot timer (`hl.timer`, confirmed live elsewhere in this
 --    session to fire in milliseconds) started the moment the submap
 --    is entered force-exits it after 8s if something has gone wrong
@@ -737,8 +732,8 @@ hl.define_submap("windowswitch", function()
   end)
 end)
 -- Translate the current selection (system-plan.md §5.11): SUPER+ALT+T runs
--- translate-selection (home.packages) -- selected text -> Crow's CLI ->
--- DMS notification. SUPER+T is taken by DMS's terminal bind (seeded into
+-- translate-selection (home.packages) -- selected text -> Dialect's window
+-- (ru<->en picked by script). SUPER+T is taken by DMS's terminal bind (seeded into
 -- dms/binds-user.lua by `dms setup`), SUPER+ALT+T is free there.
 hl.bind("SUPER + ALT + T", hl.dsp.exec_cmd("translate-selection"))
 -- NIXOS-MANAGED BINDS END
