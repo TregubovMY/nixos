@@ -84,6 +84,19 @@ let
   # The `claude` wrapper on its own so the entrypoint can put it FIRST in
   # PATH (see "claude via npm" below).
   claudeAccounts = pkgs.callPackage ./claude-accounts.nix { };
+  # The sandbox's OWN Claude Code settings (2026-11-02, review C1 simplified
+  # on request): the accounts' settings.json/CLAUDE.md are mounted READ-ONLY
+  # into the sandbox (bin/agent-sandbox) -- they are changed only on the host
+  # -- and whatever is sandbox-specific lives here, in git, as Claude Code's
+  # managed settings inside the sandbox's own /etc (the same pattern as
+  # agent-vm.nix). allowManagedPermissionRulesOnly makes this the only source
+  # of allow/ask/deny in the sandbox. Starts as the host's base lists; edit
+  # them here to make the sandbox looser or stricter than the host.
+  # Docs: https://code.claude.com/docs/en/managed-settings.md
+  sandboxClaudeSettings = pkgs.writeText "agent-sandbox-claude-managed-settings.json" (builtins.toJSON {
+    allowManagedPermissionRulesOnly = true;
+    permissions = claudeAccounts.permissions;
+  });
   # postgres/redis/... started by `up` (config `service =`), see the file.
   agentServices = import ./agent-services.nix { inherit pkgs; };
   tools = pkgs.buildEnv {
@@ -716,6 +729,9 @@ let
     ln -s ${pkgs.tzdata}/share/zoneinfo $out/usr/share/zoneinfo
     # Mount point for the generated git identity (bin/agent-sandbox).
     touch $out/etc/agent-gitconfig
+    # Claude Code settings of the sandbox (sandboxClaudeSettings above).
+    mkdir -p $out/etc/claude-code
+    cp ${sandboxClaudeSettings} $out/etc/claude-code/managed-settings.json
     ln -s ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt $out/etc/ssl/certs/ca-certificates.crt
     echo "root:x:0:0:root:/root:/bin/sh" > $out/etc/passwd
     printf 'root:x:0:\nusers:x:100:\nnogroup:x:65534:\n' > $out/etc/group

@@ -53,7 +53,8 @@ case "$where" in
     # mise puts a node's bin dir ahead of it, and a claude-code that landed
     # there (Claude Code's self-update installs into the node it runs under,
     # 2026-10-22) has no CLAUDE_CONFIG_DIR -> pre-accounts ~/.claude -> login.
-    exec "${env_args[@]}" /run/current-system/sw/bin/claude "$@"
+    # AI_CLAUDE overrides the path (tests/agent-sandbox-test.sh has no /run/current-system).
+    exec "${env_args[@]}" "${AI_CLAUDE:-/run/current-system/sw/bin/claude}" "$@"
     ;;
   sandbox)
     if agent-sandbox which >/dev/null 2>&1; then

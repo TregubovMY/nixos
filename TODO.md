@@ -152,3 +152,24 @@
 - [ ] agent-vm: egress-allowlist по доменам в фильтре (sing-box `domain_suffix` + `final = reject`) — по желанию.
 - [ ] agent-vm: GUI/Playwright в госте (сейчас нет).
 - [ ] agent-vm: проверить на живой VM dsh (установка, `dsh web` на 3080) и worktree'ы kandev на хосте (`agentVm.kandevTasksDir`).
+
+## Ревью Opus 2026-11-02: остаток (подробности — `docs/REFERENCE.md`)
+
+- [ ] **Проверить живьём после `switch`:** `agent-vm up && agent-vm test`, затем в госте
+      `sudo chmod 4755 f` / `sudo mknod d b 259 0` в шаре → на хосте файл принадлежит
+      max без setuid-root, `mknod` отказывает; на свежей установке `~/.config`
+      и `~/.local` принадлежат max.
+- [ ] Лок: `Win+L`, затем `systemctl --user kill -s KILL dms` → экран остаётся
+      заблокированным и DMS снова показывает пароль (`allow_session_lock_restore`).
+- [ ] Claude на хосте: `/status` видит managed settings, playwright MCP работает.
+      В песочнице: `/status` показывает её managed settings, `settings.json` аккаунта
+      не пишется (`/model` действует только на сессию), логин и `--continue` работают.
+- [ ] Песочницы и loopback хоста (H2): `--no-map-gw` + отдельный релей до Throne,
+      пароль на dev-Postgres/Redis; сначала посмотреть, что из проектов ходит на хостовую БД.
+- [ ] `--gui`: `ecosystem.enforce_permissions` в Hyprland или вложенный compositor (H5).
+- [ ] `bin/agent-sandbox`: `flock` вокруг старта контейнера (гонка двух `enter`);
+      тома одноразовых песочниц по папке, а не общий `adhoc` (цена — диск).
+- [ ] `hyprland.nix`: убрать ручную остановку `graphical-session.target` и свой
+      `hyprland-session.target`, если UWSM делает это сам (проверить выход/вход).
+- [ ] KDE Connect (1714–1764) открыт всем интерфейсам в обход `remoteAccess.lanOnly`.
+

@@ -65,7 +65,6 @@ let
       "Bash(git tag:*)" "Bash(git fetch:*)" "Bash(git pull:*)"
       "Bash(git worktree:*)" "Bash(git restore:*)" "Bash(git mv:*)" "Bash(git rm:*)"
       "Bash(openspec:*)"
-      "Bash(podman:*)" "Bash(docker:*)" "Bash(docker-compose:*)"
       "Bash(nix build:*)" "Bash(nix flake check:*)" "Bash(nix eval:*)" "Bash(nix develop:*)"
       "Bash(nix shell:*)" "Bash(nix run:*)" "Bash(nix search:*)" "Bash(nix fmt:*)"
       "Bash(make:*)" "Bash(mise:*)" "Bash(just:*)"
@@ -80,6 +79,13 @@ let
     # ask = allowed only after the user confirms each time (deny > ask > allow).
     ask = [
       "Bash(git push:*)" "Bash(git reset --hard:*)" "Bash(git clean:*)"
+      # Review 2026-11-02 (H4): docker/podman moved from allow to ask ON THE
+      # HOST. The host has a rootful docker socket (podman.nix) and the user
+      # is in its group, so `docker run --privileged -v /:/host` is root and
+      # sidesteps the deny on sudo/nixos-rebuild. The VM allows them again
+      # (modules/nixos/agent-vm.nix: containers are its purpose and its
+      # boundary is the hypervisor) and drops them from its ask list.
+      "Bash(podman:*)" "Bash(docker:*)" "Bash(docker-compose:*)"
     ];
     deny = [
       "Read(~/.ssh/**)" "Read(./.env)" "Read(./.env.*)" "Read(./**/.env)" "Read(./**/.env.*)"
@@ -140,7 +146,7 @@ let
     };
   });
 in
-pkgs.runCommand "claude-accounts" { passthru = { inherit permissions; }; } ''
+pkgs.runCommand "claude-accounts" { passthru = { inherit permissions; playwrightMcp = "${playwrightMcp}"; }; } ''
   mkdir -p $out/bin
   install -m755 ${../../../bin/claude-use} $out/bin/claude-use
   install -m755 ${../../../bin/ai} $out/bin/ai

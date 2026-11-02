@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced (not executed) from bin/agent-sandbox when --gui is passed.
 # Appends Wayland socket + GPU device passthrough to the `args` array
 # already being built by the caller.

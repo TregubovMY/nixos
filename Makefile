@@ -20,6 +20,9 @@ SYSTEM := x86_64-linux
 # OTHER fixed-output fetch with connection-refused whenever Throne isn't
 # running) or requiring it typed out by hand every time (found live
 # 2026-10-19, user asked for exactly this instead of either extreme).
+# configurable-impure-env (review 2026-11-02): without this experimental
+# feature nix IGNORES impure-env ("Ignoring setting 'impure-env' because
+# experimental feature ... is not enabled"), so the proxy never applied.
 # No nix.conf trusted-users change needed for impure-env to apply here:
 # `root` already is one by Nix's own default, and these two targets
 # already run through `sudo`.
@@ -27,7 +30,7 @@ PROXY_PORT := 2080
 define with_proxy_if_up
 	@if bash -c 'exec 3<>/dev/tcp/127.0.0.1/$(PROXY_PORT)' 2>/dev/null; then \
 		echo "==> Throne proxy is up on 127.0.0.1:$(PROXY_PORT) -- routing fixed-output fetches (RubyMine etc.) through it"; \
-		sudo env NIX_CONFIG='impure-env = http_proxy=http://127.0.0.1:$(PROXY_PORT) https_proxy=http://127.0.0.1:$(PROXY_PORT)' $(1); \
+		sudo env NIX_CONFIG="$$(printf 'extra-experimental-features = configurable-impure-env\nimpure-env = http_proxy=http://127.0.0.1:$(PROXY_PORT) https_proxy=http://127.0.0.1:$(PROXY_PORT)')" $(1); \
 	else \
 		echo "==> No proxy listening on 127.0.0.1:$(PROXY_PORT) -- building WITHOUT it (RubyMine and similar fetches may fail with 451)"; \
 		sudo $(1); \

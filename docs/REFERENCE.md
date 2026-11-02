@@ -854,37 +854,14 @@ Dialect 2.6.1 сломан («Failed parsing HTML from yandex.com», Яндек�
 2026-10-06, т.к. Crow 4.x убрал D-Bus API, переименовал бинарник в `crow` и
 открывает окно только пустым — история в `system-plan.md` §5.11 и в git.
 
-## Живые обои (Wallpaper Engine) и видео на экране блокировки
+## Живые обои — убраны (2026-11-02)
 
-Wallpaper Engine куплен в Steam, но Steam-клиент не ставится: файлы
-скачиваются один раз **SteamCMD** (официальный консольный Steam Valve, без
-интерфейса и фоновых процессов), отрисовывает `linux-wallpaperengine`
-(в системе, `modules/home/hyprland.nix`).
-
-```bash
-NIXPKGS_ALLOW_UNFREE=1 nix shell --impure nixpkgs#steamcmd
-# сама программа -- нужна её папка assets (только в Windows-сборке):
-steamcmd +@sSteamCmdForcePlatformType windows \
-  +force_install_dir ~/.local/share/wallpaper-engine \
-  +login <логин_steam> +app_update 431960 validate +quit
-# обои: ID из ссылки мастерской (…/filedetails/?id=1234567890):
-steamcmd +login <логин_steam> +workshop_download_item 431960 1234567890 +quit
-#   → ~/.local/share/Steam/steamapps/workshop/content/431960/<id>/
-```
-
-- **Рабочий стол** — плагин DMS «Linux Wallpaper Engine» (ставится и
-  настраивается вручную): путь к `assets` —
-  `~/.local/share/wallpaper-engine/assets`, к обоям — папка мастерской выше.
-  Работают обои типов scene и video; web/application — частично или нет.
-  Живые обои постоянно грузят видеокарту — на батарее ставить на паузу.
-- **Экран блокировки** — `lockscreen-videos`: собирает видео-обои
-  Wallpaper Engine (тип video — обычные mp4) жёсткими ссылками в
-  `~/Videos/Lockscreen` (места не занимает; DMS ищет видео через
-  `find -type f`, символические ссылки он пропускает) и включает в DMS
-  видео на экране блокировки из этой папки — каждый раз случайное.
-  Свои видео можно просто положить туда же и запустить команду снова.
-  Проверено в VM на временном каталоге (2026-10-06): берёт только тип
-  video, жёсткая ссылка, настройки DMS обновлены, `find` DMS видео находит.
+Были `linux-wallpaperengine`, плагин DMS и `lockscreen-videos` (видео на
+экране блокировки). Убраны по просьбе: лишняя нагрузка на GPU и отдельная
+логика лока. Остались статичные обои (`~/Pictures/Wallpapers`). Если в DMS
+осталось включённое видео лока — выключить в Settings → Lock Screen
+(`lockScreenVideoEnabled` в `~/.config/DankMaterialShell/settings.json`).
+Старые файлы: `~/.local/share/wallpaper-engine`, `~/Videos/Lockscreen`.
 
 ## Прокси и рабочий VPN
 
@@ -1163,3 +1140,23 @@ fetch, worktree, tag…), `podman`/`docker`, `nix build/flake check/eval/develop
 незакоммиченное). `deny` не тронут (секреты, `sudo`, `nixos-rebuild`, `rm -rf /`,
 `git config --global`). Правила общие для хоста, песочницы и VM; VM добавляет к ним
 `sudo`/`systemctl`/`psql`. Чтобы вернуть вопросы — вернуть строки из `allow` в `ask`.
+
+## Ревью репозитория Opus, 2026-11-02: что исправлено и что осталось
+
+Исправлено: tmpfiles agent-vm создавали родителей `~/.config`/`~/.local` как
+root (сломало бы первую загрузку); virtiofsd отдавал root гостя как root хоста
+(теперь `--translate-uid/gid squash-guest` + без `CAP_MKNOD`, ACL выключены);
+канал «песочница → хост» через аккаунты Claude: настройки аккаунтов в песочнице/VM только на чтение, у песочницы свой файл настроек (см. `docs/AGENT-SANDBOX.md` «Настройки Claude»);
+восстановление лока больше не снимает лок (`allow_session_lock_restore`);
+docker/podman на хосте снова `ask`; `impure-env` в Makefile работал вхолостую
+(нужна `configurable-impure-env`); shellcheck по всем `bin/*`; тест
+`agent-sandbox-cli` был красным (нет `git`/`python3`, путь `claude` в `bin/ai`).
+
+Осталось (решения/живая проверка, см. `TODO.md`): песочницы видят loopback
+хоста (Postgres trust, Redis, ttyd/kandev/dsh/aw-server) — это же даёт прокси
+Throne и БД проектов, менять только с живым podman; `--gui` отдаёт Wayland-сокет
+(нужен `ecosystem.enforce_permissions`); гонка двух `enter` в `agent-sandbox`;
+общие тома `adhoc` у одноразовых песочниц; устаревшие куски `hyprland.nix`
+после перехода на UWSM (ручная остановка `graphical-session.target`, свой
+`hyprland-session.target`) — править только с проверкой выхода/входа в сессию.
+

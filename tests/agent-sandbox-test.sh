@@ -425,6 +425,16 @@ expect log_seq -v "$croot_real:$croot_real"
 expect log_seq -e "CLAUDE_ACCOUNTS_ROOT=$croot_real"
 expect log_seq -e CLAUDE_ACCOUNT_DEFAULT=work
 
+t "account: settings and shared skills are read-only, logins/state writable"
+mkdir -p "$croot/shared/skills"
+echo '{}' >"$croot/work/settings.json"
+echo '{}' >"$croot/work/.claude.json"
+rc=$(CWD="$rnds" run bash "$script" -- true)
+expect_rc "$rc" 0
+expect log_seq -v "$croot_real/work/settings.json:$croot_real/work/settings.json:ro"
+expect log_seq -v "$croot_real/shared/skills:$croot_real/shared/skills:ro"
+expect log_lacks "$croot_real/work/.claude.json:$croot_real/work/.claude.json:ro"
+
 t "account: unknown account in the config is rejected"
 printf 'rw = %s\naccount = nope\n' "$rnds" >"$cfgdir/work.conf"
 rc=$(CWD="$rnds" run bash "$script" -- true)
@@ -629,7 +639,7 @@ FAKE
 chmod +x "$tmp/aibin/"*
 ai() {
   rm -f "$tmp/ai.log"
-  (cd "$tmp" && env -i PATH="$tmp/aibin:$PATH" HOME="$tmp/home" FAKE_WHICH="${FAKE_WHICH:-1}" \
+  (cd "$tmp" && env -i PATH="$tmp/aibin:$PATH" AI_CLAUDE="$tmp/aibin/claude" HOME="$tmp/home" FAKE_WHICH="${FAKE_WHICH:-1}" \
     bash "$repo_root/bin/ai" "$@") >/dev/null 2>&1 || true
 }
 

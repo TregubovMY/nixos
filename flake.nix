@@ -227,6 +227,8 @@
                 bash
                 coreutils
                 gawk
+                git # bin/agent-sandbox calls git (gitconfig, worktrees)
+                python3 # tests/agent-sandbox-test.sh
                 gnugrep
                 shellcheck
                 jq
@@ -236,7 +238,7 @@
               cp -r ${./bin} bin
               cp -r ${./tests} tests
               chmod -R u+w .
-              shellcheck -x bin/agent-sandbox bin/agent-vm tests/agent-sandbox-test.sh
+              shellcheck -x bin/* tests/agent-sandbox-test.sh # every script in bin/ (review 2026-11-02: only 2 were covered)
               bash tests/agent-sandbox-test.sh
               touch $out
             '';

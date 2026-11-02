@@ -216,9 +216,12 @@ RubyMine и подобное может упасть 451), и собирают �
 дешевле всего прямой сборкой одного пакета (не всей системы), тем же
 приёмом вручную:
 ```bash
-sudo env NIX_CONFIG='impure-env = http_proxy=http://127.0.0.1:2080 https_proxy=http://127.0.0.1:2080' \
+sudo env NIX_CONFIG=$'extra-experimental-features = configurable-impure-env\nimpure-env = http_proxy=http://127.0.0.1:2080 https_proxy=http://127.0.0.1:2080' \
   nix build nixpkgs#jetbrains.ruby-mine --no-link
 ```
+`configurable-impure-env` нужен обязательно: без этой экспериментальной
+возможности Nix молча игнорирует `impure-env` (предупреждение «Ignoring setting
+'impure-env'»).
 (`env`, а не просто `sudo VAR=... команда` — `sudo` не раскрывает
 `VAR=значение` перед собственной командой как обычный шелл, нужен
 отдельный процесс `env`, который выставит переменную и передаст

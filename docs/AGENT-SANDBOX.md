@@ -503,6 +503,23 @@ rw-монтировании — иначе `nixos-rebuild` откажется (a
 агент писал, смотрите `git diff` **и** `git status --ignored`, хуки; для
 чужого кода — `ro = true`.
 
+**Настройки Claude: меняются только на хосте** (ревью 2026-11-02). Дерево
+`~/.local/share/claude-accounts` смонтировано в песочницы и VM (иначе нет общих
+сессий и логинов), но всё, что хостовый `claude` **загружает** как настройки,
+инструкции или код, внутри только на чтение: `settings.json` и `CLAUDE.md`
+каждого аккаунта, `shared/{skills,agents,commands,plugins}`. Плагины, навыки,
+`/model` по умолчанию — менять на хосте. Свои настройки у песочницы — отдельный
+файл в git: `sandboxClaudeSettings` в `modules/nixos/packages/agent-sandbox.nix`
+(попадает в `/etc/claude-code/managed-settings.json` песочницы; права allow/ask/deny
+только оттуда), у VM — такой же блок в `modules/nixos/agent-vm.nix`.
+Остаются записываемыми: логины (`.credentials.json` — обновление токена должно
+сохраняться), `.claude.json` (собственное состояние claude-code) и сессии
+(`shared/projects`, `history.jsonl`; подделанный транскрипт может направить
+`claude --continue` — для чужого кода не продолжать сессии из песочницы).
+Страховка на хосте на случай root в VM (он может снять ro-монтирование):
+`modules/nixos/claude-managed.nix` (только наши хуки и MCP) и `claude-use sync`,
+который вычищает из `settings.json` ключи, запускающие команды.
+
 - **В браузере**: `http://127.0.0.1:38429` — kandev, `http://127.0.0.1:3080` —
   `dsh web`, `http://127.0.0.1:7681` — терминал (ttyd). Один kandev на все
   проекты; аккаунт задачи выбирается по правилам пути (`~/code/work` → work),

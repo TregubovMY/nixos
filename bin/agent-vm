@@ -108,7 +108,10 @@ default_account() { if [ -s "$account_file" ]; then cat "$account_file"; fi; }
 cmd=${1:-}
 case "$cmd" in
   up)
-    systemctl start agent-vm-ssh-key.service "$unit"
+    # Only the VM unit: it Requires= agent-vm-ssh-key.service (agent-vm.nix), and
+    # polkit lets the user start just $unit -- starting the key unit by name
+    # would ask for a password (review 2026-11-02).
+    systemctl start "$unit"
     write_gitconfig
     wait_ssh || die "ssh did not answer: the guest boots in ~10 s (journalctl -u $unit), so look at the host firewall: sudo iptables -S agentvm-in"
     echo "agent-vm is up. Open (use a separate browser profile, the content is untrusted):"
@@ -135,7 +138,8 @@ case "$cmd" in
     # Non-login ssh command: no /etc/profile, so the npm-global bin dir (dsh)
     # is put on PATH here.
     env_part="PATH=$(printf '%q' "$AGENT_VM_HOME/.npm-global/bin"):\$PATH "
-    [ -z "$account" ] || env_part="CLAUDE_ACCOUNT=$(printf '%q' "$account") "
+    # += : a plain = here dropped the PATH part above (review 2026-11-02).
+    [ -z "$account" ] || env_part+="CLAUDE_ACCOUNT=$(printf '%q' "$account") "
     def="$(default_account)"
     [ -z "$def" ] || env_part+="CLAUDE_ACCOUNT_DEFAULT=$(printf '%q' "$def") "
     if [ "$cmd" = claude ]; then

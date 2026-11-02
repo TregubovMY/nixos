@@ -241,6 +241,8 @@ load_config() { # load_config <name> -> fills the cfg_* globals
         esac
         ;;
       worktrees)
+        # Literal "~" from the config file is matched on purpose (no shell expansion).
+        # shellcheck disable=SC2088
         case "$val" in "~") val="$HOME" ;; "~/"*) val="$HOME/${val#"~/"}" ;; esac
         # created here (on the host) so it exists as a mount-visible dir and
         # cfg_path can canonicalize it; the "inside an rw dir" check is below,
@@ -449,6 +451,24 @@ start_container() {
   if [ -d "$claude_root" ]; then
     claude_root="$(cd "$claude_root" && pwd -P)"
     claude_args+=(-v "$claude_root:$claude_root" -e "CLAUDE_ACCOUNTS_ROOT=$claude_root")
+    # Read-only (review 2026-11-02, C1): everything the host's claude LOADS
+    # as settings, instructions or code -- each account's settings.json and
+    # CLAUDE.md, and shared skills/agents/commands/plugins. They are changed
+    # only on the host; an agent here cannot plant a hook or a skill that the
+    # next host session would run. The sandbox's own settings are a separate
+    # file in its /etc (modules/nixos/packages/agent-sandbox.nix). What stays
+    # writable: logins (.credentials.json -- token refresh must be saved),
+    # .claude.json (claude-code's own state, written constantly) and sessions
+    # (shared/projects, history) -- see docs/AGENT-SANDBOX.md.
+    local item f
+    for item in skills agents commands plugins; do
+      [ -d "$claude_root/shared/$item" ] || continue
+      claude_args+=(-v "$claude_root/shared/$item:$claude_root/shared/$item:ro")
+    done
+    for f in "$claude_root"/*/settings.json "$claude_root"/*/CLAUDE.md; do
+      [ -f "$f" ] && [ ! -L "$f" ] || continue
+      claude_args+=(-v "$f:$f:ro")
+    done
     [ -z "$cfg_account" ] || [ -d "$claude_root/$cfg_account" ] ||
       die "$cfg_file: account '$cfg_account' does not exist in $claude_root (claude-use --add $cfg_account)"
   elif [ -n "$cfg_account" ]; then

@@ -116,18 +116,49 @@ let
   # resolve because both are mounted under the same root.
   claudeMounts =
     [{ path = "${claudeRoot}/shared"; readOnly = false; }]
+    # Review 2026-11-02 (C1): what the host's claude loads as instructions or
+    # code is mounted read-only over the writable shared/ (same as
+    # agent-sandbox): a skill/agent/command/plugin planted from the VM would
+    # be trusted by the next session on the host. Sessions stay writable.
+    ++ map (i: { path = "${claudeRoot}/shared/${i}"; readOnly = true; })
+      [ "skills" "agents" "commands" "plugins" ]
     ++ map (a: { path = "${claudeRoot}/${a}"; readOnly = false; }) cfg.claudeAccounts
     ++ [{ path = claudeRules; readOnly = true; }];
   # Host language runtimes (mise), read-only, like the sandbox mounts them.
   toolMounts = lib.optional cfg.miseInstalls { path = miseInstalls; readOnly = true; };
 
   allMounts = projectMounts ++ claudeMounts ++ toolMounts;
+
+  # Review 2026-11-02 (C2): virtiofsd runs as ROOT on the host (supervisord
+  # in microvm.nix) and, without translation, passes the guest's uid/gid
+  # through. The guest has passwordless sudo, so guest root could create a
+  # setuid-root file or a device node (`mknod ... b 259 0`, 666) inside a
+  # read-write share -- a root-owned file on the host. Defence, two layers:
+  # - squash every guest uid/gid to the host user (max / users) when the
+  #   guest creates or chowns something (translate-*; files owned by max on
+  #   the host still read as 1000 in the guest, unmapped ids pass through);
+  # - drop CAP_MKNOD from the daemon so device nodes cannot be created at
+  #   all (squashing alone would leave a node owned by max but still a raw
+  #   block device with the mode the guest chose).
+  # posixAcl must be off: virtiofsd refuses --posix-acl together with
+  # --translate-* (asserted by microvm.nix). Cost: no POSIX ACLs/xattrs on
+  # the shares, unused here. Verify live: in the guest `sudo chmod 4755 f`
+  # and `sudo mknod` in a share, then `ls -l` / failure on the host.
+  hostUid = toString cfg.uid;
+  hostGid = toString config.users.groups.${config.users.users.${cfg.user}.group}.gid;
+  squashArgs = [
+    "--translate-uid" "squash-guest:0:${hostUid}:4294967295"
+    "--translate-gid" "squash-guest:0:${hostGid}:4294967295"
+    "--modcaps=-mknod"
+  ];
   mountShares = lib.imap0
     (i: m: {
       tag = "m${toString i}";
       source = m.path;
       mountPoint = m.path;
       proto = "virtiofs";
+      posixAcl = false;
+      extraArgs = squashArgs;
       inherit (m) readOnly;
     })
     allMounts;
@@ -434,8 +465,16 @@ in
 
     # virtiofsd does not start on a missing source, and one missing
     # directory would keep the whole VM down: create them (owned by the
-    # user; `d` leaves existing directories and their contents alone).
-    systemd.tmpfiles.rules = map (m: "d ${m.path} 0755 ${cfg.user} users -") allMounts;
+    # user). Review 2026-11-02 (H1): the rules must also cover the ANCESTORS
+    # inside the home directory (mountParents) -- systemd-tmpfiles creates
+    # missing parents of a `d` path as root:root, so on a fresh machine
+    # ~/.config and ~/.local became root-owned before home-manager ran and
+    # HM/DMS/claude-use failed with EACCES. The mode is `-` on purpose: with
+    # an explicit mode `d` also chmods an EXISTING directory (it reset the
+    # chmod 700 that claude-use sets); `-` applies the 0755 default only on
+    # creation. Ownership is still enforced, which is what we want here.
+    systemd.tmpfiles.rules =
+      map (d: "d ${d} - ${cfg.user} users -") (mountParents ++ map (m: m.path) allMounts);
 
     environment.systemPackages = [
       (pkgs.writeShellScriptBin "agent-vm" ''
@@ -478,7 +517,8 @@ in
           vmPermissions = {
             allow = base.allow ++ vmAllow;
             # Same as the host: only git push/reset --hard/clean ask.
-            ask = base.ask;
+            # (docker/podman are ask on the host, allow here -- vmAllow.)
+            ask = lib.subtractLists vmAllow base.ask;
             # sudo is allowed above, so it leaves the deny list; secrets and
             # the mass-delete rules stay (the mounts are the host's files).
             deny = lib.subtractLists [ "Bash(sudo:*)" ] base.deny;
@@ -497,6 +537,25 @@ in
         # too (Claude reloads settings live). defaultMode etc. still come
         # from the account. Documented behaviour:
         # https://code.claude.com/docs/en/managed-settings.md
+        # Accounts' settings.json/CLAUDE.md read-only in the VM (2026-11-02,
+        # review C1 simplified): changed only on the host; the VM's own
+        # settings are the managed-settings.json below. A bind of the file
+        # over itself, inside the guest -- virtiofs shares whole directories
+        # only. NOTE: root in the VM (passwordless sudo) can unmount this, so
+        # here it is a guard against accidents, not a wall; the host's own
+        # backstops are modules/nixos/claude-managed.nix (hooks, MCP) and the
+        # key stripping in `claude-use sync`. nofail: an account without one
+        # of the files still boots.
+        fileSystems = lib.listToAttrs (lib.concatMap
+          (a: map
+            (f: lib.nameValuePair "${claudeRoot}/${a}/${f}" {
+              device = "${claudeRoot}/${a}/${f}";
+              fsType = "none";
+              options = [ "bind" "ro" "nofail" ];
+            })
+            [ "settings.json" "CLAUDE.md" ])
+          cfg.claudeAccounts);
+
         environment.etc."claude-code/managed-settings.json".text = builtins.toJSON {
           allowManagedPermissionRulesOnly = true;
           permissions = vmPermissions;
@@ -524,6 +583,8 @@ in
               source = "/nix/store";
               mountPoint = "/nix/.ro-store";
               proto = "virtiofs";
+              posixAcl = false;
+              extraArgs = squashArgs;
               readOnly = true;
             }
             {
@@ -532,6 +593,8 @@ in
               source = "${stateDir}/share";
               mountPoint = "/mnt/host-share";
               proto = "virtiofs";
+              posixAcl = false;
+              extraArgs = squashArgs;
               readOnly = true;
             }
           ] ++ mountShares;
