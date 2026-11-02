@@ -587,6 +587,13 @@ in
           hypervisor = "qemu";
           vcpu = cfg.vcpu;
           mem = cfg.memoryMiB;
+          # RAM back to the host (2026-11-02): qemu never returns guest memory
+          # it has touched, so the VM sat at its full 8 GB on the host while
+          # the guest used 2.6 GB (the rest: guest page cache). balloon on
+          # QEMU also enables free page reporting -- pages the guest frees go
+          # back to the host (microvm.nix options.nix). Page cache is not
+          # "free", hence the drop-caches timer below.
+          balloon = true;
           interfaces = [{
             type = "tap";
             id = tap;
@@ -623,6 +630,11 @@ in
           volumes = [
             { image = "docker.img"; mountPoint = "/var/lib/docker"; size = cfg.dockerDiskMiB; }
             { image = "home.img"; mountPoint = home; size = cfg.homeDiskMiB; }
+            # /tmp on disk, not in the tmpfs root (= guest RAM, and through it
+            # host RAM): agents' leftover go-build dirs and test databases
+            # held ~1.1 GB of RAM there (2026-11-02). Sparse image, emptied
+            # at boot (boot.tmp.cleanOnBoot below).
+            { image = "tmp.img"; mountPoint = "/tmp"; size = 20480; }
           ] ++ lib.optionals cfg.services [
             # Data of Postgres / Redis (below): the guest's root is a tmpfs,
             # so without a disk each `down` would drop the databases.
@@ -922,6 +934,45 @@ in
               touch "${dshCoreMarker}"
             '';
           };
+        };
+
+        boot.tmp.cleanOnBoot = true;
+
+        # Proactive reclaim of the guest's file cache, so free page reporting
+        # (microvm.balloon above) can hand it back to the host.
+        # Why at all: the shared folders are cached TWICE -- in the host's
+        # page cache and again in the guest's, and a guest kernel fills all
+        # its "free" RAM with cache that the host cannot see is unneeded
+        # (guest: 2.6 GB used, 5.8 GB cache = 8 GB held on the host,
+        # 2026-11-02). Alternatives tried/rejected the same day:
+        # - virtiofs DAX (guest maps the host's cache, no copy): the guest
+        #   kernel has FUSE_DAX, upstream QEMU has no virtiofs DAX.
+        # - DAMON_RECLAIM (in-kernel cold-page reclaim, made for exactly
+        #   this): tested live, ~1 GB of 5.6 GB in 6 min even with the
+        #   watermarks opened up; its defaults also switch it off below 20 %
+        #   free, i.e. when the cache has filled the guest.
+        # - drop_caches: drops everything, hot or cold.
+        # memory.reclaim (cgroup v2 proactive reclaim, the interface userspace
+        # reclaimers such as Meta's senpai use) reclaims the coldest pages
+        # first through the LRU; tested: 5.6 -> 2.6 GB of cache in 0.25 s.
+        # Keeps 1 GiB of file cache for the hot set. Anon memory is untouched
+        # (no swap in the guest). EAGAIN when it falls short is fine.
+        # NB when measuring: virtiofsd's big RSS is RssShmem -- the guest RAM
+        # memfd it maps for virtiofs, the SAME pages as qemu's, not its own
+        # memory (RssAnon ~35 MB). Count the VM once, by qemu's RSS.
+        systemd.services.proactive-reclaim = {
+          serviceConfig.Type = "oneshot";
+          script = ''
+            keep=$((1024 * 1024))   # KiB
+            file=$(awk '/^(Active|Inactive)\(file\):/ { s += $2 } END { print s }' /proc/meminfo)
+            if [ "$file" -gt "$keep" ]; then
+              echo "$((file - keep))K" > /sys/fs/cgroup/memory.reclaim || true
+            fi
+          '';
+        };
+        systemd.timers.proactive-reclaim = {
+          wantedBy = [ "timers.target" ];
+          timerConfig = { OnBootSec = "5min"; OnUnitActiveSec = "5min"; };
         };
 
         # Claude Code from npm into the persistent home, the VM twin of the
