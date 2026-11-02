@@ -120,7 +120,10 @@ let
     # every call re-read all of it. Compact at ~370K instead; drop what is
     # loaded into every request and never used (claude.ai-synced skills,
     # connectors, the Artifact tool, rarely-used bundled skills).
-    env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = "400000";
+    # Raised 400K -> 500K on request (2026-11-02). The env var wins over
+    # /autocompact and autoCompactWindow, so this is THE place to change it
+    # (https://code.claude.com/docs/en/model-config.md#set-the-auto-compact-window).
+    env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = "500000";
     syncClaudeAiSkills = false;
     disableClaudeAiConnectors = true;
     enableArtifact = false;
