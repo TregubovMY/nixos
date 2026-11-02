@@ -17,8 +17,10 @@
       смонтированной папке → на хосте `f` принадлежит max без setuid-root,
       `mknod` отказывает; `settings.json` аккаунта в VM не пишется, логин и
       `claude --continue` работают.
-- [ ] `dsh web` в VM не отвечает (`agent-vm status`: `dsh ... -> 000` при
-      работающих kandev и ttyd, 2026-11-02) — `agent-vm shell journalctl -u dsh-web -u dsh-install`.
+- [ ] agent-vm после `agent-vm down && agent-vm up`: `agent-vm status` даёт
+      `dsh -> 200` (в `dsh-install` добавлены `sh` и `pnpm`), `claude-npm-install`
+      активен, `claude --version` в VM совпадает с хостом, в kandev у Claude
+      видны модели (в PATH kandev добавлены `npx` и `sh`).
 - [ ] KDE Connect с телефона в домашней сети по-прежнему находит машину.
 - [ ] Выход из сессии и вход обратно после правки `hyprland.nix` (UWSM, отдельный коммит).
 

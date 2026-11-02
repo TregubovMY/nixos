@@ -86,10 +86,12 @@ kandev кладёт worktree'ы задач в `<KANDEV_HOME_DIR>/tasks`, отд�
 для этого нет (в исходниках: «relocate via KANDEV_HOME_DIR, not a separate
 knob»), а перенос всего `KANDEV_HOME_DIR` утащил бы на хост БД и `master.key`.
 Поэтому `agentVm.kandevTasksDir` (у `demiurge` — `/home/max/code/work/rnds/.worktrees`,
-внутри rw-монтирования; иначе `nixos-rebuild` откажется) — `~/.kandev/tasks` в
-VM становится симлинком туда. Git записывает **настоящий** путь worktree,
-поэтому на хосте worktree не `prunable`, ветка берётся обычным `git switch`, IDE
-видит файлы (в том числе незакоммиченные).
+внутри rw-монтирования; иначе `nixos-rebuild` откажется) — в VM эта папка
+bind-монтируется на `~/.kandev/tasks`, а на хосте `~/.kandev/tasks` — симлинк на
+неё же. Симлинк в VM kandev 0.97 не принимает («safety anchor must be a real
+directory»). Git записывает пути `~/.kandev/tasks/...`, и на хосте они
+разрешаются через симлинк, поэтому worktree не `prunable`, ветка берётся
+обычным `git switch`, IDE видит файлы (в том числе незакоммиченные).
 
 Нюанс: пока worktree открыт в kandev, одну ветку не править с хоста параллельно
 с агентом (`git switch --ignore-other-worktrees` обходит запрет, но две копии
@@ -199,7 +201,9 @@ Nix-пакет `claude-code` неизменяем. Активация home-manag
 `modules/home/mise.nix`) ставит Claude Code в `~/.npm-global`, если его там нет;
 дальше он обновляется сам (канал `latest`). Обёртка `claude` запускает
 `~/.npm-global/bin/claude`, если он есть, иначе nix-бинарь — выбор аккаунта
-работает в обоих случаях. В VM — свой `~/.npm-global`. Откат:
+работает в обоих случаях. В VM — свой `~/.npm-global`, туда Claude Code ставит
+сервис `claude-npm-install` при старте VM (до 2026-11-02 его не было, и VM
+отставала на Nix-версии). Откат:
 `npm install -g @anthropic-ai/claude-code@<версия>`.
 
 ### Первая настройка (один раз)

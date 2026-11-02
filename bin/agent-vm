@@ -136,8 +136,9 @@ case "$cmd" in
       workdir="$AGENT_VM_HOME"
     fi
     # Non-login ssh command: no /etc/profile, so the npm-global bin dir (dsh)
-    # is put on PATH here.
-    env_part="PATH=$(printf '%q' "$AGENT_VM_HOME/.npm-global/bin"):\$PATH "
+    # is put on PATH here -- AFTER the system path, so npm's own `claude`
+    # there never shadows the account wrapper (agent-vm.nix, extraInit).
+    env_part="PATH=\$PATH:$(printf '%q' "$AGENT_VM_HOME/.npm-global/bin") "
     # += : a plain = here dropped the PATH part above (review 2026-11-02).
     [ -z "$account" ] || env_part+="CLAUDE_ACCOUNT=$(printf '%q' "$account") "
     def="$(default_account)"

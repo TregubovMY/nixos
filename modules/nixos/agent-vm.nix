@@ -474,7 +474,15 @@ in
     # chmod 700 that claude-use sets); `-` applies the 0755 default only on
     # creation. Ownership is still enforced, which is what we want here.
     systemd.tmpfiles.rules =
-      map (d: "d ${d} - ${cfg.user} users -") (mountParents ++ map (m: m.path) allMounts);
+      map (d: "d ${d} - ${cfg.user} users -") (mountParents ++ map (m: m.path) allMounts)
+      # Host twin of the VM's bind mount (see ExecStartPre of kandev below):
+      # git in the VM records worktree paths as ~/.kandev/tasks/<...>, this
+      # link makes the same paths valid on the host. `L` without `+` never
+      # replaces an existing file/dir (e.g. a real host kandev's tasks).
+      ++ lib.optionals (cfg.kandevTasksDir != null) [
+        "d ${home}/.kandev 0700 ${cfg.user} users -"
+        "L ${home}/.kandev/tasks - - - - ${cfg.kandevTasksDir}"
+      ];
 
     environment.systemPackages = [
       (pkgs.writeShellScriptBin "agent-vm" ''
@@ -544,17 +552,31 @@ in
         # only. NOTE: root in the VM (passwordless sudo) can unmount this, so
         # here it is a guard against accidents, not a wall; the host's own
         # backstops are modules/nixos/claude-managed.nix (hooks, MCP) and the
-        # key stripping in `claude-use sync`. nofail: an account without one
-        # of the files still boots.
-        fileSystems = lib.listToAttrs (lib.concatMap
-          (a: map
-            (f: lib.nameValuePair "${claudeRoot}/${a}/${f}" {
-              device = "${claudeRoot}/${a}/${f}";
-              fsType = "none";
-              options = [ "bind" "ro" "nofail" ];
-            })
-            [ "settings.json" "CLAUDE.md" ])
-          cfg.claudeAccounts);
+        # key stripping in `claude-use sync`.
+        # A service, not `fileSystems` entries: a mount unit whose source
+        # file does not exist (an account without CLAUDE.md -- the usual
+        # case) makes systemd CREATE the mount point as a directory, and
+        # through the rw share that empty `CLAUDE.md/` directory landed in
+        # the host's account folders (found 2026-11-02). Here only existing
+        # regular files are bound; missing ones are skipped.
+        systemd.services.claude-account-files-ro = {
+          wantedBy = [ "multi-user.target" ];
+          before = [ "kandev.service" "dsh-web.service" "ttyd.service" "sshd.service" ];
+          unitConfig.RequiresMountsFor = map (a: "${claudeRoot}/${a}") cfg.claudeAccounts;
+          serviceConfig = { Type = "oneshot"; RemainAfterExit = true; };
+          path = [ pkgs.util-linux ];
+          script = lib.concatMapStrings
+            (a: lib.concatMapStrings
+              (f:
+                let p = lib.escapeShellArg "${claudeRoot}/${a}/${f}"; in ''
+                  if [ -f ${p} ] && [ ! -L ${p} ] && ! mountpoint -q ${p}; then
+                    mount --bind ${p} ${p}
+                    mount -o remount,bind,ro ${p}
+                  fi
+                '')
+              [ "settings.json" "CLAUDE.md" ])
+            cfg.claudeAccounts;
+        };
 
         environment.etc."claude-code/managed-settings.json".text = builtins.toJSON {
           allowManagedPermissionRulesOnly = true;
@@ -729,9 +751,15 @@ in
         };
 
         # Login shells (ttyd, `agent-vm shell`) get the npm-global bin dir;
-        # non-login ssh commands get it from bin/agent-vm.
+        # non-login ssh commands get it from bin/agent-vm. APPENDED, not
+        # prepended: npm-global/bin also holds Claude Code's own `claude`
+        # (claude-npm-install), which must not shadow the account wrapper
+        # (claude-accounts, /run/current-system/sw/bin) -- the wrapper sets
+        # CLAUDE_CONFIG_DIR and then execs that npm binary itself. Prepended,
+        # `claude` in the VM ran with ~/.claude and asked to log in
+        # (2026-11-02). dsh is only in npm-global, so the order is moot for it.
         environment.extraInit = ''
-          export PATH="${npmPrefix}/bin:$PATH"
+          export PATH="$PATH:${npmPrefix}/bin"
         '';
 
         # ---- Postgres + Redis, up from boot ------------------------------
@@ -794,10 +822,15 @@ in
           };
         };
 
+        # nodejs + bash in `path`: kandev starts Claude through
+        # `npx @agentclientprotocol/claude-agent-acp` (and probes models the
+        # same way); without npx in the unit's PATH the probe failed with
+        # "Probe failed", models 0 (found live 2026-11-02). npm needs `sh`
+        # for package scripts, see dsh-install.
         systemd.services.kandev = {
           wantedBy = [ "multi-user.target" ];
           after = [ "network.target" ];
-          path = [ pkgs.git pkgs.docker pkgs.gh claudeAccounts ];
+          path = [ pkgs.bash pkgs.nodejs pkgs.git pkgs.docker pkgs.gh claudeAccounts ];
           environment = {
             HOME = home;
             DOCKER_CONFIG = "/etc/agent-docker";
@@ -816,24 +849,33 @@ in
             # has no setting for it (apps/backend/internal/worktree/provider.go
             # in kdlbs/kandev: "relocate via KANDEV_HOME_DIR, not a separate
             # knob"), while KANDEV_HOME_DIR also moves the database and
-            # master.key -- not wanted on the host. A symlink for just that
-            # directory does it; git records the REAL path of a worktree it
-            # creates through the link, so the .git files and
-            # .git/worktrees/* the host reads are host paths (checked in
-            # agent-sandbox, docs/AGENT-VM.md).
-            ExecStartPre = lib.optional (cfg.kandevTasksDir != null) (pkgs.writeShellScript "kandev-tasks-link" ''
+            # master.key -- not wanted on the host. So just that directory is
+            # BIND-MOUNTED from the host folder. Not a symlink: kandev 0.97
+            # refuses to create a worktree under a symlinked tasks dir
+            # ("unsafe task directory: safety anchor must be a real
+            # directory", 2026-11-02 -- a guard against symlink redirection).
+            # Through the bind mount git records ~/.kandev/tasks/<...> paths in
+            # .git files and .git/worktrees/*; the host has a symlink at the
+            # same path (tmpfiles rule above), so those paths resolve there too.
+            # `+`: runs as root (mount); kandev itself still runs as the user.
+            ExecStartPre = lib.optional (cfg.kandevTasksDir != null) ("+" + pkgs.writeShellScript "kandev-tasks-mount" ''
               set -eu
+              PATH=${lib.makeBinPath [ pkgs.coreutils pkgs.util-linux ]}
               target=${lib.escapeShellArg cfg.kandevTasksDir}
-              tasks="$HOME/.kandev/tasks"
-              mkdir -p "$HOME/.kandev" "$target"
-              if [ -L "$tasks" ]; then ln -sfn "$target" "$tasks"
-              elif [ ! -e "$tasks" ]; then ln -s "$target" "$tasks"
-              elif rmdir "$tasks" 2>/dev/null; then ln -s "$target" "$tasks"
-              else
+              tasks=${lib.escapeShellArg "${home}/.kandev/tasks"}
+              mountpoint -q "$tasks" && exit 0
+              install -d -o ${cfg.user} -g users -m 0700 ${lib.escapeShellArg "${home}/.kandev"}
+              install -d -o ${cfg.user} -g users "$target"
+              # The former symlink setup left a link here: replace it.
+              [ -L "$tasks" ] && rm "$tasks"
+              if [ -d "$tasks" ] && ! rmdir "$tasks" 2>/dev/null; then
                 # The VM's own tasks dir already holds worktrees: not moved
-                # automatically (a fresh VM has none).
-                echo "kandev-tasks-link: $tasks is a non-empty directory, worktrees stay there; move them to $target by hand" >&2
+                # or hidden automatically (a fresh VM has none).
+                echo "kandev-tasks-mount: $tasks is a non-empty directory, worktrees stay there; move them to $target by hand" >&2
+                exit 0
               fi
+              install -d -o ${cfg.user} -g users "$tasks"
+              mount --bind "$target" "$tasks"
             '');
             ExecStart = "${pkgs.callPackage ./packages/kandev.nix { }}/bin/kandev start --backend-port ${toString forwards.kandev}";
             Restart = "on-failure";
@@ -847,10 +889,15 @@ in
         # list (packages/dsh-plugins/core.txt) stay in one place. Other lists
         # (extra, claude-sdk -- the latter asks a question) stay manual:
         # `agent-vm shell dsh-setup extra`.
+        # bash in `path`: npm runs package install scripts through `sh`, and a
+        # systemd unit's default PATH has no shell -- without it the install
+        # failed in a loop with "spawn sh ENOENT" (@google/genai's script,
+        # found live 2026-11-02, the cause of `dsh -> 000`). pnpm: dsh
+        # installs its plugins with it ("pnpm was not found", same day).
         systemd.services.dsh-install = {
           wantedBy = [ "multi-user.target" ];
           after = [ "network.target" ];
-          path = [ pkgs.nodejs pkgs.git (pkgs.callPackage ./packages/dsh-setup.nix { }) ];
+          path = [ pkgs.bash pkgs.nodejs pkgs.pnpm pkgs.git (pkgs.callPackage ./packages/dsh-setup.nix { }) ];
           environment = { HOME = home; NPM_CONFIG_PREFIX = npmPrefix; };
           serviceConfig = {
             Type = "oneshot";
@@ -864,6 +911,32 @@ in
               export PATH="${npmPrefix}/bin:$PATH"
               dsh-setup core
               touch "${dshCoreMarker}"
+            '';
+          };
+        };
+
+        # Claude Code from npm into the persistent home, the VM twin of the
+        # host's home.activation.claudeCodeNpm (modules/home/mise.nix). The
+        # `claude` wrapper (claude-accounts.nix) prefers $NPM_CONFIG_PREFIX/
+        # bin/claude, which then updates itself; without this install the VM
+        # stayed on the immutable Nix package (2.1.300 vs 2.1.316 on the
+        # host, 2026-11-02). Once installed this is a no-op -- updates are
+        # Claude Code's own job. Retries every 30 s while the proxy is down.
+        systemd.services.claude-npm-install = {
+          wantedBy = [ "multi-user.target" ];
+          after = [ "network.target" ];
+          path = [ pkgs.bash pkgs.nodejs ];
+          environment = { HOME = home; NPM_CONFIG_PREFIX = npmPrefix; };
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            User = cfg.user;
+            Restart = "on-failure";
+            RestartSec = 30;
+            ExecStart = pkgs.writeShellScript "claude-npm-install" ''
+              set -eu
+              [ -x "${npmPrefix}/bin/claude" ] && exit 0
+              npm install -g @anthropic-ai/claude-code
             '';
           };
         };

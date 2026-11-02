@@ -764,9 +764,10 @@ nmcli connection up work        # или переключатель в меню 
   нужен прокси; ставит dsh и плагины `core` через `dsh-setup`, метка успеха
   `~/.npm-global/.dsh-plugins-core`), `dsh-web` ждёт метку (до 10 мин, чтобы
   сломанный плагин не клал веб-интерфейс); socat открывает 3081 → 3080.
-- `kandevTasksDir` — симлинк `~/.kandev/tasks` (идея и проверка git —
-  из песочницы, см. её раздел выше); служба `kandev` делает его в
-  `ExecStartPre`. `CLAUDE_CODE_EXECUTABLE` указывает на обёртку аккаунтов.
+- `kandevTasksDir` — в VM bind-монтирование на `~/.kandev/tasks` (служба
+  `kandev`, `ExecStartPre` с `+`, от root), на хосте симлинк по тому же пути
+  (tmpfiles `L`), чтобы пути worktree в git совпадали. Раньше в VM был
+  симлинк — kandev 0.97 его отвергает (2026-11-02). `CLAUDE_CODE_EXECUTABLE` указывает на обёртку аккаунтов.
 - Не проверено на живой VM: установка dsh через прокси, `dsh web` за
   socat, создание worktree в смонтированной папке (права, inode).
 
