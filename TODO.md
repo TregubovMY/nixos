@@ -1,175 +1,68 @@
 # TODO
 
-Открытые задачи. Что сделано и почему — в `README.md` и `system-plan.md`;
-здесь только то, что ещё не сделано или не проверено.
+Только открытое. Сделанное — в `docs/REQUESTS.md` (журнал), почему так — в
+`docs/REFERENCE.md` и `system-plan.md`. Рабочая машина `demiurge` установлена и
+работает (Throne, RubyMine, agent-vm с kandev и терминалом); пункты про неё,
+которые уже работают, отсюда убраны 2026-11-02.
 
-## Установка на mimir
+## После ближайшего `nixos-rebuild switch` на demiurge (правки 2026-11-02)
 
-- [x] Прогон в VM (`docs/INSTALL.md`) — пройден 2026-10-06.
-- [ ] Поставить: `bin/install-host mimir /dev/<диск>` с NixOS ISO
-      (`docs/INSTALL.md`). В VM прошёл его предшественник `bin/mimir-install`;
-      `install-host` (имя машины, swap = RAM + 2G) отличается только этим и
-      ещё не запускался.
-- [ ] Закоммитить `hosts/mimir/facter.json` после установки.
-- [ ] Secure Boot: Setup Mode в прошивке → `sudo sbctl enroll-keys --microsoft`
-      → включить Secure Boot → `bootctl status`.
-- [ ] Throne: маршрутизация по README «Прокси и рабочий VPN» (по умолчанию
-      direct, список доменов → proxy, rnds.pro и рабочие подсети → direct);
-      импорт рабочего `.ovpn` в NetworkManager.
-- [ ] Throne: импортировать VLESS-конфиг из Bitwarden, затем
-      `desktopApps.rubymine.enable = true` и `nixos-rebuild switch`.
-- [ ] Если `nixos-install` упадёт на скачивании Android Studio (тоже не из
-      кэша, а с серверов Google) — выключить её так же, как RubyMine.
+- [ ] Трекер времени: `systemctl --user status aw-server awatcher` активны,
+      http://localhost:5600 показывает окна.
+- [ ] Лок: `Win+L`, затем с другого TTY `systemctl --user kill -s KILL dms` →
+      экран остаётся заблокированным, DMS снова показывает пароль.
+- [ ] Claude на хосте: `/status` видит managed settings, playwright MCP работает.
+- [ ] agent-vm (`agent-vm down && agent-vm up && agent-vm test`):
+      в VM `sudo touch f && sudo chmod 4755 f` и `sudo mknod d b 259 0` в
+      смонтированной папке → на хосте `f` принадлежит max без setuid-root,
+      `mknod` отказывает; `settings.json` аккаунта в VM не пишется, логин и
+      `claude --continue` работают.
+- [ ] `dsh web` в VM не отвечает (`agent-vm status`: `dsh ... -> 000` при
+      работающих kandev и ttyd, 2026-11-02) — `agent-vm shell journalctl -u dsh-web -u dsh-install`.
+- [ ] KDE Connect с телефона в домашней сети по-прежнему находит машину.
+- [ ] Выход из сессии и вход обратно после правки `hyprland.nix` (UWSM, отдельный коммит).
+
+## agent-vm
+
+- [ ] Запуск claude в папке, которой нет в `agentVm.mounts` — выбрать
+      вариант (предложения — в разговоре 2026-11-02; после выбора — в `docs/AGENT-VM.md`).
+- [ ] Смонтировать `.git/hooks` проектов только для чтения поверх rw-шары
+      (самый вероятный канал из VM на хост).
+- [ ] Тест `bin/agent-vm` с фейковым ssh в flake check `scripts`.
+- [ ] По желанию: allowlist доменов в фильтре (sing-box `domain_suffix` + `final = reject`).
+- [ ] По желанию: GUI/Playwright с окном в госте.
+- [ ] Домен, доступный только через прокси Throne (нужен sniff на его inbound) — проверить из VM.
+
+## Безопасность (остаток ревью 2026-11-02)
+
+- [ ] Контейнеры podman хоста видят loopback хоста (`--map-host-loopback`:
+      Postgres без пароля, Redis, порты agent-vm, aw-server). Оставлено
+      сознательно — этим пользуются compose-проекты (БД хоста).
+
+## Установка на mimir (ноутбук, ещё не установлен)
+
+- [ ] `bin/install-host mimir /dev/<диск>` с NixOS ISO (`docs/INSTALL.md`);
+      `install-host` ещё не запускался (в VM прошёл его предшественник).
+      Сначала прогнать в VM: проверить, что `~/.config`/`~/.local` после
+      первой загрузки принадлежат max (исправление tmpfiles agent-vm).
+- [ ] Закоммитить `hosts/mimir/facter.json`.
+- [ ] Secure Boot: Setup Mode → `sudo sbctl enroll-keys --microsoft` →
+      включить → `bootctl status` (на demiurge Secure Boot выключен).
+- [ ] Throne + VLESS из Bitwarden, затем `desktopApps.rubymine.enable = true`
+      в `hosts/mimir/configuration.nix`.
 - [ ] Проверить hibernate (swap в LUKS, `resumeDevice`).
-
-## Одна песочница (kandev, dsh, Claude) — проверить на mimir
-
-Проверено в VM (README, «Одна песочница»): kandev и dsh web в одном
-контейнере через `autostart`, `socat` для dsh, доп. папки, `gh`.
-
-- [ ] Конфиги `work`/`my` (`~/.config/agent-sandbox/projects/`, пример в
-      `docs/AGENT-SANDBOX.md`) со своими портами.
-- [ ] Первый запуск каждого: `dsh-setup` (rc.2), в kandev профиль Claude Code →
-      **CLI passthrough**. Логин Claude общий с хостом (`claude-use`).
-- [ ] mise хоста в песочнице: `mise use -g node@22` на хосте → в песочнице
-      `node -v` без скачивания; Ruby, собранный mise на хосте, запускается
-      в песочнице.
-
-## dsh в agent-sandbox
-
-Сделано и проверено в VM (2026-10-06): `dsh-setup` (dsh `0.2.0-rc.2` +
-плагины из закреплённых списков `modules/nixos/packages/dsh-plugins/`),
-все пять плагинов `core` грузятся в интерфейс dsh; веб-интерфейс через
-`socat`; навык `conductor` в шаблоне (закреплён, `doctor` и `--dry-run`
-проверены в песочнице); `opencode web` в песочнице.
-
-- [ ] Пройти руками: канбан (`dsh-taskboard`), ревью по строкам
-      (`dsh-file-review` → отправка агенту), токены (`dsh-cost-meter`).
-- [ ] `conductor` вживую: «попроси Claude Code объяснить файл» → в песочнице
-      запускается именно `claude -p`, запись заблокирована. Нужны
-      логин Claude (общий с хостом) и модель dsh (DeepSeek по API-ключу).
-- [ ] Опционально: `dsh-setup claude-sdk` (серая зона, на подписке) —
-      сравнить с `conductor`.
-- [ ] `dsh-setup extra`: при желании; `dsh-maze` не ставится (его peer-диапазон
-      `<0.2.0` исключает rc.2).
-- [ ] Следить за статьёй Anthropic о плане Agent SDK: отдельный пул для
-      `claude -p`/SDK приостановлен, но может вернуться.
-
-## agent-sandbox: группы проектов и аккаунты Claude (2026-10-19) — проверить живьём
-
-Переписано (песочница = группа проектов по хостовым путям, без `/workspace`,
-`up`/`attach`/`exec` слиты в `agent-sandbox [@имя] [-- cmd]`, аккаунты Claude
-через `claude-use`). Проверено тестами с фейковым podman и сборкой rootfs;
-живьём с podman — нет.
-
-- [ ] `nixos-rebuild switch`, затем по `docs/AGENT-SANDBOX.md`: конфиги `work`
-      и `my` (`rw = ~/code/my`, `~/code/learn`, `~/code/sfedu`; старый
-      `person.conf` удалить), правила `~/.config/claude-accounts/rules`.
-- [ ] Закрыть все `claude`, `claude-use --import personal --yes`,
-      `claude-use --add work`, `CLAUDE_ACCOUNT=work claude` → `/login`.
-- [ ] `agent-sandbox up` → `pwd` внутри совпадает с хостовым;
-      `agent-sandbox --no-tty -- false; echo $?` → 1; `down`.
-- [ ] **Сессии общие**: начать беседу на хосте, в песочнице `claude --continue`
-      видит её (и наоборот).
-- [ ] **Переключение**: `claude-use work` → беседа под личным аккаунтом →
-      `claude-use personal` → `claude --continue` продолжает ту же беседу.
-      Если `--continue` под другим аккаунтом не подхватывает сессию —
-      пересмотреть раскладку `claude-accounts` (`system-plan.md` §9.8).
-- [ ] `mise.toml` в папках группы (`AGENT_MOUNTS`), `~/.gitconfig`/история на
-      месте после `down`/`up`.
-- [ ] Следующее усиление по результатам обзора: allowlist сети для песочниц;
-      `runsc` (gVisor) как runtime podman — проверить, собирается ли ruby.
-- [ ] Править Nix-конфиг агентом: отдельная песочница для `~/code/nixos` с
-      read-only наложением на файлы самой песочницы (`bin/agent-sandbox`,
-      `modules/nixos/*agent-sandbox*`) — пока репозиторий правится на хосте.
 
 ## llm-dev-template (`~/code/my/llm-dev-template`)
 
-Переделан под kandev/dsh (ADR 0002 шаблона): forge и board-lab удалены,
-процесс — `template/.kandev/workflow.yml` (импорт в kandev 0.97.0 проверен),
-`init.sh`, `scripts/checks`, `scripts/scrub`.
-
-- [ ] Прогнать одну настоящую задачу через все шаги workflow на mimir.
-- [ ] Заново импортировать `.kandev/workflow.yml` в kandev: добавлен шаг «Архив»
-      (позиции шагов сдвинулись), ключ тикета стал необязательным.
-      Правки не закоммичены в репозитории шаблона.
-- [ ] Бэкап локальных спек в `--team` (`openspec/` не в git проекта): отдельный
-      приватный git поверх `openspec/` или ничего (ADR 0003 шаблона).
+- [ ] Прогнать одну настоящую задачу через все шаги workflow (kandev в VM).
+- [ ] Заново импортировать `.kandev/workflow.yml` в kandev (шаг «Архив»);
+      правки не закоммичены в репозитории шаблона.
+- [ ] Бэкап локальных спек `--team` (`openspec/` не в git проекта): отдельный
+      приватный git или ничего (ADR 0003 шаблона).
 
 ## Отложено
 
-- Sidecar-контейнеры для секретов — ветка `feature/agent-sidecars`; влить,
-  когда агенту понадобятся настоящие ключи (подпись запросов и т.п.).
-- Удалённый доступ (`modules/nixos/remote-access.nix`, 2026-10-20) — не
-  проверено на железе после `switch`: правила firewall (`iptables -S
-  nixos-fw`), `remote-screen` с другого компьютера по Remmina, приём файла
-  LocalSend, бан fail2ban. Локально проверено: `remote-screen` поднимается,
-  не предлагает вход без пароля (VeNCrypt/RSA-AES), убирает за собой.
-
-## kandev: worktree'ы в проект (2026-10-20, сделано 2026-10-22)
-
-- [x] Ключ `worktrees =` в конфиге песочницы (симлинк `~/.kandev/tasks`, миграция старых
-      worktree'ов). Своей настройки базы worktree'ов у kandev нет — см. `docs/AGENT-SANDBOX.md`,
-      «Worktree kandev с хоста».
-- [ ] Включить в `work-rnds.conf` (`worktrees = ~/code/work/rnds/.worktrees`) и проверить на
-      живой задаче kandev: создание, удаление задачи (cleanupOnRemove), повторный запуск.
-
-## agent-sandbox: контейнеры у агента и готовые аналоги (2026-10-21)
-
-- [ ] Проверить вложенный rootless podman в песочнице: `/tmp/nested-podman-check.sh`
-      (варианты A/B/C: текущие флаги → `/dev/fuse` + `seccomp=unconfined` →
-      + `label=disable`). Если без `--privileged`/`SYS_ADMIN` не взлетает —
-      оставить `ask` для `docker`/`podman` везде (`claude-accounts.nix`);
-      если взлетает — `allow` внутри песочницы (различать по env песочницы
-      в `claude-use sync`), на хосте `ask`. Сокет хоста в песочницу не
-      пробрасывать никогда (root-эквивалент).
-- [x] (сделано 2026-10-21, итог — `docs/REFERENCE.md` «Аналоги `agent-sandbox`»: заменять нечем; идеи ниже вынесены в отдельные пункты) Посмотреть, есть ли готовые решения, которые могут заменить мою
-      реализацию `agent-sandbox`: terok, ExitBox, mino, hort (podman);
-      ai-jail, aibox, jailed-agents (bubblewrap, Nix); каталог
-      github.com/fishman/awesome-agent-sandbox. Сравнить по: rootfs из
-      `/nix/store` без образов, профили аккаунтов, проброс git-идентичности
-      и прокси, GUI, вложенные контейнеры, сеть (default-deny), хранилище
-      секретов. Уже известно: ни terok, ни ExitBox вложенные контейнеры не
-      документируют (ExitBox даже запрещает: `--cap-drop=ALL`,
-      `no-new-privileges`). Взять идеи: egress-allowlist (ExitBox: Squid;
-      terok: nftables) и vault для ключей на хосте.
-- [ ] agent-sandbox: опциональный egress-allowlist (`network = allowlist`
-      в конфиге группы; `terok-shield` или Squid-sidecar), по умолчанию
-      сеть открыта. Идея из исследования аналогов.
-- [ ] agent-sandbox: режим `--lockdown` (ro-проект + `--network=none`)
-      для чтения чужого кода.
-
-## agent-vm: microVM с Docker для агентов (2026-10-30)
-
-- [x] Фильтр приватных адресов: второй sing-box (решено, проверено на фейковом SOCKS).
-- [x] Модуль `modules/nixos/agent-vm.nix` + `bin/agent-vm` (eval, dry-run, сборка гостя, `sing-box check` — зелёные).
-- [x] Одна VM: `mounts`/`claudeAccounts`, `agent-vm claude|account|forward|docker-load`, `ai --vm` (eval/сборка зелёные).
-- [ ] agent-vm: смонтировать `.git/hooks` проектов только для чтения поверх rw-шары (закрыть самый вероятный канал на хост).
-- [x] Postgres 16 + Redis в госте из коробки (`agentVm.services`).
-- [x] Первый живой запуск (2026-10-30): `agent-vm up && agent-vm test` зелёный — интернет через прокси, LAN/метаданные/CGNAT/rebinding заблокированы, docker run и контейнер→LAN, Postgres, Redis, git-идентичность, дерево сессий Claude.
-- [ ] Ещё не проверено руками: `agent-vm claude` в папке проекта (аккаунты, общие сессии), kandev и ttyd в браузере (слушает ли kandev не только localhost), домен, доступный только через прокси Throne (нужен sniff на его inbound), права `authorized_keys`/mise/nix-ld в реальной работе.
-- [ ] Подключить `bin/agent-vm` в `agent-sandbox-cli`-подобный check (shellcheck уже в flake.nix) и тест с фейковым ssh.
-- [ ] agent-vm: egress-allowlist по доменам в фильтре (sing-box `domain_suffix` + `final = reject`) — по желанию.
-- [ ] agent-vm: GUI/Playwright в госте (сейчас нет).
-- [ ] agent-vm: проверить на живой VM dsh (установка, `dsh web` на 3080) и worktree'ы kandev на хосте (`agentVm.kandevTasksDir`).
-
-## Ревью Opus 2026-11-02: остаток (подробности — `docs/REFERENCE.md`)
-
-- [ ] **Проверить живьём после `switch`:** `agent-vm up && agent-vm test`, затем в госте
-      `sudo chmod 4755 f` / `sudo mknod d b 259 0` в шаре → на хосте файл принадлежит
-      max без setuid-root, `mknod` отказывает; на свежей установке `~/.config`
-      и `~/.local` принадлежат max.
-- [ ] Лок: `Win+L`, затем `systemctl --user kill -s KILL dms` → экран остаётся
-      заблокированным и DMS снова показывает пароль (`allow_session_lock_restore`).
-- [ ] Claude на хосте: `/status` видит managed settings, playwright MCP работает.
-      В песочнице: `/status` показывает её managed settings, `settings.json` аккаунта
-      не пишется (`/model` действует только на сессию), логин и `--continue` работают.
-- [ ] Песочницы и loopback хоста (H2): `--no-map-gw` + отдельный релей до Throne,
-      пароль на dev-Postgres/Redis; сначала посмотреть, что из проектов ходит на хостовую БД.
-- [ ] `--gui`: `ecosystem.enforce_permissions` в Hyprland или вложенный compositor (H5).
-- [ ] `bin/agent-sandbox`: `flock` вокруг старта контейнера (гонка двух `enter`);
-      тома одноразовых песочниц по папке, а не общий `adhoc` (цена — диск).
-- [ ] `hyprland.nix`: убрать ручную остановку `graphical-session.target` и свой
-      `hyprland-session.target`, если UWSM делает это сам (проверить выход/вход).
-- [ ] KDE Connect (1714–1764) открыт всем интерфейсам в обход `remoteAccess.lanOnly`.
-
+- Удалённый доступ (`remote-access.nix`): на железе не проверены
+  `remote-screen` с другого компьютера по Remmina, приём файла LocalSend, бан
+  fail2ban (sshd и fail2ban на demiurge работают).
+- Anthropic: отдельный пул для `claude -p`/SDK приостановлен, может вернуться.
