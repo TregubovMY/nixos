@@ -805,6 +805,10 @@ in
           (callPackage ./packages/kandev.nix { })
           (callPackage ./packages/dsh-setup.nix { })
           ttyd gh which socat pnpm
+          # OpenSpec CLI, as on the host (desktop-apps.nix): llm-dev-template
+          # projects validate their specs with it. Without it agents in the VM
+          # fetched @fission-ai/openspec through `npx -y` (2026-11-02).
+          openspec
         ];
 
         # Terminal in the browser. --check-origin: a page in the user's
@@ -830,7 +834,12 @@ in
         systemd.services.kandev = {
           wantedBy = [ "multi-user.target" ];
           after = [ "network.target" ];
-          path = [ pkgs.bash pkgs.nodejs pkgs.git pkgs.docker pkgs.gh claudeAccounts ];
+          # + the whole system profile (/run/current-system/sw/bin, systemd
+          # appends /bin): agents kandev starts inherit this PATH, and a
+          # unit's PATH does not include environment.systemPackages -- Claude
+          # in a task had no `make` (2026-11-02), nor gcc/psql/rg/... Listed
+          # last so the explicit packages above still win.
+          path = [ pkgs.bash pkgs.nodejs pkgs.git pkgs.docker pkgs.gh claudeAccounts "/run/current-system/sw" ];
           environment = {
             HOME = home;
             DOCKER_CONFIG = "/etc/agent-docker";
@@ -943,7 +952,8 @@ in
         systemd.services.dsh-web = {
           wantedBy = [ "multi-user.target" ];
           after = [ "network.target" "dsh-install.service" ];
-          path = [ pkgs.nodejs pkgs.pnpm pkgs.git pkgs.python3 pkgs.gh claudeAccounts ];
+          # System profile last, as for kandev: dsh starts agents too.
+          path = [ pkgs.nodejs pkgs.pnpm pkgs.git pkgs.python3 pkgs.gh claudeAccounts "/run/current-system/sw" ];
           environment = {
             HOME = home;
             NPM_CONFIG_PREFIX = npmPrefix;
