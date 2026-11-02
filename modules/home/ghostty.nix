@@ -48,11 +48,12 @@ keybind = ctrl+shift+key_v=paste_from_clipboard
 keybind = ctrl+shift+key_t=new_tab
 keybind = ctrl+shift+key_w=close_surface
 keybind = ctrl+shift+key_n=new_window
-# Выделение сразу копируется в системный буфер (DMS по умолчанию пишет
-# copy-on-select=false -- из-за этого выделенное в claude не копировалось).
-# Ctrl+C копирует, только если есть выделение, иначе уходит в программу
-# как обычный SIGINT (performable:).
-copy-on-select = clipboard
+# Выделение идёт только в primary selection (вставка средней кнопкой), НЕ в
+# основной буфер: с copy-on-select=clipboard любой щелчок в терминал (крошечное
+# выделение) затирал то, что скопировано в браузере, -- Ctrl+V вставлял "\n"
+# (2026-11-02). В основной буфер: выделить и Ctrl+C. Ctrl+C копирует, только
+# если есть выделение, иначе уходит в программу как обычный SIGINT (performable:).
+copy-on-select = true
 scrollback-limit = 100000000
 # ssh на хосты без terminfo xterm-ghostty: Backspace/перерисовка ломаются
 # (появляются пробелы). ssh-terminfo ставит terminfo на сервер через infocmp/tic

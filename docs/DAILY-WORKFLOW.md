@@ -269,6 +269,13 @@ Timeline). Данные локальные: `~/.local/share/activitywatch`. Не
 
 ## FAQ
 
+**Скопировал в браузере, а в терминал вставляется пустая строка.** Так было с
+`copy-on-select = clipboard`: щелчок в терминал — это крошечное выделение, и
+Ghostty записывал его в буфер поверх скопированного. Теперь
+`copy-on-select = true` (`modules/home/ghostty.nix`): выделение в терминале идёт
+только в буфер средней кнопки. Из терминала в общий буфер — выделить и
+`Ctrl+C`, вставить — `Ctrl+V`.
+
 **По ssh в терминале Backspace «добавляет пробелы» / ломается перерисовка.**
 Ghostty ставит `TERM=xterm-ghostty`, а на сервере такого terminfo нет.
 Лечится опцией `shell-integration-features = ssh-env,ssh-terminfo`
